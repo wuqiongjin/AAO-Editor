@@ -3,20 +3,22 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Circle, Music2 } from 'lucide-react';
-import type { ChartDifficulty, ChartProject, ProjectChart } from '../../../project/ChartProject';
+import type { ChartDifficulty, ChartSummary } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT, projectCoverHue } from '../../../project/projectCatalog';
 import { chartStatus } from '../../../project/workspaceProject';
 import { readChartLevelInput } from '../../../project/ui/ChartInfoDialog';
-import { ChartStatusIcon, ProjectMenuItem } from '../../../project/ui/projectUi';
-import { useCoverUrl } from '../../../ui/CoverField';
+import { ChartStatusIcon, ProjectMenuItem, useProjectCoverUrl, type ProjectCoverSource } from '../../../project/ui/projectUi';
 import { showToast } from '../../../ui/Toast';
 import { t } from '../../../i18n';
 import { statusLabel } from '../projectFormat';
 
-export function Cover({ project, size, fluid = false }: { project: ChartProject; size: number; fluid?: boolean }) {
-  const url = useCoverUrl(project.coverBlob);
+export function Cover({ project, size, fluid = false }: { project: ProjectCoverSource; size: number; fluid?: boolean }) {
+  const url = useProjectCoverUrl(project);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImg = url != null && failedUrl !== url;
   const hue = projectCoverHue(project.id);
   const ch = project.name?.trim()[0];
+  const loading = fluid ? 'lazy' : 'eager';
   return (
     <div
       className={`pp-cover${fluid ? ' pp-cover--fluid' : ''}`}
@@ -25,14 +27,25 @@ export function Cover({ project, size, fluid = false }: { project: ChartProject;
         width: fluid ? '100%' : size,
         height: fluid ? undefined : size,
         fontSize: size * 0.42,
-        // 只用 backgroundImage 长手，绝不混用 background 简写：React 按对象键序逐个赋值，
-        // 简写先落地的渐变会被紧随其后的空 backgroundImage 整条抹掉，封面就成了空白（issue 11）。
-        backgroundImage: url
-          ? `url(${url})`
-          : `linear-gradient(135deg, hsl(${hue} 70% 55%), hsl(${(hue + 40) % 360} 65% 35%))`,
+        // 只用 backgroundImage 长手，绝不混用 background 简写（issue 11）；有图走原生 <img> 懒解码
+        ...(showImg
+          ? {}
+          : { backgroundImage: `linear-gradient(135deg, hsl(${hue} 70% 55%), hsl(${(hue + 40) % 360} 65% 35%))` }),
       }}
     >
-      {url ? null : (ch ? ch.toUpperCase() : <Music2 size={size * 0.42} />)}
+      {showImg ? (
+        <img
+          className="pp-cover__img"
+          src={url}
+          alt=""
+          loading={loading}
+          decoding="async"
+          draggable={false}
+          onError={() => setFailedUrl(url)}
+        />
+      ) : (
+        ch ? ch.toUpperCase() : <Music2 size={size * 0.42} />
+      )}
     </div>
   );
 }
@@ -52,7 +65,7 @@ export function Cover({ project, size, fluid = false }: { project: ChartProject;
  *   面板收内容宽（`pp-menu__panel--status`）——两条 4 字标签撑不满全局 200px。
  */
 export function StatusBadge({ chart, interactive = false, onSelect }: {
-  chart: ProjectChart;
+  chart: ChartSummary;
   interactive?: boolean;
   /** 选中目标态（true = 已完成）；仅在目标态 ≠ 当前态时触发 */
   onSelect?: (completed: boolean) => void;
@@ -102,7 +115,7 @@ export function StatusBadge({ chart, interactive = false, onSelect }: {
  * - 浮层照卡片菜单的 portal + scrim 范式定位，Esc / 点外部关闭。
  */
 export function DiffLevelBadge({ chart, uploaded, onCommit }: {
-  chart: ProjectChart;
+  chart: ChartSummary;
   uploaded: boolean;
   onCommit: (patch: { diff: ChartDifficulty; level: number | null }) => void;
 }) {
@@ -217,7 +230,7 @@ export function Menu({ trigger, placement = 'down', align = 'end', panelClass, c
   align?: 'start' | 'end';
   /** 面板附加类（票 41 状态菜单用它收内容宽 `pp-menu__panel--status`；其余菜单不传，200px 下限不动） */
   panelClass?: string;
-  children: ReactNode;
+  children: ReactNode | (() => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
@@ -249,7 +262,7 @@ export function Menu({ trigger, placement = 'down', align = 'end', panelClass, c
             style={pos}
             onClick={() => setOpen(false)}
           >
-            {children}
+            {typeof children === 'function' ? children() : children}
           </div>
         </>,
         document.body,

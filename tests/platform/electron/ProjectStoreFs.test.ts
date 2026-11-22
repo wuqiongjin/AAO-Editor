@@ -70,12 +70,18 @@ describe('electron/projectStore · 真文件往返', () => {
       expect(listed.map((p: { id: string }) => p.id).sort()).toEqual(['pA', 'pB']);
       const listedA = listed.find((p: { id: string }) => p.id === 'pA') as {
         id: string;
-        doc: { audioPresent: boolean; coverPresent: boolean };
-        cover?: Uint8Array | null;
+        audioPresent: boolean;
+        coverPresent: boolean;
+        coverVersion: string | null;
+        charts: Array<{ noteCount: number; notes?: unknown }>;
+        cover?: unknown;
       };
-      expect(listedA?.doc.audioPresent).toBe(true);
-      expect(listedA?.doc.coverPresent).toBe(true);
-      expect(Buffer.from(listedA.cover ?? [])).toEqual(Buffer.from([9, 9, 9]));
+      expect(listedA?.audioPresent).toBe(true);
+      expect(listedA?.coverPresent).toBe(true);
+      expect(listedA?.coverVersion).toMatch(/^\d+(?:\.\d+)?-3$/);
+      expect(listedA?.cover).toBeUndefined();
+      expect(listedA?.charts[0]).not.toHaveProperty('notes');
+      expect(listedA?.charts[0].noteCount).toBe(0); // BPM 不计入 noteCount
 
       const got = await getProject(root, 'pA');
       if (!got) throw new Error('expected pA');

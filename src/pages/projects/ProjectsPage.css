@@ -33,12 +33,19 @@
   display: grid;
   place-items: center;
   border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
   color: rgba(255,255,255,.92);
   font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
   overflow: hidden;
   background-size: cover;
   background-position: center;
+}
+.pp-cover__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 /* 流式档（issue 19 #5）：网格卡封面随列宽拉伸，保持 1:1（字号仍按名义 172 派生） */
 .pp-cover--fluid { aspect-ratio: 1 / 1; }
@@ -155,6 +162,9 @@
 /* 流式轨道（issue 19 #5）：固定 172px 轨道会把一行凑不满的余量全留在右侧；
    minmax 让每列平分余量、末列贴右缘，封面走 .pp-cover--fluid 等比例放大。 */
 .pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 20px 18px; }
+/* 外层包裹盒预留 8px 溢出边距再开 content-visibility: auto（chart-projects 44）：
+   防止 contain: paint 裁切 .pb-card.is-selected（outline-offset: 5px + 2px）与悬停抬升（translateY(-2px)）。 */
+.pb-card-wrap { padding: 8px; margin: -8px; content-visibility: auto; contain-intrinsic-size: auto 232px; }
 .pb-card { display: flex; flex-direction: column; gap: 4px; cursor: pointer; font-size: var(--text-sm); }
 .pb-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pb-card small { font-size: var(--text-xs); }

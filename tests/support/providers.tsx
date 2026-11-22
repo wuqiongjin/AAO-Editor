@@ -11,7 +11,13 @@ import { useMemo, type ReactElement, type ReactNode } from 'react';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import { AudioSession, createAudioSession } from '@/src/audio/AudioSession';
 import type { AudioEngine } from '@/src/audio/AudioEngine';
-import { ChartProjectStore, type ChartProject, type ChartProjectBackend, type ProjectBinarySources } from '@/src/project/ChartProject';
+import {
+  ChartProjectStore,
+  summarizeProject,
+  type ChartProject,
+  type ChartProjectBackend,
+  type ProjectBinarySources,
+} from '@/src/project/ChartProject';
 import { CurrentProjectProvider } from '@/src/app/providers/CurrentProjectProvider';
 import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
 import { NowProvider } from '@/src/app/providers/NowProvider';
@@ -71,7 +77,11 @@ export function makeMemoryProjectBackend(
     },
     list: async () => {
       if (!gateOpen) await gate;
-      return [...disk.values()].map((p) => read(p)!);
+      return [...disk.values()].map((p) => summarizeProject(read(p)!));
+    },
+    getSummary: async (id) => {
+      const p = read(disk.get(id));
+      return p ? summarizeProject(p) : null;
     },
     delete: async (id) => {
       disk.delete(id);

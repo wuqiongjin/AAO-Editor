@@ -9,6 +9,8 @@ export interface CurrentProjectContextValue {
   chartId: string | null;
   store: ChartProjectStore;
   catalogEpoch: number;
+  /** 启动期首次目录 list() 是否已落定（供后台工作台延迟预热避开启动读盘窗口） */
+  catalogSettled: boolean;
   ensure: () => Promise<{ project: ChartProject; chart: ProjectChart; created: boolean }>;
   open: (projectId: string, chartId?: string) => Promise<{ project: ChartProject; chart: ProjectChart }>;
   reset: () => void;
@@ -20,6 +22,7 @@ export interface CurrentProjectContextValue {
   registerPersistFlush: (fn: (() => Promise<void>) | null) => void;
   flushPersist: () => Promise<void>;
   registerRestoreWaiter: (fn: ((targetProjectId?: string, targetChartId?: string) => Promise<void>) | null) => void;
+  registerRestoreWakeup: (fn: (() => void) | null) => void;
   waitForRestore: (targetProjectId?: string, targetChartId?: string) => Promise<void>;
 }
 
@@ -55,9 +58,11 @@ export function CurrentProjectProvider({
   }
   const persistFlushRef = useRef<() => Promise<void>>(async () => {});
   const restoreWaiterRef = useRef<(targetProjectId?: string, targetChartId?: string) => Promise<void>>(async () => {});
+  const restoreWakeupRef = useRef<(() => void) | null>(null);
   const [projectId, setProjectId] = useState<string | null>(() => sessionRef.current!.projectId);
   const [chartId, setChartId] = useState<string | null>(() => sessionRef.current!.chartId);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
+  const [catalogSettled, setCatalogSettled] = useState(false);
   const projectEditEpochRef = useRef<Map<string, number>>(new Map());
 
   const notifyProjectEdited = useCallback((editedProjectId: string) => {
@@ -77,7 +82,13 @@ export function CurrentProjectProvider({
   // 先发起一次 list()，工程页挂载时要么已就绪、要么共享同一个进行中 Promise（去重在 ChartProjectStore）。
   // 不让"页面挂载"成为读盘的起点。读失败不抛给启动流程：页面自己的 reload 会照常暴露错误。
   useEffect(() => {
-    void storeRef.current!.list().catch(() => {});
+    let alive = true;
+    void storeRef.current!.list()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setCatalogSettled(true);
+      });
+    return () => { alive = false; };
   }, []);
 
   const notifyCatalogChanged = useCallback(() => {
@@ -117,8 +128,15 @@ export function CurrentProjectProvider({
     restoreWaiterRef.current = fn ?? (async () => {});
   }, []);
 
+  const registerRestoreWakeup = useCallback((fn: (() => void) | null) => {
+    restoreWakeupRef.current = fn;
+  }, []);
+
   const waitForRestore = useCallback(
-    (targetProjectId?: string, targetChartId?: string) => restoreWaiterRef.current(targetProjectId, targetChartId),
+    (targetProjectId?: string, targetChartId?: string) => {
+      restoreWakeupRef.current?.();
+      return restoreWaiterRef.current(targetProjectId, targetChartId);
+    },
     [],
   );
 
@@ -128,6 +146,7 @@ export function CurrentProjectProvider({
       chartId,
       store: storeRef.current!,
       catalogEpoch,
+      catalogSettled,
       ensure,
       open,
       reset,
@@ -137,12 +156,14 @@ export function CurrentProjectProvider({
       registerPersistFlush,
       flushPersist,
       registerRestoreWaiter,
+      registerRestoreWakeup,
       waitForRestore,
     }),
     [
       projectId,
       chartId,
       catalogEpoch,
+      catalogSettled,
       ensure,
       open,
       reset,
@@ -152,6 +173,7 @@ export function CurrentProjectProvider({
       registerPersistFlush,
       flushPersist,
       registerRestoreWaiter,
+      registerRestoreWakeup,
       waitForRestore,
     ],
   );

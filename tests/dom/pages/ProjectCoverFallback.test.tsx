@@ -111,7 +111,7 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
     }
   });
 
-  it('有 coverBlob：同一 Blob 只建一个 objectURL，所有封面实例复用，不发渐变', async () => {
+  it('有 coverBlob：同一 Blob 只建一个 objectURL，所有封面实例复用且走 <img>，不发渐变', async () => {
     const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
     renderHub([makeProject('pCover', 'Has Cover', blob)]);
     await screen.findByText('继续创作');
@@ -120,8 +120,17 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
     await waitFor(() => expect(created).toHaveLength(1));
     expect(created[0].blob).toBe(blob);
     await waitFor(() => {
-      for (const c of covers()) expect(c.style.backgroundImage).toBe(`url("${created[0].url}")`);
+      for (const c of covers()) {
+        const img = c.querySelector('img.pp-cover__img') as HTMLImageElement | null;
+        expect(img).not.toBeNull();
+        expect(img?.getAttribute('src')).toBe(created[0].url);
+        expect(img?.getAttribute('decoding')).toBe('async');
+      }
     });
+    const heroImg = document.querySelector('.pb-hero .pp-cover img.pp-cover__img');
+    const cardImg = document.querySelector('.pb-card .pp-cover img.pp-cover__img');
+    expect(heroImg).toHaveAttribute('loading', 'eager');
+    expect(cardImg).toHaveAttribute('loading', 'lazy');
     for (const c of covers()) expect(c.style.backgroundImage).not.toContain('linear-gradient');
   });
 
@@ -137,7 +146,10 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
     await waitFor(() => {
       const all = covers();
       expect(all.length).toBeGreaterThan(0);
-      for (const c of all) expect(c.style.backgroundImage).toBe(`url("${url}")`);
+      for (const c of all) {
+        const img = c.querySelector('img.pp-cover__img') as HTMLImageElement | null;
+        expect(img?.getAttribute('src')).toBe(url);
+      }
     });
     expect(created).toHaveLength(1);
     expect(revoked).toHaveLength(0);
@@ -155,6 +167,7 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
     for (const c of covers()) {
       expect(c.style.backgroundImage).toContain('linear-gradient');
       expect(c.style.backgroundImage).not.toContain('url(');
+      expect(c.querySelector('img')).toBeNull();
     }
   });
 
@@ -175,7 +188,10 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
 
     // 等编辑真的落库（数据变了）之后再断言封面：同一 URL、没有新建
     await waitFor(() => expect(document.querySelector('.pc-chart__diff')).toHaveTextContent('Hard'));
-    for (const c of covers()) expect(c.style.backgroundImage).toBe(`url("${url}")`);
+    for (const c of covers()) {
+      const img = c.querySelector('img.pp-cover__img') as HTMLImageElement | null;
+      expect(img?.getAttribute('src')).toBe(url);
+    }
     expect(created).toHaveLength(1);
     expect(revoked).toHaveLength(0);
   });

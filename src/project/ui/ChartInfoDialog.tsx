@@ -1,7 +1,7 @@
 // 谱面信息对话框（chart-projects 04 / 05）：新增可贴谱面代码（Apply 闸门在调用方）；已上传只读。
 // 壳走 ui/Dialog（通用弹窗壳）—— 与新建 / 编辑工程信息、删除确认同一张脸（issue 16）。
 import { useState } from 'react';
-import type { ChartDifficulty, ChartProject, ProjectChart } from '../ChartProject';
+import type { ChartDifficulty, ChartSummary, ProjectChart } from '../ChartProject';
 import { DIFF_NAMES } from '../projectCatalog';
 import { POST_LEVEL_MAX, POST_LEVEL_MIN } from '../../community/bestdori/endpoints';
 import { t } from '../../i18n';
@@ -33,8 +33,8 @@ export function readChartLevelInput(raw: string):
 export function ChartInfoDialog({
   project, chart, defaultDiff = 3, onClose, onAdd, onUpdate,
 }: {
-  project: ChartProject;
-  chart: ProjectChart | null;
+  project: { name: string | null };
+  chart: ChartSummary | ProjectChart | null;
   defaultDiff?: ChartDifficulty;
   onClose: () => void;
   onAdd: (input: { title: string | null; diff: ChartDifficulty; level: number | null; codeText: string }) => void;

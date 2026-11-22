@@ -4,8 +4,12 @@ import type {
   ElectronProjectBridge,
   ProjectGetWire,
   ProjectPutWire,
+  ProjectSummaryWire,
   ProjectWriteDoc,
 } from '@/src/project/ChartProjectRecord';
+import type { ChartNote } from '@/src/chart/types';
+import { countChartNotes } from '@/src/chart/editing/NoteEditing';
+import { isCurrentProjectSchema } from '@/src/project/ChartProjectRecord';
 
 export type MemoryDiskRecord = {
   doc: Record<string, unknown>;
@@ -72,18 +76,53 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
     });
   });
 
-  const list = vi.fn(async () =>
-    [...disk.entries()].map(([id, row]) => ({
+  const summarizeRow = (id: string, row: MemoryDiskRecord): ProjectSummaryWire => {
+    const doc = row.doc as Record<string, unknown>;
+    const charts = (Array.isArray(doc.charts) ? doc.charts : []) as Array<Record<string, unknown>>;
+    const coverPresent = Boolean(doc.coverPresent) && Boolean(row.cover && row.cover.byteLength > 0);
+    return {
       id,
-      doc: row.doc as unknown as ProjectGetWire['doc'],
-      cover: row.cover,
-    })),
+      name: (doc.name as string | null | undefined) ?? null,
+      artist: (doc.artist as string | null | undefined) ?? null,
+      source: (doc.source as ProjectSummaryWire['source']) ?? { type: 'custom' },
+      durationSeconds: Number(doc.durationSeconds ?? 0),
+      lastOpened: Number(doc.lastOpened ?? 0),
+      audioName: (doc.audioName as string | null | undefined) ?? null,
+      coverName: (doc.coverName as string | null | undefined) ?? null,
+      audioPresent: Boolean(doc.audioPresent),
+      coverPresent,
+      coverVersion: coverPresent && row.cover ? `1-${row.cover.byteLength}` : null,
+      charts: charts.map((c) => ({
+        id: String(c.id),
+        title: (c.title as string | null | undefined) ?? null,
+        diff: (c.diff as 0 | 1 | 2 | 3 | 4) ?? 3,
+        level: (c.level as number | null | undefined) ?? null,
+        completed: Boolean(c.completed),
+        upload: (c.upload as ProjectSummaryWire['charts'][number]['upload']) ?? null,
+        lastModified: Number(c.lastModified ?? 0),
+        noteCount: countChartNotes((Array.isArray(c.notes) ? c.notes : []) as ChartNote[]),
+      })),
+    };
+  };
+
+  const list = vi.fn(async () =>
+    JSON.stringify(
+      [...disk.entries()]
+        .filter(([, row]) => isCurrentProjectSchema(row.doc))
+        .map(([id, row]) => summarizeRow(id, row)),
+    ),
   );
+
+  const getSummary = vi.fn(async (id: string) => {
+    const row = disk.get(id);
+    if (!row || !isCurrentProjectSchema(row.doc)) return null;
+    return JSON.stringify(summarizeRow(id, row));
+  });
 
   const deleteProject = vi.fn(async (id: string) => {
     disk.delete(id);
   });
 
-  const bridge: ElectronProjectBridge = { get, put, list, delete: deleteProject, uploadRefs: async () => null };
+  const bridge: ElectronProjectBridge = { get, getSummary, put, list, delete: deleteProject, uploadRefs: async () => null };
   return { bridge, disk, puts, get, put };
 }

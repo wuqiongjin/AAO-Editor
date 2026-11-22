@@ -4,7 +4,13 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Copy, Eye, FolderOpen, Lock, Music2, Pencil, Plus } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
-import { newChartId, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import {
+  newChartId,
+  summarizeProject,
+  type ChartProject,
+  type ChartSummary,
+  type ProjectSummary,
+} from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
   addChartToProject,
@@ -18,8 +24,8 @@ import {
   updateChartInfo,
 } from '../../project/projectCatalog';
 import { chartStatus, pickCurrentChart } from '../../project/workspaceProject';
-import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
+import { useWorkspacePrewarmEnabled } from './WorkspacePrewarmContext';
 import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
@@ -37,9 +43,10 @@ export default memo(function ChartSwitcher() {
   const {
     projectId, chartId, store, catalogEpoch, open, notifyCatalogChanged, flushPersist, waitForRestore,
   } = useCurrentProject();
-  const [project, setProject] = useState<ChartProject | null>(null);
+  const restoreEnabled = useWorkspacePrewarmEnabled();
+  const [project, setProject] = useState<ProjectSummary | null>(null);
   const [openMenu, setOpenMenu] = useState(false);
-  const [chartInfo, setChartInfo] = useState<{ chart: ProjectChart | null } | null>(null);
+  const [chartInfo, setChartInfo] = useState<{ chart: ChartSummary | null } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
@@ -48,12 +55,13 @@ export default memo(function ChartSwitcher() {
       setProject(null);
       return;
     }
+    if (!restoreEnabled) return;
     let cancelled = false;
-    void store.get(projectId).then((loaded) => {
+    void store.getSummary(projectId).then((loaded) => {
       if (!cancelled && loaded) setProject(loaded);
     });
     return () => { cancelled = true; };
-  }, [projectId, chartId, catalogEpoch, store]);
+  }, [projectId, chartId, catalogEpoch, store, restoreEnabled]);
 
   // 整记录读-改-写走唯一写入口（次序：flush → get → fn → save → notify）；
   // setProject / open 是本组件自己的下一步。
@@ -68,7 +76,7 @@ export default memo(function ChartSwitcher() {
       fn,
     );
     if (result.status !== 'saved') return null;
-    setProject(result.project);
+    setProject(summarizeProject(result.project));
     if (thenChartId) {
       await open(projectId, thenChartId);
       await waitForRestore(projectId, thenChartId);
@@ -143,7 +151,7 @@ export default memo(function ChartSwitcher() {
                     {t('workspace.switcher.rowMeta', {
                       diff: DIFF_NAMES[c.diff],
                       level: c.level ?? '–',
-                      count: countChartNotes(c.notes),
+                      count: c.noteCount,
                     })}
                   </small>
                 </span>

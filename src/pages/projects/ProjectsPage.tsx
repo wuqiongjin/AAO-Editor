@@ -2,20 +2,19 @@
 // 默认工程启动台；点封面进工程详情。保活挂载，用切页快捷键（默认 Alt+1）回来停在离开前那一层。
 // 本文件只留：双视图调度 + state / handlers + 弹窗编排；两个视图与弹窗分别住在 components/。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { useCommunitySessionStart } from './useCommunitySessionStart';
 import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
-import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ChartSummary, type ProjectSummary } from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
   addChartToProject, createBlankProject, deleteChartFromProject, duplicateProject, updateChartInfo, updateProjectInfo,
 } from '../../project/projectCatalog';
 import { mostRecentlyOpenedId, sortProjects } from '../../project/projectSort';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
-import { displayProjectName, ProjectMenuItem, untitledProjectLabel } from '../../project/ui/projectUi';
+import { displayProjectName, untitledProjectLabel } from '../../project/ui/projectUi';
 import { formatValidationError } from '../../chart/editing/ChartConverter';
 import { t } from '../../i18n';
 import { trail } from '../../diagnostics/trail';
@@ -23,7 +22,6 @@ import ConfirmDialog from '../../ui/ConfirmDialog';
 import { showToast } from '../../ui/Toast';
 import { deleteProjectNotice } from './projectFormat';
 import { moveGridSelection } from './projectGridSelection';
-import { Menu } from './components/ProjectBits';
 import {
   EditInfoDialog, NewProjectDialog, type NewSource, type OfficialImportReply,
 } from './components/ProjectDialogs';
@@ -49,14 +47,14 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   const sortKey = settings.projects.sort;
   // `null` = 目录还没读回来（issue 29）：与"一个工程都没有"（`[]`）是两件事，
   // 混用同一个值会让首帧把"未就绪"渲染成 0 工程空态，列表到达后再闪一下换掉。
-  const [projects, setProjects] = useState<ChartProject[] | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newSource, setNewSource] = useState<NewSource | null>(null);
-  const [editing, setEditing] = useState<ChartProject | null>(null);
-  const [chartForm, setChartForm] = useState<{ project: ChartProject; chart: ProjectChart | null } | null>(null);
+  const [editing, setEditing] = useState<ProjectSummary | null>(null);
+  const [chartForm, setChartForm] = useState<{ project: ProjectSummary; chart: ChartSummary | null } | null>(null);
   // 删除要等用户点头（弹窗是异步的）：待确认的目标先存下，确认键按了才动手
-  const [askDelete, setAskDelete] = useState<ChartProject | null>(null);
-  const [askDeleteChart, setAskDeleteChart] = useState<{ project: ChartProject; chart: ProjectChart } | null>(null);
+  const [askDelete, setAskDelete] = useState<ProjectSummary | null>(null);
+  const [askDeleteChart, setAskDeleteChart] = useState<{ project: ProjectSummary; chart: ChartSummary } | null>(null);
   // 视图切换方向（issue 19 #1）：进详情从右滑入、回主页从左滑入；详情内换工程不重放动画（见视图包裹层 key）
   const [navDir, setNavDir] = useState<'forward' | 'back'>('forward');
   // 社区平台出口（票 07）：静态演示版没有 → 官方 / 社区两支入口整体隐藏（ADR-0011 §1 / 票 12）
@@ -138,7 +136,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   }, [setCurrent, waitForRestore, setActivePage]);
 
   // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
-  const deleteProject = useCallback(async (p: ChartProject) => {
+  const deleteProject = useCallback(async (p: ProjectSummary) => {
     await flushPersist();
     const wasCurrent = projectId === p.id;
     await store.delete(p.id);
@@ -147,7 +145,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await reload();
   }, [flushPersist, projectId, store, reset, notifyCatalogChanged, reload]);
 
-  const deleteChart = useCallback(async (project: ChartProject, chart: ProjectChart) => {
+  const deleteChart = useCallback(async (project: ProjectSummary, chart: ChartSummary) => {
     await mutate(project.id, (p) => {
       const result = deleteChartFromProject(p, chart.id);
       if (!result.ok) {
@@ -422,13 +420,9 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />
   );
 
-  const projectMenu = (p: ChartProject) => (
-    <Menu trigger={<button type="button" className="pp-icon-btn" title={t('projects.more')}><MoreHorizontal size={16} /></button>}>
-      <ProjectMenuItem icon={<Pencil size={14} />} label={t('projects.editInfo')} onClick={() => setEditing(p)} />
-      <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.duplicate')} onClick={() => void copyProject(p.id)} />
-      <ProjectMenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => setAskDelete(p)} />
-    </Menu>
-  );
+  const handleCopyProject = useCallback((id: string) => {
+    void copyProject(id);
+  }, [copyProject]);
 
   const hub = (
     <ProjectStartView
@@ -440,7 +434,9 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       onDetail={goDetail}
       onOpen={enterWorkspace}
       onNew={setNewSource}
-      projectMenu={projectMenu}
+      onEdit={setEditing}
+      onCopy={handleCopyProject}
+      onDelete={setAskDelete}
       importSources={importSources}
     />
   );

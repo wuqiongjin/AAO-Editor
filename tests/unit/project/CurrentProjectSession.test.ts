@@ -1,7 +1,13 @@
 // chart-projects 03 / 20：当前工程会话。ensure 按选工程规则落盘；open 切工程并刷新 lastOpened；
 // issue 20 起当前工程跨刷新存活（指针注入内存实现，测试不碰真 localStorage）。
 import { describe, expect, it } from 'vitest';
-import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/project/ChartProject';
+import {
+  ChartProjectStore,
+  summarizeProject,
+  type ChartProject,
+  type ChartProjectBackend,
+  type ProjectSummary,
+} from '@/src/project/ChartProject';
 import { CurrentProjectSession, shouldResetSessionAfterDataRootSwitch } from '@/src/project/CurrentProjectSession';
 import {
   CURRENT_PROJECT_POINTER_KEY,
@@ -30,8 +36,8 @@ class MemoryBackend implements ChartProjectBackend {
   async save(project: ChartProject): Promise<void> {
     this.data.set(project.id, project);
   }
-  async list(): Promise<ChartProject[]> {
-    return [...this.data.values()];
+  async list(): Promise<ProjectSummary[]> {
+    return [...this.data.values()].map(summarizeProject);
   }
   async delete(id: string): Promise<void> {
     this.data.delete(id);

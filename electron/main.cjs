@@ -192,7 +192,8 @@ if (process.platform === 'win32' && app && app.commandLine && typeof app.command
 app.whenReady().then(() => {
     setupApplicationMenu(process.platform, app.name, Menu);
     // 只读协议：媒体标签按 URL 读素材缓存里的缩略图（不联网；缺图回 404，界面自己降级）
-    registerAssetProtocol(protocol, assetCache);
+    // 同时提供本地工程封面缩略图路由（chart-projects 44）
+    registerAssetProtocol(protocol, assetCache, { getDataRoot: currentDataRoot, nativeImage });
     // 素材缓存（票 14）：启动扫一遍（30 天未用 / 1GB 上限 / 崩溃残留的半截文件）。
     // 清不掉（权限 / 占用）不影响功能 —— 下次写缓存会自己补目录，所以这里吞掉。
     void assetCache.sweep().catch(() => {});

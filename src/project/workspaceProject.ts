@@ -83,7 +83,10 @@ export function createUnnamedProject(opts: { id: string; chartId: string; now: n
   };
 }
 
-export function pickCurrentChart(project: ChartProject, chartId?: string | null): ProjectChart {
+export function pickCurrentChart<T extends { id: string }>(
+  project: { id: string; charts: readonly T[] },
+  chartId?: string | null,
+): T {
   if (chartId) {
     const found = project.charts.find((c) => c.id === chartId);
     if (found) return found;

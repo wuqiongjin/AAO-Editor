@@ -11,7 +11,7 @@
 //     recordChartUpload 把门）；
 //   - 落账后的页面动作（关弹窗 / reload / Toast）也在这里 —— 帖子发出去而记录
 //     写不进来时结果仍是 ok，提示要说「本机记账失败」，不能让人再按一次。
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { convertNotesToChartCode, type ChartCodeNote } from '../../chart/editing/ChartConverter';
 import {
   editChartPost,
@@ -24,7 +24,13 @@ import {
 } from '../../community/bestdori/publish';
 import { getCommunityAccount } from '../../community/bestdori/account';
 import { createCommunityTransport } from '../../community/electronTransport';
-import type { ChartDifficulty, ChartProject, ProjectChart } from '../../project/ChartProject';
+import type {
+  ChartDifficulty,
+  ChartProject,
+  ChartSummary,
+  ProjectChart,
+  ProjectSummary,
+} from '../../project/ChartProject';
 import { mutateProject, type ProjectMutationStore } from '../../project/ChartProjectRecord';
 import { recordChartUpload, updateUploadedChartMeta } from '../../project/projectCatalog';
 import { t } from '../../i18n';
@@ -51,7 +57,7 @@ export interface PublishEntryDeps {
 
 export interface PublishEntry {
   target: PublishTarget | null;
-  open: (project: ChartProject, chart: ProjectChart) => void;
+  open: (project: ProjectSummary | ChartProject, chart: ChartSummary | ProjectChart) => void;
   close: () => void;
   /** 跑一次发布；结果原样回给弹窗（失败就地点名，成功由这里收尾） */
   run: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
@@ -61,15 +67,52 @@ export interface PublishEntry {
   updateProject: (updater: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }
 
+function resolveSyncPublishTarget(
+  project: ProjectSummary | ChartProject,
+  chart: ChartSummary | ProjectChart,
+): { project: ChartProject; chart: ProjectChart } | null {
+  if (!('notes' in chart) || !Array.isArray(chart.notes)) return null;
+  if ('coverPresent' in project && project.coverPresent && !project.coverBlob) return null;
+  const fullCharts = project.charts;
+  if (!fullCharts.every((c): c is ProjectChart => 'notes' in c && Array.isArray(c.notes))) return null;
+  return {
+    project: { ...project, charts: fullCharts },
+    chart,
+  };
+}
+
 export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
   const [target, setTarget] = useState<PublishTarget | null>(null);
+  const openGenRef = useRef(0);
   // 逐个取依赖（页面每次渲染都新建 deps 对象；按项列依赖才能让 run 的引用稳下来）
   const { store, flush, notify, reload, transport } = deps;
 
-  const open = useCallback((project: ChartProject, chart: ProjectChart) => {
-    setTarget({ project, chart, chartCode: convertNotesToChartCode(chart.notes) });
+  const open = useCallback((project: ProjectSummary | ChartProject, chart: ChartSummary | ProjectChart) => {
+    const gen = ++openGenRef.current;
+    const syncTarget = resolveSyncPublishTarget(project, chart);
+    if (syncTarget) {
+      setTarget({
+        project: syncTarget.project,
+        chart: syncTarget.chart,
+        chartCode: convertNotesToChartCode(syncTarget.chart.notes),
+      });
+      return;
+    }
+    void store.get(project.id).then((loaded) => {
+      if (gen !== openGenRef.current || !loaded) return;
+      const fullChart = loaded.charts.find((c) => c.id === chart.id);
+      if (!fullChart) return;
+      setTarget({
+        project: loaded,
+        chart: fullChart,
+        chartCode: convertNotesToChartCode(fullChart.notes),
+      });
+    }).catch(() => {});
+  }, [store]);
+  const close = useCallback(() => {
+    openGenRef.current += 1;
+    setTarget(null);
   }, []);
-  const close = useCallback(() => setTarget(null), []);
 
   const run = useCallback(async (
     input: PublishInput,

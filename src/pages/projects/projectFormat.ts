@@ -1,4 +1,4 @@
-import type { ChartProject, ProjectChart } from '../../project/ChartProject';
+import type { ChartStatusFields } from '../../project/workspaceProject';
 import { chartEffectiveTitle } from '../../project/projectCatalog';
 import type { ProjectSortKey } from '../../project/projectSort';
 import { chartStatus } from '../../project/workspaceProject';
@@ -38,13 +38,13 @@ export function projectTimeTag(key: ProjectSortKey): string {
   return t(key === 'lastModified' ? 'projects.timeTag.lastModified' : 'projects.timeTag.lastOpened');
 }
 
-export function statusLabel(chart: ProjectChart): string {
+export function statusLabel(chart: ChartStatusFields): string {
   return t(`projects.status.${chartStatus(chart)}` as 'projects.status.unfinished');
 }
 
 
 /** 删除工程的后果行（标题负责问，这里只说会连带删掉什么）。 */
-export function deleteProjectNotice(p: ChartProject): string {
+export function deleteProjectNotice(p: { charts: readonly ChartStatusFields[] }): string {
   const uploaded = p.charts.filter((c) => c.upload).length;
   const extra = uploaded ? `\n${t('projects.confirmDeleteUploaded', { count: uploaded })}` : '';
   return `${t('projects.confirmDelete', { charts: p.charts.length })}${extra}`;

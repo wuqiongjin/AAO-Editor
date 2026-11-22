@@ -227,7 +227,8 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     const listed = await b.list();
     expect(listed.map((p) => p.id).sort()).toEqual(['pA', 'pC']);
     expect(listed.find((p) => p.id === 'pC')?.charts[0].diff).toBe(4);
-    expect(listed.every((p) => p.audioBlob == null)).toBe(true);
+    expect(listed.find((p) => p.id === 'pC')?.charts[0].noteCount).toBe(1);
+    expect(listed.every((p) => !('audioBlob' in p))).toBe(true);
 
     await expect(b.get('pA')).resolves.toMatchObject({ name: 'A', lastOpened: 10 });
     await b.delete('pA');
@@ -236,7 +237,7 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     await expect(b.get('pC')).resolves.toMatchObject({ name: 'C' });
   });
 
-  it('list 带封面字节、不带音频', async () => {
+  it('list 与 getSummary 走轻量摘要：不带封面与音频字节，带 coverPresent / coverVersion / noteCount', async () => {
     const t = makeMemoryProjectBridge();
     const b = new ElectronFileProjectBackend(t.bridge);
     await b.save(makeProject({
@@ -247,9 +248,16 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     }));
     const listed = await b.list();
     expect(listed).toHaveLength(1);
-    expect(listed[0].audioBlob).toBeUndefined();
-    expect(listed[0].coverBlob).toBeInstanceOf(Blob);
-    await expect(listed[0].coverBlob!.arrayBuffer()).resolves.toHaveProperty('byteLength', 2);
+    expect('audioBlob' in listed[0]).toBe(false);
+    expect(listed[0].coverBlob).toBeUndefined();
+    expect(listed[0].audioPresent).toBe(true);
+    expect(listed[0].coverPresent).toBe(true);
+    expect(listed[0].coverVersion).toBe('1-2');
+    expect(listed[0].charts[0]).not.toHaveProperty('notes');
+    expect(listed[0].charts[0].noteCount).toBe(1);
+
+    const summary = await b.getSummary('pSong1');
+    expect(summary).toEqual(listed[0]);
   });
 
   it('删除后记录与音频、封面字节都不在存储里', async () => {

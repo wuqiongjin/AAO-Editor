@@ -61,6 +61,8 @@
 - [42 Windows 覆盖 cover.bin 时 rename EPERM](./issues/42-Windows覆盖cover.bin时rename-EPERM.md)（bug，resolved 2026-10-25）—— **改成什么** = `renameOver` 在 Win32 EPERM 时重试替换；封面/音频原子写与缓存拷贝共用。
 - [43 详情页左栏工程行宽度跟着标题走](./issues/43-详情页左栏工程行宽度跟着标题走.md)（bug，**resolved 2026-10-26**）—— **改成什么** = `.pc-item` 钉满宽，选中底 / 进度条 / hover 右缘对齐左栏，不再跟标题长短走。
 - 41 谱面状态徽标就地状态菜单（grilling，**定案 2026-10-18 用户拍板；实现 open**）：**定了**——详情页撤独立「标为完成」文字按钮，`StatusBadge` 点开**垂直小菜单**（复用 `Menu`+`ProjectMenuItem`，当前态 ✓）就地切「未完成/已完成」；已上传徽标 inert；hub hero / 切换器下拉行 / 预览页行内徽标一律只读（组件加 `interactive` 默认 false）；**工作台菜单项删除、全局唯一入口收敛到详情页**（显式覆盖票 06「两处都能标/撤」，用户频率论证）；切换不加确认；新增 `projects.statusEdit`、清理四组 markComplete i18n key。
+- [44 多工程启动慢与工程启动台滚动掉帧](./issues/44-多工程启动慢与工程启动台滚动掉帧.md)（chore，resolved 2026-11-22）：`<数据根>/cache/projects/{index.json, thumbs/<id>.png}` 单索引摘要缓存 + JSON 文本跨桥 + `aao-asset://project-cover/` 384×384 缩略图与 `<img loading="lazy">` + `.pb-card-wrap` 预留 8px 溢出边距启用 `content-visibility: auto` + 隐藏页门控与冷启动空闲预热；真机对照待现场核验。
+- [45 切换非当前工程进入工作台过慢](./issues/45-切换非当前工程进入工作台过慢.md)（chore，open，2026-11-22 定案）：不加解码音频 LRU（守单曲内存），消除无脏 `flushPersist`、4 次重复 `store.get(B)`、切页中全量 `store.list()`、`ChartCodeEditorProvider key` 整页重挂载，并改为跨工程点击即切进工作台展示 `ws-preparing` 直到 BGM 解码落地（保住 issue 26/238）；待实现。
 
 路线（2026-09-26 规划）：
 

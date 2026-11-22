@@ -40,6 +40,7 @@ import { usePatternLibrary } from '../../patterns/usePatternLibrary';
 import { useSaveSelectionPattern } from './useSaveSelectionPattern';
 import { t } from '../../i18n';
 import { CrashBoundaryHost } from '../../diagnostics/CrashBoundary';
+import { WorkspacePrewarmContext } from './WorkspacePrewarmContext';
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -166,8 +167,83 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, notifyProjectEdited, flushPersist } = useCurrentProject();
+  const {
+    projectId,
+    chartId,
+    store,
+    catalogEpoch,
+    catalogSettled,
+    registerPersistFlush,
+    registerRestoreWaiter,
+    registerRestoreWakeup,
+    open,
+    notifyCatalogChanged,
+    notifyProjectEdited,
+    flushPersist,
+  } = useCurrentProject();
   const { setActivePage } = useAppNav();
+
+  // 冷启动后台工作台延迟预热（chart-projects 44 Q1=A）：
+  // 挂载时 active===true 零延迟立即恢复；active===false（冷启动停在工程启动台）时，
+  // 等工程目录就绪且用户停止滚动/交互后的短暂空闲窗口再预热上次工程与 BGM；
+  // 若在此前主动切进工作台（active→true）或触发 waitForRestore（点卡片播放/进入工作台），立刻取消延迟开始恢复。
+  const [prewarmReady, setPrewarmReady] = useState(() => active);
+  const restoreEnabled = prewarmReady || active;
+  useEffect(() => {
+    if (active && !prewarmReady) setPrewarmReady(true);
+  }, [active, prewarmReady]);
+  useEffect(() => {
+    registerRestoreWakeup(() => setPrewarmReady(true));
+    return () => registerRestoreWakeup(null);
+  }, [registerRestoreWakeup]);
+  useEffect(() => {
+    if (restoreEnabled || !catalogSettled || !projectId) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    let idleId: number | null = null;
+    const cancelScheduled = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+        idleId = null;
+      }
+    };
+    const trigger = () => {
+      if (!cancelled) setPrewarmReady(true);
+    };
+    const schedule = () => {
+      cancelScheduled();
+      timer = window.setTimeout(() => {
+        timer = null;
+        if (cancelled) return;
+        if (typeof window.requestIdleCallback === 'function') {
+          idleId = window.requestIdleCallback(() => {
+            idleId = null;
+            trigger();
+          }, { timeout: 600 });
+        } else {
+          trigger();
+        }
+      }, 1200);
+    };
+    const onActivity = () => schedule();
+    schedule();
+    window.addEventListener('scroll', onActivity, { passive: true, capture: true });
+    window.addEventListener('wheel', onActivity, { passive: true });
+    window.addEventListener('pointerdown', onActivity, { passive: true });
+    window.addEventListener('keydown', onActivity, { passive: true });
+    return () => {
+      cancelled = true;
+      cancelScheduled();
+      window.removeEventListener('scroll', onActivity, { capture: true });
+      window.removeEventListener('wheel', onActivity);
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('keydown', onActivity);
+    };
+  }, [restoreEnabled, catalogSettled, projectId]);
 
   // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
   // 丢失（半态）在恢复时判；替换等解码落地（audioLoadGeneration +1）后判。写路径收口
@@ -305,8 +381,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
   // 持久化 hook 的 saveNow 直接注入到 session.setPersistNow。
   const persistence = useChartProjectPersistence({
-    projectId,
-    chartId,
+    projectId: restoreEnabled ? projectId : null,
+    chartId: restoreEnabled ? chartId : null,
+    deferred: !restoreEnabled && projectId != null,
     catalogEpoch,
     store,
     notes,
@@ -325,8 +402,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   if (preparation.projectId !== projectId) {
     setPreparation({ projectId, ready: false });
   }
-  const preparing = preparation.projectId !== projectId || !preparation.ready;
+  const preparing = !restoreEnabled || preparation.projectId !== projectId || !preparation.ready;
   useEffect(() => {
+    if (!restoreEnabled) return;
     let frame = 0;
     const check = () => {
       if (persistence.isSettled && !audioSession.isLoading) {
@@ -337,7 +415,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     };
     check();
     return () => cancelAnimationFrame(frame);
-  }, [audioSession, persistence, projectId]);
+  }, [restoreEnabled, audioSession, persistence, projectId]);
 
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
@@ -548,6 +626,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
     // workspaceProject.test.ts 契约：切工程时谱面代码弹窗随当前工程卸载 (key={projectId})
     // issue 169：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
+    <WorkspacePrewarmContext.Provider value={restoreEnabled}>
     <ChartCodeEditorProvider key={projectId ?? 'none'} projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
     <div className="ws-loading-host" aria-busy={preparing}>
     <div className="ws-shell" inert={preparing || undefined} aria-hidden={preparing || undefined}>
@@ -678,6 +757,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       document.body,
     )}
     </ChartCodeEditorProvider>
+    </WorkspacePrewarmContext.Provider>
   );
 };
 

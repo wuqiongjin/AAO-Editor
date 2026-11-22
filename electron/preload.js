@@ -5,9 +5,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     platform: process.platform,
     versions: process.versions,
     // 谱面工程文件后端：渲染进程经此桥把工程数据落到数据根文件。
-    // get 返回 { doc, audio, cover } 或 null；put 的 doc 是已编码 JSON 文本（issue 232）。
+    // get 返回 { doc, audio, cover } 或 null；list/getSummary 返回 JSON 文本（chart-projects 44）；put 的 doc 是已编码 JSON 文本（issue 232）。
     projectStore: {
         get: (id) => ipcRenderer.invoke('project:get', id),
+        getSummary: (id) => ipcRenderer.invoke('project:getSummary', id),
         put: (payload) => ipcRenderer.invoke('project:put', payload),
         list: () => ipcRenderer.invoke('project:list'),
         delete: (id) => ipcRenderer.invoke('project:delete', id),

@@ -18,6 +18,8 @@ export interface UseChartProjectPersistenceOptions {
   projectId: string | null;
   /** 当前谱面 id；null 时取工程第一张 */
   chartId: string | null;
+  /** 冷启动延迟预热中（chart-projects 44）：true 时保持 boundProjectIdRef=null 且 restoreSettledRef=false，不抢跑读盘也不提前算 settled */
+  deferred?: boolean;
   /** 工程目录改了当前工程（新增谱面等）时递增；同 id 下只重载不 flush，避免把目录写入冲掉 */
   catalogEpoch?: number;
   /** 当前 notes（编辑中） */
@@ -76,7 +78,7 @@ export interface UseChartProjectPersistenceReturn {
 
 export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptions): UseChartProjectPersistenceReturn {
   const {
-    projectId, chartId, catalogEpoch = 0,
+    projectId, chartId, deferred = false, catalogEpoch = 0,
     notes, durationSeconds, audioName, audioBlob,
     chartCodeFidelity,
     debounceMs = 800, store: storeOpt, onRestore,
@@ -170,7 +172,8 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   }, [registerRestoreWaiter, waitUntilSettled]);
 
   if (
-    projectId !== boundProjectIdRef.current
+    deferred
+    || projectId !== boundProjectIdRef.current
     || chartId !== boundChartIdRef.current
     || catalogEpoch !== boundEpochRef.current
   ) {
@@ -225,6 +228,14 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   onProjectEditedRef.current = opts.onProjectEdited;
 
   useEffect(() => {
+    if (deferred) {
+      loadGenRef.current += 1;
+      projectRef.current = null;
+      boundProjectIdRef.current = null;
+      boundChartIdRef.current = null;
+      restoreSettledRef.current = false;
+      return;
+    }
     const wantedProject = projectId;
     const wantedChart = chartId;
     const wantedEpoch = catalogEpoch;
@@ -309,7 +320,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       if (gen !== loadGenRef.current) return;
       notifySettle();
     })();
-  }, [projectId, chartId, catalogEpoch, buildProject, ensureMerger, notifySettle]);
+  }, [deferred, projectId, chartId, catalogEpoch, buildProject, ensureMerger, notifySettle]);
 
   useEffect(() => {
     if (!restoreSettledRef.current) return;

@@ -193,7 +193,7 @@ describe('票 15 · 本机素材协议接线（aao-asset://）', () => {
     expect(privilegedAt).toBeGreaterThan(-1);
     expect(readyAt).toBeGreaterThan(-1);
     expect(privilegedAt).toBeLessThan(readyAt);
-    expect(mainSrc.slice(readyAt)).toMatch(/registerAssetProtocol\(protocol,\s*assetCache\)/);
+    expect(mainSrc.slice(readyAt)).toMatch(/registerAssetProtocol\(protocol,\s*assetCache\b/);
   });
 
   it('缩略图产出器接在缓存上，nativeImage 由 main 注入（协议 / 缓存模块不 require electron）', () => {

@@ -12,6 +12,8 @@
 
 /** 缩略图边长（px）：48 CSS px @2x（与 ProjectsPage.css 的 `--off-thumb-size` 互锁） */
 const THUMB_SIZE = 96;
+/** 本地工程封面缩略图边长（px）：覆盖 172px 流式卡片 @2x 与 120px hero @3x（chart-projects 44） */
+const PROJECT_THUMB_SIZE = 384;
 
 /** 居中裁方：取短边，四边等分留白（400×300 → 300×300，起点 x=50 / y=0） */
 function squareCrop(width, height) {
@@ -48,14 +50,14 @@ function createImageValidator(nativeImage) {
     return (bytes, contentType) => decodeValidImage(nativeImage, bytes, contentType) != null;
 }
 
-function createThumbMaker(nativeImage) {
+function createThumbMaker(nativeImage, size = THUMB_SIZE) {
     return (bytes, contentType) => {
         const decoded = decodeValidImage(nativeImage, bytes, contentType);
         if (decoded == null) return null;
         const { image, width, height } = decoded;
         const png = image
             .crop(squareCrop(width, height))
-            .resize({ width: THUMB_SIZE, height: THUMB_SIZE, quality: 'good' })
+            .resize({ width: size, height: size, quality: 'good' })
             .toPNG();
         if (!(png instanceof Uint8Array) || png.length === 0) return null;
         return { bytes: png, contentType: 'image/png' };
@@ -64,6 +66,7 @@ function createThumbMaker(nativeImage) {
 
 module.exports = {
     THUMB_SIZE,
+    PROJECT_THUMB_SIZE,
     squareCrop,
     createImageValidator,
     createThumbMaker,

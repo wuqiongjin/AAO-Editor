@@ -5,11 +5,11 @@
 // 实做在 CommunityPostPanel + communityImport —— 两支共用同一颗 lg 窗（票 13 #5/#6）。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioLines, CircleHelp, Copy, Disc3, FolderPlus, Music4, SlidersHorizontal, Tag, Users } from 'lucide-react';
-import type { ChartDifficulty, ChartProject } from '../../../project/ChartProject';
+import type { ChartDifficulty, ProjectSummary } from '../../../project/ChartProject';
 import { DIFF_NAMES, type updateProjectInfo } from '../../../project/projectCatalog';
-import { displayProjectName, untitledProjectLabel } from '../../../project/ui/projectUi';
+import { displayProjectName, untitledProjectLabel, useProjectCoverUrl } from '../../../project/ui/projectUi';
 import ActionBtn from '../../../ui/ActionBtn';
-import CoverField, { useCoverUrl, type CoverValue } from '../../../ui/CoverField';
+import CoverField, { type CoverValue } from '../../../ui/CoverField';
 import Dialog from '../../../ui/Dialog';
 import { showToast } from '../../../ui/Toast';
 import type { CommunityTransport } from '../../../community/transport';
@@ -49,7 +49,7 @@ export function NewProjectDialog({
   initialSource, projects, onClose, onCreate, onCopy, onImportOfficial, onImportCommunity, transport, importSources = false,
 }: {
   initialSource: NewSource;
-  projects: ChartProject[];
+  projects: ProjectSummary[];
   onClose: () => void;
   onCreate: (input: { name: string; artist: string; diff: ChartDifficulty }) => void;
   onCopy: (projectId: string) => void;
@@ -292,7 +292,7 @@ function DialogMarquee({ text }: { text: string }) {
 }
 
 export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
-  project: ChartProject;
+  project: ProjectSummary;
   onClose: () => void;
   onSave: (patch: Parameters<typeof updateProjectInfo>[1]) => void;
   onOpenAudio?: () => void;
@@ -302,7 +302,7 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
   // 封面三态：null 沿用既有 / File 新选 / 'clear' 清除（保存时按此推导 patch 出参）
   const [cover, setCover] = useState<CoverValue>(null);
   // 只管既有封面的 URL：新选的 File 由 CoverField 自己开，同一张图不建两次 objectURL。
-  const existingPreview = useCoverUrl(project.coverBlob);
+  const existingPreview = useProjectCoverUrl(project);
 
   const [showSourceHelp, setShowSourceHelp] = useState(false);
   const showSourceHelpRef = useRef(showSourceHelp);

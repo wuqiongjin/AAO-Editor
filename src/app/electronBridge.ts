@@ -28,8 +28,9 @@ import type { AppUpdateState, UpdateSource } from './appUpdate';
 /* 谱面工程文件后端 */
 export interface ElectronProjectBridge {
   get(id: string): Promise<ProjectGetWire | null>;
+  getSummary?(id: string): Promise<string | null>;
   put(payload: ProjectPutWire): Promise<unknown>;
-  list(): Promise<ProjectListItem[]>;
+  list(): Promise<string | ProjectListItem[]>;
   delete(id: string): Promise<unknown>;
   uploadRefs(id: string): Promise<ProjectUploadRefs | null>;
 }

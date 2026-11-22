@@ -38,6 +38,7 @@ function transport(root: string) {
   const bridge: ElectronProjectBridge = {
     put,
     get: (id) => invoke('project:get', id) as ReturnType<ElectronProjectBridge['get']>,
+    getSummary: (id) => invoke('project:getSummary', id) as ReturnType<NonNullable<ElectronProjectBridge['getSummary']>>,
     list: () => invoke('project:list') as ReturnType<ElectronProjectBridge['list']>,
     delete: (id) => invoke('project:delete', id),
     uploadRefs: (id) => invoke('project:uploadRefs', id) as ReturnType<ElectronProjectBridge['uploadRefs']>,

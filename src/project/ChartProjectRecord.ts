@@ -65,6 +65,33 @@ export interface ProjectListItem {
   cover?: Uint8Array | null;
 }
 
+/** Electron `project:list` / `project:getSummary` 解码后的摘要对象（不含 notes / 原始字节） */
+export interface ChartSummaryWire {
+  id: string;
+  title: string | null;
+  diff: 0 | 1 | 2 | 3 | 4;
+  level: number | null;
+  completed: boolean;
+  upload: ChartProject['charts'][number]['upload'];
+  lastModified: number;
+  noteCount: number;
+}
+
+export interface ProjectSummaryWire {
+  id: string;
+  name: string | null;
+  artist: string | null;
+  source: SongSource;
+  durationSeconds: number;
+  lastOpened: number;
+  audioName: string | null;
+  coverName: string | null;
+  audioPresent: boolean;
+  coverPresent: boolean;
+  coverVersion: string | null;
+  charts: ChartSummaryWire[];
+}
+
 export type { ElectronProjectBridge } from '../app/electronBridge';
 
 /**

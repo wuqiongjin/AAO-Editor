@@ -1,10 +1,35 @@
 // 工程管理页与工作台共用的轻量 UI 碎片（状态图标、菜单项、展示名）。
 import type { ReactNode } from 'react';
 import { Check, Circle, Upload } from 'lucide-react';
-import type { ChartDifficulty, ProjectChart } from '../ChartProject';
+import type { ChartDifficulty } from '../ChartProject';
 import { chartEffectiveTitle, DIFF_NAMES, projectDisplayName } from '../projectCatalog';
-import { chartStatus } from '../workspaceProject';
+import { chartStatus, type ChartStatusFields } from '../workspaceProject';
+import { getElectronAPI } from '../../app/electronBridge';
+import { projectCoverUrl } from '../../community/assetUrls';
+import { useCoverUrl } from '../../ui/CoverField';
 import { t } from '../../i18n';
+
+export interface ProjectCoverSource {
+  id: string;
+  name: string | null;
+  coverPresent?: boolean;
+  coverVersion?: string | null;
+  coverBlob?: Blob;
+}
+
+/**
+ * 统一解析工程封面 URL（chart-projects 44）：
+ * - 有 `coverBlob`（Web / IndexedDB / 内存测试 / 已加载完整工程）优先走共享 objectURL；
+ * - Electron 摘要无 `coverBlob` 时，若 `coverPresent` 为真则走 `aao-asset://project-cover/?id=...&v=...`。
+ */
+export function useProjectCoverUrl(project?: ProjectCoverSource | null): string | null {
+  const blobUrl = useCoverUrl(project?.coverBlob);
+  if (blobUrl) return blobUrl;
+  if (project?.coverPresent && getElectronAPI()?.projectStore) {
+    return projectCoverUrl(project.id, project.coverVersion);
+  }
+  return null;
+}
 
 export function untitledProjectLabel(): string {
   return t('projects.untitled');
@@ -54,7 +79,7 @@ export function lockedChartsSummary(
   };
 }
 
-export function ChartStatusIcon({ chart, size = 12 }: { chart: ProjectChart; size?: number }) {
+export function ChartStatusIcon({ chart, size = 12 }: { chart: ChartStatusFields; size?: number }) {
   const s = chartStatus(chart);
   if (s === 'uploaded') return <Upload size={size} className="pp-st pp-st--uploaded" />;
   if (s === 'completed') return <Check size={size} className="pp-st pp-st--completed" />;

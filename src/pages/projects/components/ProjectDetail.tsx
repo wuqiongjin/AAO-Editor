@@ -2,7 +2,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import { useNow } from '../../../app/ProviderTree';
-import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
+import { newChartId, type ChartProject, type ChartSummary, type ProjectSummary } from '../../../project/ChartProject';
 import {
   DIFF_COLORS,
   DIFF_SHORT,
@@ -15,7 +15,6 @@ import {
   displayProjectName,
   untitledProjectLabel,
 } from '../../../project/ui/projectUi';
-import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import { postUrl } from '../../../community/bestdori/endpoints';
 import { projectTimeAt, type ProjectSortKey } from '../../../project/projectSort';
 import { t } from '../../../i18n';
@@ -31,8 +30,8 @@ export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton, sort,
   onHome, onSelect, onOpen, onEdit, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, onPublishChart, mutate,
 }: {
-  list: ChartProject[];
-  sel: ChartProject;
+  list: ProjectSummary[];
+  sel: ProjectSummary;
   currentId: string | null;
   listWidth: number;
   onListWidthChange: (width: number) => void;
@@ -44,16 +43,16 @@ export function ProjectDetail({
   onHome: () => void;
   onSelect: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
-  onEdit: (p: ChartProject) => void;
-  onDelete: (p: ChartProject) => void;
-  onChartForm: (v: { project: ChartProject; chart: ProjectChart | null }) => void;
-  onDeleteChart: (v: { project: ChartProject; chart: ProjectChart }) => void;
+  onEdit: (p: ProjectSummary) => void;
+  onDelete: (p: ProjectSummary) => void;
+  onChartForm: (v: { project: ProjectSummary; chart: ChartSummary | null }) => void;
+  onDeleteChart: (v: { project: ProjectSummary; chart: ChartSummary }) => void;
   /** 跳音频页（带作用域）——作用域对象由页面侧构造，这里只负责触发 */
   onOpenAudio: () => void;
   /** 跳预览页（带作用域二级 chartId，chart-preview 02）——同上，作用域由页面侧构造 */
   onPreviewChart: (chartId: string) => void;
   /** 打开发布弹窗（票 11；入口在工程管理页，ADR-0015 §4 后果） */
-  onPublishChart: (chart: ProjectChart) => void;
+  onPublishChart: (chart: ChartSummary) => void;
   mutate: (id: string, fn: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
@@ -67,7 +66,7 @@ export function ProjectDetail({
   const publishEntry = capabilityBlock !== 'unsupported-runtime';
   const verifying = session.verifying;
   const signedOut = capabilityBlock === 'signed-out' && !verifying;
-  const [signInForChart, setSignInForChart] = useState<ProjectChart | null>(null);
+  const [signInForChart, setSignInForChart] = useState<ChartSummary | null>(null);
   // 左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
   // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
   useEffect(() => {
@@ -171,7 +170,7 @@ export function ProjectDetail({
                   />
                   <span className="pc-chart__title">
                     <b>{effectiveTitle(sel, c)}</b>
-                    <small className="pp-muted">{t('projects.notesMeta', { count: countChartNotes(c.notes), time: relTime(c.lastModified, now) })}</small>
+                    <small className="pp-muted">{t('projects.notesMeta', { count: c.noteCount, time: relTime(c.lastModified, now) })}</small>
                   </span>
                   {/* 状态徽标即控件（票 41）：点开就地小菜单切「未完成 / 已完成」，
                       行尾独立「标为完成」文字按钮已撤（低频动作不占动作组宽位）。
