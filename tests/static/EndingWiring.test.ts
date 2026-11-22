@@ -133,7 +133,7 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
 });
 
 describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
-  it('九件素材逐件兜底（读不到 = null，不整组作废、不抛错）', () => {
+  it('十四件素材逐件兜底（读不到 = null，不整组作废、不抛错）', () => {
     expect(assets).toMatch(/stampAp: HTMLImageElement \| null/);
     expect(assets).toMatch(/stampFc: HTMLImageElement \| null/);
     expect(assets).toMatch(/markAp: HTMLImageElement \| null/);
@@ -141,9 +141,14 @@ describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
     expect(assets).toMatch(/judge: HTMLImageElement \| null/);
     expect(assets).toMatch(/particles: HTMLImageElement \| null/);
     expect(assets).toMatch(/maxCombo: HTMLImageElement \| null/);
-    expect(assets).toMatch(/menu: HTMLImageElement \| null/);
-    expect(assets).toMatch(/rhythmGameUI: HTMLImageElement \| null/);
-    expect(assets).toMatch(/loadImage\(urls\.stampAp\)\.catch\(\(\) => null\)/);
+    expect(assets).toMatch(/badgeAp: HTMLImageElement \| null/);
+    expect(assets).toMatch(/badgeFc: HTMLImageElement \| null/);
+    expect(assets).toMatch(/badgeClear: HTMLImageElement \| null/);
+    expect(assets).toMatch(/rankDisc: HTMLImageElement \| null/);
+    expect(assets).toMatch(/rankLetterSs: HTMLImageElement \| null/);
+    expect(assets).toMatch(/rankRibbon: HTMLImageElement \| null/);
+    expect(assets).toMatch(/scoreMedal: HTMLImageElement \| null/);
+    expect(assets).toMatch(/loadImage\(urls\[key\]\)\.catch\(\(\) => null\)/);
     expect(assets).toMatch(/EMPTY_ENDING_ASSETS/);
   });
 
@@ -163,11 +168,13 @@ describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
     expect(frame).toMatch(/if \(img && box\) \{/);
   });
 
-  it('顶栏星徽切 `atlas/MenuAtlas.png` 三格（虹彩 / 粉 / 金），同比例尺同中心', () => {
-    expect(assets).toMatch(/menu: `\$\{ENDING_ASSET_BASE\}\/atlas\/MenuAtlas\.png`/);
-    expect(frame).toMatch(/ap: \[116, 218, 57, 55\]/);
-    expect(frame).toMatch(/fc: \[60, 257, 57, 55\]/);
-    expect(frame).toMatch(/clear: \[275, 230, 47, 45\]/);
+  it('顶栏星徽三态各读自己的派生件（虹彩 / 粉 / 金），同比例尺同中心', () => {
+    expect(assets).toMatch(/badgeAp: `\$\{ENDING_ASSET_BASE\}\/result\/badge-ap\.png`/);
+    expect(assets).toMatch(/badgeFc: `\$\{ENDING_ASSET_BASE\}\/result\/badge-fc\.png`/);
+    expect(assets).toMatch(/badgeClear: `\$\{ENDING_ASSET_BASE\}\/result\/badge-clear\.png`/);
+    expect(frame).toMatch(/ap: \[57, 55\]/);
+    expect(frame).toMatch(/fc: \[57, 55\]/);
+    expect(frame).toMatch(/clear: \[47, 45\]/);
     // 比例尺由最大那格定死（不是每格各自缩到同高）
     expect(frame).toMatch(/const k = u\.hp\('starSize'\) \/ BADGE_INK_W;/);
     // 换回旧图集那三格视为回归（`RhythmGameUI` 现在只切 Score 行的圆星章，不是星徽）
@@ -322,16 +329,18 @@ describe('73 · 结算 Score 行 + SCORE RANK 徽章（推翻 ADR-0016 §5.2）'
     expect(frame).not.toMatch(/preview\.ending\.score|i18n/);
   });
 
-  it('SCORE RANK = 10 档（顶端 SS，实机没有 SS+ 徽章），与打歌 6 档独立；缺切图 / 缺图集走纯字降级', () => {
+  it('SCORE RANK = 10 档（顶端 SS，实机没有 SS+ 徽章），与打歌 6 档独立；缺件走纯字降级', () => {
     expect(frame).toMatch(/scoreRankAt\(input\.score\)/);
-    expect(frame).toMatch(/HUD_SPRITES\.rankDisc/);
-    expect(frame).toMatch(/HUD_SPRITES\.ribbon/);
-    expect(frame).toMatch(/RANK_LETTER_SPRITES\[rank\]/);
+    expect(frame).toMatch(/input\.assets\.rankDisc/);
+    expect(frame).toMatch(/input\.assets\.rankRibbon/);
+    expect(frame).toMatch(/RANK_LETTER_RANKS\.has\(rank\)/);
     expect(frame).toMatch(/ctx\.fillText\(rank,/);
     expect(hud).not.toMatch(/'SS', 'SS\+'/); // 结算 rank 表不接图集里那枚 SS+
-    // 顶栏星徽仍只认 MenuAtlas 三格，不拿 RhythmGameUI 冒充
-    expect(frame).toMatch(/ap: \[116, 218, 57, 55\]/);
-    expect(frame).toMatch(/HUD_SPRITES\.medal/);
+    // 星徽三态是三张整图（票 83），尺寸表仍在绘制侧，不拿 RhythmGameUI 冒充
+    expect(frame).toMatch(/ap: \[57, 55\]/);
+    expect(frame).toMatch(/input\.assets\.scoreMedal/);
+    // 票 83：图集不再进绘制侧（不再有 MenuAtlas 切图坐标）
+    expect(frame).not.toMatch(/MenuAtlas|HUD_SPRITES\.rank|HUD_SPRITES\.ribbon|HUD_SPRITES\.medal/);
   });
 
   it('出场时机复用结算入场的 `q` 尺（行 24%/24%、徽章 20%/20%），不是判完五行才出现', () => {
@@ -340,6 +349,10 @@ describe('73 · 结算 Score 行 + SCORE RANK 徽章（推翻 ADR-0016 §5.2）'
     expect(spec).toMatch(/rankInAt: 20,/);
     expect(spec).toMatch(/rankInDur: 20,/);
     expect(frame).toMatch(/drawResultRow\(ctx, u, input, card, scoreP\)/);
-    expect(frame).toMatch(/drawRankBadge\(ctx, u, input, rankP\)/);
+    // 票 82：徽章不再吃一个整体 alpha，改成窗口内三层各自推进
+    expect(frame).toMatch(/drawRankBadge\(ctx, u, input, rankBadgeProgressAt\(u\.spec, rankQ\)\)/);
+    expect(spec).toMatch(/rankDiscInTo: 55,/);
+    expect(spec).toMatch(/rankLetterScaleFrom: 1\.28,/);
+    expect(spec).toMatch(/rankRibbonRise: 0\.3125,/);
   });
 });

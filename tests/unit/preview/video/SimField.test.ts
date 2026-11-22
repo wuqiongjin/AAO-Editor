@@ -1136,15 +1136,16 @@ const fakeHud = (over: Partial<SimHudAssets> = {}): SimHudAssets => {
   const im = (w: number, h: number) =>
     ({ width: w, height: h, naturalWidth: w, naturalHeight: h } as unknown as HTMLImageElement);
   return {
-    rhythmGameUI: im(1024, 1024),
-    fever: im(512, 512),
+    scoreFill: im(661, 22),
+    pauseBtn: im(64, 64),
+    starFlow: im(110, 100),
     autoLive: im(512, 113),
     scoreBar: im(593, 132),
     lifeBar: im(540, 115),
     ...over,
   };
 };
-const NO_HUD = fakeHud({ rhythmGameUI: null, fever: null, autoLive: null, scoreBar: null, lifeBar: null });
+const NO_HUD = fakeHud({ scoreFill: null, pauseBtn: null, starFlow: null, autoLive: null, scoreBar: null, lifeBar: null });
 
 const hudFrame = (notes: ChartNote[], hud: SimHudAssets, autoMode = false): SimFrameInput => {
   const { spriteIcon } = makeRecordingSprite();
@@ -1276,11 +1277,11 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     const hud = fakeHud();
     const frame = hudFrame([single(2, 3)], hud); // 120 BPM ⇒ 命中在 1s
     const barDraws = (c: RecordedCall[]) => c.filter(([k, v]) =>
-      k === 'drawImage' && (v as unknown[])[0] === hud.rhythmGameUI && (v as unknown[])[2] === 393);
+      k === 'drawImage' && (v as unknown[])[0] === hud.scoreFill);
     const zero = recordingCtx();
     drawSimFrameAt(zero.proxy, frame, 0.2);
     expect(barDraws(zero.calls)).toEqual([]);
-    expect(zero.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.fever)).toEqual([]);
+    expect(zero.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.starFlow)).toEqual([]);
     // 分数组件本身照画，只是槽里是空的
     expect(zero.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.scoreBar))
       .toHaveLength(4);
@@ -1352,12 +1353,12 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     const frame = hudFrame(notes, hud);
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, frame, 10);
-    const bar = calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.rhythmGameUI)
-      .map(([, a]) => a as unknown[]).find((a) => a.length === 9 && a[2] === 393);
-    expect(bar?.slice(1, 5)).toEqual([1, 393, 661, 22]);
-    expect(calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)).toHaveLength(12);
+    const bar = calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.scoreFill)
+      .map(([, a]) => a as unknown[]).find((a) => a.length === 9);
+    expect(bar?.slice(1, 5)).toEqual([0, 0, 661, 22]);
+    expect(calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.starFlow)).toHaveLength(12);
     const boxEnd = calls.findLastIndex(([k, a]) => k === 'drawImage' && a[0] === hud.scoreBar);
-    const firstStar = calls.findIndex(([k, a]) => k === 'drawImage' && a[0] === hud.fever);
+    const firstStar = calls.findIndex(([k, a]) => k === 'drawImage' && a[0] === hud.starFlow);
     expect(calls.slice(boxEnd + 1, firstStar).filter(([k]) => k === 'clip')).toHaveLength(1);
   });
 
@@ -1369,7 +1370,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
       const { proxy, calls } = recordingCtx();
       drawSimHudLayer(proxy, frame, 10, alpha, flowSeconds);
       return calls
-        .filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)
+        .filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.starFlow)
         .map(([, a]) => (a as unknown[])[5] as number);
     };
     const atEnd = starXs(10);
@@ -1401,7 +1402,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
       const { proxy, calls } = recordingCtx();
       drawSimHudLayer(proxy, frame, chartSeconds, videoHudAlphaAt(t, tl), t - simStart);
       return calls
-        .filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)
+        .filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.starFlow)
         .map(([, a]) => (a as unknown[])[5] as number);
     };
     expect(videoHudAlphaAt(w.outAt, tl)).toBe(1);
@@ -1430,7 +1431,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
       [SIM_HUD.lifeGaugeSplit, SIM_HUD.lifeGaugeTop],
       [1, SIM_HUD.lifeGaugeBottom],
     ]));
-    const boxes = calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.rhythmGameUI)
+    const boxes = calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.scoreFill)
       .map(([, v]) => (v as unknown[]).slice(1, 5));
     expect(boxes).not.toContainEqual([303, 112, 39, 22]);
     expect(boxes).not.toContainEqual([360, 123, 39, 22]);
@@ -1489,7 +1490,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     const off: SimFrameInput = { ...base, scene: { ...base.scene, showGameUi: false } };
     const offRec = recordingCtx();
     drawSimFrameAt(offRec.proxy, off, 1.2);
-    for (const img of [hud.scoreBar, hud.lifeBar, hud.rhythmGameUI, hud.autoLive]) {
+    for (const img of [hud.scoreBar, hud.lifeBar, hud.scoreFill, hud.pauseBtn, hud.autoLive]) {
       expect(offRec.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === img)).toEqual([]);
     }
     expect(drawnTexts(offRec.calls)).not.toContain('1000/1000');

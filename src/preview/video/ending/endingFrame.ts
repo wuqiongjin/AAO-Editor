@@ -19,7 +19,7 @@
 //     （用户定案「爆炸特效要压在分数条 / 生命条上面」），它复用 `drawSimHudLayer` 同一支画笔。
 import { HEADER_SANS } from '../../fontStack';
 import { drawSimFrameAt, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simField';
-import { HUD_SPRITES, scoreRankAt, type ScoreRank } from '../sim/simHud';
+import { scoreRankAt, type ScoreRank } from '../sim/simHud';
 import { drawSquareCover, openingPlaceholderCover } from '../opening/openingFrame';
 import {
   ENDING_SPEC,
@@ -107,10 +107,11 @@ const EMBERS_SECONDS = 0.55;
  */
 const RESULT_LABEL = 'Score';
 
-/** 官方 `MenuAtlas` 里已经定位的大号字母切图；其余 10 档缺切图 ⇒ 纯字降级，不许伪造 */
-const RANK_LETTER_SPRITES: Partial<Record<ScoreRank, readonly [number, number, number, number]>> = {
-  SS: HUD_SPRITES.rankLetter,
-};
+/**
+ * 有大号字母素材的档位（票 83 起是**整图** `result/rank-letter-ss.png`，文件名带档位）；
+ * 其余 9 档缺件 ⇒ 纯字降级，不许伪造（票 73 定案：实机结算顶端只到 SS，不画 SS+）。
+ */
+const RANK_LETTER_RANKS: ReadonlySet<ScoreRank> = new Set<ScoreRank>(['SS']);
 
 /** 结算白卡的五档顺序 */
 const ROWS = ['PERFECT', 'GREAT', 'GOOD', 'BAD', 'MISS'] as const;
@@ -129,24 +130,42 @@ const JUDGE_SPRITES: Record<RowName, readonly [number, number, number, number]> 
 };
 
 /**
- * 顶栏星徽的三态切图（`atlas/MenuAtlas.png` **左上角**，2026-10-27 用户指认）：
- * 虹彩 = ALL PERFECT、粉 = FULL COMBO、金 = CLEAR —— 颜色即形态，一张图集切三格。
+ * 顶栏星徽三态（官方图集 `MenuAtlas.png` 左上角，2026-10-27 用户指认）：
+ * 虹彩 = ALL PERFECT、粉 = FULL COMBO、金 = CLEAR —— 颜色即形态。
+ * 票 83 起是**三张单格派生件**（`result/badge-*.png`，坐标表见 `gbp-ui-assets.md` §12），
+ * 不再整张 2048² 图集进包体。
  *
- * 三格**不是同尺寸**（贴纸边 51×49 / 51×49、金 41×39），外发光各向外溢 ~3px（已含在框里）。
+ * 三态**不是同尺寸**（57×55 / 57×55 / 47×45），外发光各向外溢 ~3px（已含在框里）。
  * 画的时候按 `BADGE_INK_W` 统一比例尺、同中心对齐，**保留三颗的相对大小** ——
  * 各自缩到同高的话金星会被放大一圈，和实机不一致。
  * （图集里第四颗是灰星 = 未通关；导出弹窗只有 AP / FC / CLEAR 三档，不接。）
  */
-const BADGE_SPRITES: Record<EndingStamp, readonly [number, number, number, number]> = {
-  ap: [116, 218, 57, 55],
-  fc: [60, 257, 57, 55],
-  clear: [275, 230, 47, 45],
+/** 三态各自的**素材像素尺寸**（派生件原图尺寸，不做缩放） */
+const BADGE_INK: Record<EndingStamp, readonly [number, number]> = {
+  ap: [57, 55],
+  fc: [57, 55],
+  clear: [47, 45],
 };
 /** 比例尺基准 = 最大那格（AP / FC）的框宽：`starSize` 即星徽（含发光）宽 */
 const BADGE_INK_W = 57;
 
-/** `tex_parSet_fever.png` 里的实心五角星（粒子母图） */
-const PAR_STAR = [153, 278, 79, 76] as const;
+/** 按下角形态取星徽素材（三色即三态；缺件那一格不画，不拿别的顶替） */
+function badgeImage(assets: EndingAssets, stamp: EndingStamp): HTMLImageElement | null {
+  if (stamp === 'ap') return assets.badgeAp;
+  if (stamp === 'fc') return assets.badgeFc;
+  return assets.badgeClear;
+}
+
+/** 结算 Score 行圆星章的素材尺寸（`result/score-medal.png`，官方图集 `7,421 29×30` 的派生件） */
+const SCORE_MEDAL = [29, 30] as const;
+
+/** 徽章三层的素材像素尺寸（= 派生件原图尺寸，切图表见 `gbp-ui-assets.md` §12） */
+const RANK_DISC = [140, 132] as const;
+const RANK_LETTER = [86, 82] as const;
+const RANK_RIBBON = [190, 35] as const;
+
+/** `result/star-particle.png` 就是那颗实心五角星（粒子母图），整图绘制 */
+const PAR_STAR = [0, 0, 79, 76] as const;
 
 /**
  * `palette` 切到 `warm` / `cool` / `pink` / `mix` 时用的 4 套固定配色，每套 5 色。
@@ -1585,15 +1604,15 @@ function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFra
     ctx.fill();
   });
 
-  // 星徽：按结算形态取图集里的那一格（虹彩 / 粉 / 金），缺图集则不画。
-  // 三格同一比例尺、同中心（保留相对大小），`starSize` 按最大那格算。
-  const menu = input.assets.menu;
-  const badge = BADGE_SPRITES[input.stamp];
-  if (menu && badge) {
+  // 星徽：按结算形态取那一态的整图（虹彩 / 粉 / 金），缺件则不画。
+  // 三态同一比例尺、同中心（保留相对大小），`starSize` 按最大那格算。
+  const badge = badgeImage(input.assets, input.stamp);
+  if (badge) {
+    const [iw, ih] = BADGE_INK[input.stamp];
     const k = u.hp('starSize') / BADGE_INK_W;
-    const bw = badge[2] * k;
-    const bh = badge[3] * k;
-    ctx.drawImage(menu, badge[0], badge[1], badge[2], badge[3], x + u.hp('starDX') - bw / 2, cy - bh / 2, bw, bh);
+    const bw = iw * k;
+    const bh = ih * k;
+    ctx.drawImage(badge, 0, 0, iw, ih, x + u.hp('starDX') - bw / 2, cy - bh / 2, bw, bh);
   }
 
   // 难度徽章（**正体**，不斜）
@@ -1657,10 +1676,9 @@ function drawResultRow(
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textBaseline = 'middle';
-  const img = input.assets.rhythmGameUI;
-  if (img) {
-    const m = HUD_SPRITES.medal;
-    ctx.drawImage(img, m[0], m[1], m[2], m[3], card.left + padX, cy - medalH / 2, medalH, medalH);
+  const medal = input.assets.scoreMedal;
+  if (medal) {
+    ctx.drawImage(medal, 0, 0, SCORE_MEDAL[0], SCORE_MEDAL[1], card.left + padX, cy - medalH / 2, medalH, medalH);
   }
   ctx.textAlign = 'left';
   ctx.font = `600 ${fpx}px ${HEADER_SANS}`;
@@ -1688,54 +1706,121 @@ function drawResultRow(
   ctx.restore();
 }
 
+/** 徽章三层的入场进度：各自的 alpha + 缩放 / 上浮（票 82） */
+interface RankBadgeProgress {
+  /** 圆盘层 alpha / 缩放（1 = 终态尺寸） */
+  disc: number;
+  discScale: number;
+  /** 字母层 alpha / 缩放 */
+  letter: number;
+  letterScale: number;
+  /** 缎带层 alpha（上浮量按 `rankRibbonRise × (1 - ribbon)` 在绘制侧算，单位是 %W） */
+  ribbon: number;
+}
+
+/** 徽章窗口内的**线性**进度（不缓动；缩放曲线要自己控制节奏） */
+function rawSeg(q: number, from: number, to: number): number {
+  const span = to - from;
+  if (span <= 0) return q * 100 >= to ? 1 : 0;
+  return clamp01((q * 100 - from) / span);
+}
+
 /**
- * 右上 SCORE RANK 徽章（票 73）：官方 `MenuAtlas` 太阳纹圆盘 + 大号字母 + `SCORE RANK` 缎带。
- * 10 档（顶端 SS，实机结算没有 SS+ 徽章）与打歌 6 档独立；只有 SS 的大号字母切图已登记，
- * 其余档 / 缺图集走**纯字**降级。
+ * 圆盘缩放：`from → 1`，带 `over` 过冲（票 82 表：「`0.86 → 1.0`，过冲 1.02」）。
+ * 前 70% 用 `easeOutCubic` 冲到 `1 + over`，后 30% 二次平滑落回 1。
+ * 不用 `smooth()`：它是两端都缓的 smoothstep，弹出手感会发闷，也不是票面写的 ease-out。
+ */
+function discScaleAt(p: number, from: number, over: number): number {
+  if (p >= 1) return 1;
+  const peak = 1 + over;
+  if (p < 0.7) return from + (peak - from) * easeOutCubic(p / 0.7);
+  const rest = (p - 0.7) / 0.3;
+  return peak - (peak - 1) * rest * rest;
+}
+
+/**
+ * 把徽章窗口内的进度 `q`（0 = `rankInAt`，1 = `rankInAt + rankInDur`）折成三层各自的进度。
+ * 每层在自己的 `rankXxxInFrom / InTo`（%窗口）区间里走 smoothstep：
+ * **盘先弹出来 → 字母落位 → 缎带收尾**，白色盘面不再和字母白边同时在低 alpha 阶段显形。
+ */
+function rankBadgeProgressAt(spec: EndingSpec, q: number): RankBadgeProgress {
+  const seg = (from: number, to: number): number => smooth(rawSeg(q, from, to));
+  const disc = seg(spec.rankDiscInFrom, spec.rankDiscInTo);
+  const letter = seg(spec.rankLetterInFrom, spec.rankLetterInTo);
+  const ribbon = seg(spec.rankRibbonInFrom, spec.rankRibbonInTo);
+  return {
+    disc,
+    discScale: discScaleAt(
+      rawSeg(q, spec.rankDiscInFrom, spec.rankDiscInTo),
+      spec.rankDiscScaleFrom,
+      spec.rankDiscOvershoot,
+    ),
+    letter,
+    letterScale: spec.rankLetterScaleFrom + (1 - spec.rankLetterScaleFrom) * letter,
+    ribbon,
+  };
+}
+
+/**
+ * 右上 SCORE RANK 徽章（票 73 / 82）：太阳纹圆盘 + 大号字母 + `SCORE RANK` 缎带，**三层分开画**。
+ * 10 档（顶端 SS，实机结算没有 SS+ 徽章）与打歌 6 档独立；只有 SS 有大号字母素材，
+ * 其余档 / 缺件走**纯字**降级。
+ *
+ * 为什么分层：盘内芯的奶白面与字母的白色模切边都是大面积不透明像素，三层共用一个 alpha 时
+ * 低 alpha 段先显形的是一整块白（用户 2026-11-22 报的"突兀白"）。素材本身是官方形态，
+ * 不改；只把「一起淡入」换成「盘先到、字母落位、缎带收尾」。
  */
 function drawRankBadge(
   ctx: CanvasRenderingContext2D,
   u: EndingUnits,
   input: EndingFrameInput,
-  alpha: number,
+  p: RankBadgeProgress,
 ): void {
-  if (alpha <= 0.002) return;
+  if (p.disc <= 0.002 && p.letter <= 0.002 && p.ribbon <= 0.002) return;
   const rank = scoreRankAt(input.score);
-  const menu = input.assets.menu;
   const size = u.wp('rankSize');
   const x = u.w - u.wp('rankRight') - size;
   const y = u.wp('rankTop');
+  const dh = (RANK_DISC[1] / RANK_DISC[0]) * size;
+  const cx = x + size / 2;
+
   ctx.save();
-  ctx.globalAlpha = alpha;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `800 ${size * 0.34}px ${HEADER_SANS}`;
-  ctx.fillStyle = '#3b3b3b';
-  if (!menu) {
-    ctx.fillText(rank, x + size / 2, y + size / 2);
-    ctx.restore();
-    return;
+
+  // ① 圆盘：以中心为锚点从 `rankDiscScaleFrom` 弹到 1
+  if (input.assets.rankDisc && p.disc > 0.002) {
+    const dw = size * p.discScale;
+    const dhh = dh * p.discScale;
+    ctx.globalAlpha = p.disc;
+    ctx.drawImage(input.assets.rankDisc, 0, 0, RANK_DISC[0], RANK_DISC[1],
+      cx - dw / 2, y + dh / 2 - dhh / 2, dw, dhh);
   }
 
-  const d = HUD_SPRITES.rankDisc;
-  const dh = (d[3] / d[2]) * size;
-  ctx.drawImage(menu, d[0], d[1], d[2], d[3], x, y, size, dh);
-
-  const letter = RANK_LETTER_SPRITES[rank];
-  const lw = size * u.spec.rankLetterScale;
-  if (letter) {
-    const lh = (letter[3] / letter[2]) * lw;
-    ctx.drawImage(menu, letter[0], letter[1], letter[2], letter[3],
-      x + (size - lw) / 2, y + (dh - lh) / 2, lw, lh);
-  } else {
-    ctx.fillText(rank, x + size / 2, y + dh / 2);
+  // ② 字母：居中于盘，从 `rankLetterScaleFrom` 落位
+  if (p.letter > 0.002) {
+    const hasLetter = RANK_LETTER_RANKS.has(rank) && input.assets.rankLetterSs;
+    ctx.globalAlpha = p.letter;
+    if (hasLetter) {
+      const lw = size * u.spec.rankLetterScale * p.letterScale;
+      const lh = (RANK_LETTER[1] / RANK_LETTER[0]) * lw;
+      ctx.drawImage(input.assets.rankLetterSs!, 0, 0, RANK_LETTER[0], RANK_LETTER[1],
+        cx - lw / 2, y + dh / 2 - lh / 2, lw, lh);
+    } else {
+      ctx.font = `800 ${size * 0.34}px ${HEADER_SANS}`;
+      ctx.fillStyle = '#3b3b3b';
+      ctx.fillText(rank, cx, y + dh / 2);
+    }
   }
 
-  const rb = HUD_SPRITES.ribbon;
-  const rw = u.wp('ribbonW');
-  const rh = (rb[3] / rb[2]) * rw;
-  ctx.drawImage(menu, rb[0], rb[1], rb[2], rb[3],
-    x + (size - rw) / 2, y + dh + u.wp('ribbonBelow'), rw, rh);
+  // ③ 缎带：最晚到，从下方 `rankRibbonRise` 上浮
+  if (input.assets.rankRibbon && p.ribbon > 0.002) {
+    const rw = u.wp('ribbonW');
+    const rh = (RANK_RIBBON[1] / RANK_RIBBON[0]) * rw;
+    ctx.globalAlpha = p.ribbon;
+    ctx.drawImage(input.assets.rankRibbon, 0, 0, RANK_RIBBON[0], RANK_RIBBON[1],
+      cx - rw / 2, y + dh + u.wp('ribbonBelow') + (1 - p.ribbon) * u.wp('rankRibbonRise'), rw, rh);
+  }
   ctx.restore();
 }
 
@@ -1983,7 +2068,8 @@ function drawSettlement(
   // 票 73：Score 行与 SCORE RANK 徽章各占入场轴的一段（卡片本体 0.08→0.32、五行 0.26→0.52）。
   // 生产里黑幕是在 drawSettlement **之后**盖的，所以这两件天然画在幕下，不必再乘一次 alpha。
   const scoreP = at(u.spec.resultInAt / 100, (u.spec.resultInAt + u.spec.resultInDur) / 100);
-  const rankP = at(u.spec.rankInAt / 100, (u.spec.rankInAt + u.spec.rankInDur) / 100);
+  // 票 82：徽章不再整体一个 alpha，改成窗口内三层各自推进（见 `rankBadgeProgressAt`）
+  const rankQ = clamp01((q - u.spec.rankInAt / 100) / Math.max(1e-6, u.spec.rankInDur / 100));
 
   const cover = input.cover ?? openingPlaceholderCover(input.coverHue);
   const bleed = cover ? bleedCanvas(cover, u) : null;
@@ -2015,7 +2101,7 @@ function drawSettlement(
   drawCard(ctx, u, input, card, cardP, rowAt, comboP, apP, scoreP);
   ctx.restore();
   // 徽章画在整帧右上角（不随白卡缩放），单独一条淡入
-  drawRankBadge(ctx, u, input, rankP);
+  drawRankBadge(ctx, u, input, rankBadgeProgressAt(u.spec, rankQ));
 }
 
 /** 封面实体：白框 + 投影 + 方形裁切（左半幅的"舞台道具"） */

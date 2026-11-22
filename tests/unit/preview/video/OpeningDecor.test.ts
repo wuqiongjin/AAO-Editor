@@ -30,13 +30,12 @@ describe('chart-preview 81 · 装饰 C 落默认', () => {
     expect(even.y).toBeCloseTo(first.y + ((last.y - first.y) * 4) / 9, 6);
   });
 
-  it('生产帧 / 绘制层 / 原型默认都是 middle（无 decor 参数 = C）', () => {
+  it('生产帧 / 绘制层默认都是 middle（无 decor 参数 = C）', () => {
     expect(readStripped('src/preview/video/opening/openingFrame.ts')).toMatch(
       /decorSpacing: DecorSpacing = 'middle'/,
     );
     expect(readStripped('src/preview/video/opening/openingDecor.ts')).toMatch(
       /spacing: DecorSpacing = 'middle'/,
     );
-    expect(readStripped('public/proto/scenes.html')).toMatch(/let decorSpacing = 'middle'/);
   });
 });

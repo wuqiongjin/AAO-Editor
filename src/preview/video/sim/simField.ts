@@ -1432,7 +1432,7 @@ function drawScoreBox(
   const br = Math.max(0, Math.min(0.5, SIM_HUD.bandRadius)) * band.h;
 
   // 2) 空槽里画填充条：从**官方渐变条 A** 取该档窗口拉伸
-  if (hud.rhythmGameUI && fillW > 0) {
+  if (hud.scoreFill && fillW > 0) {
     ctx.save();
     roundRectPath(ctx, band.x, band.y, fillW, band.h, br);
     ctx.clip();
@@ -1440,13 +1440,13 @@ function drawScoreBox(
     const f0 = Math.min(tier.from, tier.to);
     const f1 = Math.max(tier.from, tier.to);
     ctx.drawImage(
-      hud.rhythmGameUI,
+      hud.scoreFill,
       bar[0] + bar[2] * f0, bar[1], Math.max(1, bar[2] * (f1 - f0)), bar[3],
       band.x, band.y, fillW, band.h,
     );
     // 3) SS+ 档：官方四芒星左→右流动、循环（S-SS 与 SS+ 共用同一条，只 SS+ 叠这层）
-    if (tierIndex === SCORE_TIERS.length - 1 && hud.fever) {
-      drawStarFlow(ctx, hud.fever, band, fillW, flowSeconds, s, alpha);
+    if (tierIndex === SCORE_TIERS.length - 1 && hud.starFlow) {
+      drawStarFlow(ctx, hud.starFlow, band, fillW, flowSeconds, s, alpha);
     }
     ctx.restore();
   }
@@ -1688,10 +1688,10 @@ function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number, p
 
 /** 游戏内暂停钮：只作视觉，不接点击（实时预览仍用底部 PlayBar） */
 function drawPause(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): void {
-  if (!hud.rhythmGameUI) return;
+  if (!hud.pauseBtn) return;
   const p = HUD_SPRITES.pause;
   ctx.drawImage(
-    hud.rhythmGameUI, p[0], p[1], p[2], p[3],
+    hud.pauseBtn, p[0], p[1], p[2], p[3],
     SIM_HUD.pauseX * s, SIM_HUD.pauseY * s, SIM_HUD.pauseW * s, SIM_HUD.pauseH * s,
   );
 }

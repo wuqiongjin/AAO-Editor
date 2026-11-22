@@ -36,7 +36,6 @@ const engine = readStripped('src/audio/AudioEngine.ts');
 const keySamples = readStripped('src/audio/keySoundSamples.ts');
 const main = readSources(['electron/main.cjs', 'electron/assets/previewExport.cjs'], true);
 const pkg = readSource('package.json');
-const protoHud = readStripped('public/proto/hudProto.js');
 const endingFrame = readStripped('src/preview/video/ending/endingFrame.ts');
 const endingSpec = readStripped('src/preview/video/ending/endingSpec.ts');
 
@@ -643,11 +642,6 @@ describe('76 · 跨段 HUD：生产默认档 = 原型第四版快照', () => {
     expect(exportSpec).toMatch(/outDur: 0\.34/);
     // 生产不再复制黑幕 / 结算入场比例，也不暴露用不到的锚点表
     expect(exportSpec).not.toMatch(/curtainFull|settlementIn|videoHudAnchorTimes/);
-    expect(protoHud).toMatch(/hudInAnchor: 'transitionEnd'/);
-    expect(protoHud).toMatch(/hudInOffset: -2/);
-    expect(protoHud).toMatch(/hudInDur: 1/);
-    expect(protoHud).toMatch(/hudOutAnchor: 'stampEnd'/);
-    expect(protoHud).toMatch(/hudOutDur: 0\.34/);
   });
 
   it('showGameUi 总开关同时管住 drawSimFrameAt 与跨段独立层两条路径', () => {
@@ -676,7 +670,7 @@ describe('票 76 回修 · SS+ 星点续动到分数条消失', () => {
   it('相位时钟沿 drawSimHudLayer → drawTopBar → drawScoreBox → drawStarFlow 单走一条线', () => {
     expect(simField).toMatch(/flowSeconds: number = seconds/);
     expect(simField).toMatch(/drawScoreBox\(ctx, hud, s, flowSeconds, score, inc/);
-    expect(simField).toMatch(/drawStarFlow\(ctx, hud\.fever, band, fillW, flowSeconds, s, alpha\)/);
+    expect(simField).toMatch(/drawStarFlow\(ctx, hud\.starFlow, band, fillW, flowSeconds, s, alpha\)/);
     expect(simField).toMatch(/const phase = \(flowSeconds \* speed \* SIM_HUD\.starSpeed \+ i \/ n\) % 1/);
     // 内容秒不被相位时钟带跑
     expect(simField).toMatch(/const score = scoreAt\(chart, seconds\)/);

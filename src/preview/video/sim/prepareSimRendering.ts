@@ -21,7 +21,7 @@ function preparationSeconds(input: SimFrameInput): number[] {
   // 同一档的条形纹理会从缩小绘制变为放大绘制。两端都走到，
   // 避免 Windows 在歌曲中途首次遇到该采样与圆角裁剪组合时编译着色器。
   const hits = input.chart.hitTimes;
-  if (input.scene.showGameUi !== false && input.assets.hud?.rhythmGameUI) {
+  if (input.scene.showGameUi !== false && input.assets.hud?.scoreFill) {
     for (const threshold of SCORE_TIER_THRESHOLDS) {
       const tierScore = Math.round(threshold * SCORE_MAX);
       const index = Math.ceil(hits.length * tierScore / SCORE_MAX) - 1;

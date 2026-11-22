@@ -131,7 +131,7 @@ describe('chart-preview 72 · 归一分（1,000,000 / 7 位定宽）', () => {
     expect(SCORE_TIERS.map((t) => [t.from, t.to])).toEqual([
       [0, 0.16], [0.02, 0.3], [0.55, 1], [0.3, 0.8], [0.08, 0.92], [0, 1],
     ]);
-    expect(HUD_SPRITES.barA).toEqual([1, 393, 661, 22]);
+    expect(HUD_SPRITES.barA).toEqual([0, 0, 661, 22]); // 票 83：派生件整图取景
     expect(scoreTierAt(0)).toBe(0);
     expect(scoreTierAt(60_000)).toBe(1);
     expect(scoreTierAt(480_000)).toBe(3);

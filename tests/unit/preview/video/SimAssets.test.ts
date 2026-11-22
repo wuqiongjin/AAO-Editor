@@ -153,17 +153,20 @@ describe('loadSimAssets · 判定图集（chart-preview 51）', () => {
 describe('打歌 HUD 顶栏素材（chart-preview 71 / 72）', () => {
   const hud = simHudUrls();
 
-  it('五件都在 `assets/game-ui/` 下（拼 BASE_URL，file:// 下也能读）', () => {
+  it('六件都在 `assets/game-ui/` 下（拼 BASE_URL，file:// 下也能读）；图集三格走派生件', () => {
     expect(hud).toEqual({
-      rhythmGameUI: `${GAME_UI_ASSET_BASE}/stageskin/normal/RhythmGameUI.png`,
-      fever: `${GAME_UI_ASSET_BASE}/stageskin/normal/tex_parSet_fever.png`,
+      scoreFill: `${GAME_UI_ASSET_BASE}/hud/score-fill.png`,
+      pauseBtn: `${GAME_UI_ASSET_BASE}/hud/pause.png`,
+      starFlow: `${GAME_UI_ASSET_BASE}/hud/star-flow.png`,
       autoLive: `${GAME_UI_ASSET_BASE}/hud/auto-live.png`,
       scoreBar: `${GAME_UI_ASSET_BASE}/hud/score-bar.png`,
       lifeBar: `${GAME_UI_ASSET_BASE}/hud/life-bar.png`,
     });
+    // 票 83：图集原图不再被读（payload 里也不再放）
+    expect(Object.values(hud).join(' ')).not.toMatch(/MenuAtlas|RhythmGameUI|tex_parSet/);
   });
 
-  it('五件齐了逐件给图；缺件各自为 null，**不**置 missing（那一处留空 / 纯字）', async () => {
+  it('六件齐了逐件给图；缺件各自为 null，**不**置 missing（那一处留空 / 纯字）', async () => {
     const jp = simAssetUrls('jp');
     const all = Object.values(hud);
     const full = await loadSimAssets({
@@ -174,8 +177,9 @@ describe('打歌 HUD 顶栏素材（chart-preview 71 / 72）', () => {
     expect(full.hud.scoreBar?.src).toBe(hud.scoreBar);
     expect(full.hud.lifeBar?.src).toBe(hud.lifeBar);
     expect(full.hud.autoLive?.src).toBe(hud.autoLive);
-    expect(full.hud.rhythmGameUI?.src).toBe(hud.rhythmGameUI);
-    expect(full.hud.fever?.src).toBe(hud.fever);
+    expect(full.hud.scoreFill?.src).toBe(hud.scoreFill);
+    expect(full.hud.pauseBtn?.src).toBe(hud.pauseBtn);
+    expect(full.hud.starFlow?.src).toBe(hud.starFlow);
 
     const partial = await loadSimAssets({
       servers: ['jp'],

@@ -66,12 +66,17 @@ export function simJudgeUrl(): string {
  * `npm run assets:sync` 从外部快照仓取件；读不到 = 那一处留空或纯字，
  * 不置 `missing`（场地照画）。
  *
- * `scoreBar` / `lifeBar` / `autoLive` 是用户自备件（已抠底），其余是官方图集切图。
- * 取景坐标在 `simHud.HUD_SPRITES`，清单见 `public/assets/game-ui/README.txt` §六。
+ * `scoreBar` / `lifeBar` / `autoLive` 是用户自备件（已抠底）；
+ * `scoreFill` / `pauseBtn` / `starFlow` 票 83 起是官方图集的**单格派生件**
+ * （坐标表见 `docs/research/gbp-ui-assets.md` §12），不再整张图集进包体。
  */
 export interface SimHudUrls {
-  rhythmGameUI: string;
-  fever: string;
+  /** 6 档渐变条 A（`hud/score-fill.png`，按档取源窗口） */
+  scoreFill: string;
+  /** 暂停钮（`hud/pause.png`） */
+  pauseBtn: string;
+  /** SS+ 档星点（`hud/star-flow.png`） */
+  starFlow: string;
   autoLive: string;
   scoreBar: string;
   lifeBar: string;
@@ -79,8 +84,9 @@ export interface SimHudUrls {
 
 export function simHudUrls(): SimHudUrls {
   return {
-    rhythmGameUI: `${GAME_UI_ASSET_BASE}/stageskin/normal/RhythmGameUI.png`,
-    fever: `${GAME_UI_ASSET_BASE}/stageskin/normal/tex_parSet_fever.png`,
+    scoreFill: `${GAME_UI_ASSET_BASE}/hud/score-fill.png`,
+    pauseBtn: `${GAME_UI_ASSET_BASE}/hud/pause.png`,
+    starFlow: `${GAME_UI_ASSET_BASE}/hud/star-flow.png`,
     autoLive: `${GAME_UI_ASSET_BASE}/hud/auto-live.png`,
     scoreBar: `${GAME_UI_ASSET_BASE}/hud/score-bar.png`,
     lifeBar: `${GAME_UI_ASSET_BASE}/hud/life-bar.png`,
@@ -89,10 +95,12 @@ export function simHudUrls(): SimHudUrls {
 
 /** 已就绪的 HUD 素材；逐件独立降级（缺哪件那处留空 / 纯字，不整组作废） */
 export interface SimHudAssets {
-  /** 官方图集：6 档渐变条 / 暂停钮 / 结算圆星章 */
-  rhythmGameUI: HTMLImageElement | null;
-  /** 官方粒子图集：SS+ 档四芒星 */
-  fever: HTMLImageElement | null;
+  /** 官方 6 档渐变条 A（分数条填充） */
+  scoreFill: HTMLImageElement | null;
+  /** 官方暂停钮 */
+  pauseBtn: HTMLImageElement | null;
+  /** 官方 SS+ 四芒星 */
+  starFlow: HTMLImageElement | null;
   /** 用户自备：`AUTO LIVE` 胶囊（仅 AUTO 模式显示） */
   autoLive: HTMLImageElement | null;
   /** 用户自备：整块分数组件 */
@@ -102,8 +110,9 @@ export interface SimHudAssets {
 }
 
 export const EMPTY_SIM_HUD_ASSETS: SimHudAssets = {
-  rhythmGameUI: null,
-  fever: null,
+  scoreFill: null,
+  pauseBtn: null,
+  starFlow: null,
   autoLive: null,
   scoreBar: null,
   lifeBar: null,
@@ -392,7 +401,7 @@ async function probeSimServers(opts: {
     const hudUrls = simHudUrls();
     const [
       background, playLine, bandImg, bandSpImg, digits, combo, particles, judge,
-      rhythmGameUI, fever, autoLive, scoreBar, lifeBar,
+      scoreFill, pauseBtn, starFlow, autoLive, scoreBar, lifeBar,
     ] = await Promise.all([
       loadImage(urls.background).catch(() => null),
       loadImage(urls.playLine).catch(() => null),
@@ -405,14 +414,15 @@ async function probeSimServers(opts: {
       // 判定图集（51/71）：缺席只是"判定字走纯字"，不影响场地
       loadImage(simJudgeUrl()).catch(() => null),
       // 打歌 HUD 顶栏（71/72）：逐件缺席只让那一处降级，不影响场地也不置 missing
-      loadImage(hudUrls.rhythmGameUI).catch(() => null),
-      loadImage(hudUrls.fever).catch(() => null),
+      loadImage(hudUrls.scoreFill).catch(() => null),
+      loadImage(hudUrls.pauseBtn).catch(() => null),
+      loadImage(hudUrls.starFlow).catch(() => null),
       loadImage(hudUrls.autoLive).catch(() => null),
       loadImage(hudUrls.scoreBar).catch(() => null),
       loadImage(hudUrls.lifeBar).catch(() => null),
     ]);
     const sprites = digits && combo && particles ? { digits, combo, particles } : null;
-    const hud: SimHudAssets = { rhythmGameUI, fever, autoLive, scoreBar, lifeBar };
+    const hud: SimHudAssets = { scoreFill, pauseBtn, starFlow, autoLive, scoreBar, lifeBar };
     warmupSimSprites(sprites, [background, field, playLine]);
     // 65：普通 / SP 带体各读一次，标量材质、17 点剖面、纵向曲线、体色同源（无第二次回读）；
     // LUT 在这里展开好，帧循环只读数组。

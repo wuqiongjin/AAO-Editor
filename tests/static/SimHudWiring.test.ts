@@ -13,8 +13,6 @@ const field = readStripped('src/preview/video/sim/simField.ts');
 const hud = readStripped('src/preview/video/sim/simHud.ts');
 const assets = readStripped('src/preview/video/sim/simAssets.ts');
 const panel = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
-const protoHud = readStripped('public/proto/hudProto.js');
-const protoScenes = readStripped('public/proto/scenes.html');
 const zh = readStripped('src/i18n/messages/zh-CN.json');
 const en = readStripped('src/i18n/messages/en.json');
 
@@ -167,14 +165,17 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
 });
 
 describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一分）', () => {
-  it('取景坐标照 `README.txt` §六，逐件来自官方图集 / 用户自备件', () => {
-    expect(hud).toMatch(/barA: \[1, 393, 661, 22\]/);
-    expect(hud).toMatch(/pause: \[828, 318, 63, 60\]/);
-    expect(hud).toMatch(/star: \[0, 266, 110, 100\]/);
+  it('取景坐标：派生件取整图（从 0 起），用户自备件仍是切片', () => {
+    // 票 83：三格已裁成独立小图 ⇒ 源矩形从 (0,0) 起，尺寸 = 派生件尺寸
+    expect(hud).toMatch(/barA: \[0, 0, 661, 22\]/);
+    expect(hud).toMatch(/pause: \[0, 0, 64, 64\]/);
+    expect(hud).toMatch(/star: \[0, 0, 110, 100\]/);
     expect(hud).toMatch(/scoreBand: \{ x: 64, y: 10, w: 521, h: 41 \}/);
     expect(hud).toMatch(/lifeBand: \{ x: 78, y: 9, w: 451, h: 50 \}/);
     expect(field).toMatch(/HUD_SPRITES\.barA/);
     expect(field).toMatch(/HUD_SPRITES\.star/);
+    // 图集不再被读取（票 83：MenuAtlas / RhythmGameUI / tex_parSet_fever 不进包体）
+    expect(hud).not.toMatch(/MenuAtlas|rankDisc|rankLetter|ribbon|medal/);
   });
 
   it('分数 = floor(满分 × 已命中 / 总数)，最后一音补齐；7 位定宽', () => {
@@ -222,7 +223,7 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
 
   it('验收修正 · 0 分时分数条必须是空槽（不留左端底珠、不叠星点）', () => {
     expect(field).toMatch(/const fillW = frac <= 0 \? 0 : Math\.max\(band\.h \* 1\.7, band\.w \* frac\)/);
-    expect(field).toMatch(/if \(hud\.rhythmGameUI && fillW > 0\)/);
+    expect(field).toMatch(/if \(hud\.scoreFill && fillW > 0\)/);
   });
 
   it('验收修正 · 生命 gauge 按实机截图走亮绿 / 深绿两段渐变，不用洋红色块', () => {
@@ -233,16 +234,14 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(field).not.toMatch(/lifeGaugePink|lifeGaugeGreen|lifeGaugePinkFrac/);
   });
 
-  it('2026-11-14 · 生命填充内缩露出素材暗框：生产 / 原型同名同值，不再铺满 bbox', () => {
+  it('2026-11-14 · 生命填充内缩露出素材暗框，不再铺满 bbox', () => {
     // life-bar.png 的空槽自带 4~5 素材 px 深色框；填充必须内缩才看得见
-    for (const src of [hud, protoHud]) expect(src).toMatch(/lifeGaugeInset: 4/);
+    expect(hud).toMatch(/lifeGaugeInset: 4/);
     expect(field).toMatch(/SIM_HUD\.lifeGaugeInset/);
     // 填充已收进 paintLifeGauge（rect 由 lifeGaugeRect 内缩），不再铺满 bbox
     expect(field).toMatch(/const \{ x, y, w, h, radius \} = rect;/);
     expect(field).toMatch(/ctx\.fillRect\(x, y, w, h\)/);
     expect(field).not.toMatch(/ctx\.fillRect\(gx, gy, gw, gh\)/);
-    expect(protoHud).toMatch(/ctx\.fillRect\(ix, iy, iw \* ratio, ih\)/);
-    expect(protoScenes).toMatch(/k: 'lifeGaugeInset'/);
   });
 
   it('验收修正 · 顶栏只留一枚总开关，「分数条与生命条显示」自解释、不挂 ? 提示', () => {
@@ -258,79 +257,45 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(en).not.toMatch(/preview\.display\.showGameUi\.hint/);
   });
 
-  it('验收修正 · `+增量` 回退合并、恢复逐命中；两段运动生产 / 原型共用一条曲线', () => {
+  it('验收修正 · `+增量` 回退合并、恢复逐命中；两段运动走同一条曲线', () => {
     expect(hud).toMatch(/export function plusAgesAt\(chart: SimChart, seconds: number, duration: number\)/);
     expect(hud).toMatch(/export function plusMotionAt\(age: number, params: PlusMotionParams\): PlusMotion/);
     expect(hud).not.toMatch(/plusBurstsAt|SimPlusBurst|plusMaxCount|PLUS_EPS|plusFadeOutFrac/);
     expect(field).toMatch(/const text = `\+\$\{inc\}`;/);
     expect(field).not.toMatch(/b\.hits \* inc/);
-    expect(protoScenes).toMatch(/function plusAgesAt\(sec\)/);
-    expect(protoScenes).not.toMatch(/function plusBurstsAt|k: 'plusMaxCount'/);
     // 用户明确要保留的观感旋钮：底亮度 / 位移 / 逐条错开 / 密集演示；
-    // 2026-11-14 定案：冲刺占比 + 淡出位移（右边的缓移过程即淡出），生产与原型同名同值；
+    // 2026-11-14 定案：冲刺占比 + 淡出位移（右边的缓移过程即淡出）；
     // 同日第三版快照把 dur .4→.5 / dash .18→.2 / DX .34→.37 定为新缺省；
     // 2026-11-22 用户把 Y 119→111（与整组顶栏一起上移 8）。
-    for (const src of [hud, protoHud]) {
-      expect(src).toMatch(/plusBaseAlpha: 0\.85/);
-      expect(src).toMatch(/plusDashFrac: 0\.2/);
-      expect(src).toMatch(/plusDriftDX: 0\.02/);
-      expect(src).toMatch(/plusDur: 0\.5/);
-      expect(src).toMatch(/plusX: 0\.45/);
-      expect(src).toMatch(/plusDX: 0\.37/);
-      expect(src).toMatch(/plusY: 111/);
-      expect(src).toMatch(/plusFont: 36/);
-      expect(src).toMatch(/plusRise: 0/);
-      expect(src).toMatch(/plusSpreadX: 0/);
-      expect(src).toMatch(/plusSpreadY: 0/);
-      expect(src).toMatch(/plusMotionAt\(/);
-    }
-    expect(protoHud).toMatch(/plusDemo: true/);
-    expect(protoHud).toMatch(/plusDemoRate: 15/);
-    expect(protoScenes).toMatch(/Math\.min\(6\.07, chartSeconds\)/);
+    for (const re of [
+      /plusBaseAlpha: 0\.85/,
+      /plusDashFrac: 0\.2/,
+      /plusDriftDX: 0\.02/,
+      /plusDur: 0\.5/,
+      /plusX: 0\.45/,
+      /plusDX: 0\.37/,
+      /plusY: 111/,
+      /plusFont: 36/,
+      /plusRise: 0/,
+      /plusSpreadX: 0/,
+      /plusSpreadY: 0/,
+      /plusMotionAt\(/,
+    ]) expect(hud).toMatch(re);
     expect(field).toMatch(/i \* SIM_HUD\.plusSpreadX/);
     expect(field).toMatch(/dashFrac: SIM_HUD\.plusDashFrac/);
     expect(field).toMatch(/driftDX: SIM_HUD\.plusDriftDX/);
-    expect(protoScenes).toMatch(/k: 'plusDemo'/);
-    expect(protoScenes).toMatch(/k: 'plusBaseAlpha'/);
-    expect(protoScenes).toMatch(/k: 'plusDashFrac'/);
-    expect(protoScenes).toMatch(/k: 'plusDriftDX'/);
-    expect(protoScenes).toMatch(/k: 'plusSpreadX'/);
   });
 
-  it('2026-11-22 · 顶栏五项 Y 在生产 / 原型同名同值（整组上移 8）', () => {
-    for (const src of [hud, protoHud]) {
-      expect(src).toMatch(/boxY: 30/);
-      expect(src).toMatch(/lifeY: 30/);
-      expect(src).toMatch(/pauseY: 30/);
-      expect(src).toMatch(/autoY: 142/);
-      expect(src).toMatch(/plusY: 111/);
+  it('2026-11-22 · 顶栏五项 Y 整组上移 8', () => {
+    for (const re of [/boxY: 30/, /lifeY: 30/, /pauseY: 30/, /autoY: 142/, /plusY: 111/]) {
+      expect(hud).toMatch(re);
     }
   });
 
-  it('2026-11-14 · 结算不再叠两层：原型只走生产一帧，补齐 score 并把旋钮折进 ENDING_SPEC', () => {
-    expect(protoScenes).not.toMatch(/drawEndingScore/);
-    expect(protoHud).not.toMatch(/export function drawEndingScore/);
-    expect(protoScenes).toMatch(/score: 1_000_000/);
-    expect(protoScenes).toMatch(/drawEndingFrameAt\(output, W, H, endingInput, sec, endingSpec\(\)\)/);
-    expect(protoScenes).toMatch(/resultFont: HUD\.resultFont \/ 1080 \* 100/);
-    expect(protoScenes).toMatch(/rankSize: HUD\.rankSize \/ 1920 \* 100/);
-  });
-
-  it('验收修正 · ▽ 刻度图标大小可调：生产 / 原型同名同值', () => {
+  it('验收修正 · ▽ 刻度图标大小可调', () => {
     expect(hud).toMatch(/tickH: 4\.24/);
     expect(field).toMatch(/SIM_HUD\.tickH \* s/);
-    expect(protoHud).toMatch(/tickH: 4\.24/);
-    expect(protoHud).toMatch(/HUD\.tickH \* s/);
-    expect(protoScenes).toMatch(/k: 'tickH', label: '刻度图标大小'/);
     expect(field).not.toMatch(/Math\.max\(2\.5 \* s, band\.h \* 0\.13\)/);
-    expect(protoHud).not.toMatch(/Math\.max\(2\.5 \* s, band\.h \* 0\.13\)/);
-  });
-
-  it('票 76 回修 · 原型全片连播与生产同口径：结尾段相位用未钳秒，其余段沿用内容秒', () => {
-    expect(protoHud).toMatch(/alpha = 1, flowSeconds = seconds/);
-    expect(protoHud).toMatch(/const phase = \(flowSeconds \* speed \* HUD\.starSpeed \+ i \/ n\) % 1/);
-    expect(protoScenes).toMatch(/const flowSec = abs >= tl\.endingAt \? abs - tl\.simStart : simSec/);
-    expect(protoScenes).toMatch(/drawSimHud\(ctx, W, H, simSec, plusAgesAt\(simSec\), incPerNote\(\), hudScoreAt\(simSec\), alpha,\s*flowSec\)/);
   });
 });
 

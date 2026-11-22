@@ -281,6 +281,24 @@ export const ENDING_SPEC = {
   /** 徽章单独的出现时刻 / 淡入跨度（%入场轴 q） */
   rankInAt: 20,
   rankInDur: 20,
+  // 票 82 · 徽章三层各自入场。**%徽章窗口**：0 = `rankInAt` 那一刻，100 = `rankInAt + rankInDur`。
+  // 拆层的原因：白色盘面 / 字母白描边是大面积不透明像素，三层共用一个 alpha 时
+  // 低 alpha 阶段先显形的是一整块白；错开时间才像"徽章弹出来、字母落上去"。
+  /** 圆盘层：窗口区间 + 起始缩放（<1 = 从里弹出来） */
+  rankDiscInFrom: 0,
+  rankDiscInTo: 55,
+  rankDiscScaleFrom: 0.86,
+  /** 圆盘过冲：缩放先到 `1 + 该值` 再落回 1（票 82 表：`0.86 → 1.0`，过冲 1.02） */
+  rankDiscOvershoot: 0.02,
+  /** 字母层：延后落位，起点放大（>1 = 从外压进来） */
+  rankLetterInFrom: 28,
+  rankLetterInTo: 100,
+  rankLetterScaleFrom: 1.28,
+  /** 缎带层：最后一层，从下方上浮 */
+  rankRibbonInFrom: 55,
+  rankRibbonInTo: 100,
+  /** 缎带起始下移量（%W；原型 6px @1920） */
+  rankRibbonRise: 0.3125,
 } as const;
 
 /**

@@ -43,8 +43,13 @@ const NO_ASSETS: EndingAssets = {
   judge: null,
   particles: null,
   maxCombo: null,
-  menu: null,
-  rhythmGameUI: null,
+  badgeAp: null,
+  badgeFc: null,
+  badgeClear: null,
+  rankDisc: null,
+  rankLetterSs: null,
+  rankRibbon: null,
+  scoreMedal: null,
 };
 
 /**
@@ -286,6 +291,17 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       ribbonBelow: 0.2083,
       rankInAt: 20,
       rankInDur: 20,
+      // 票 82 · 徽章三层各自入场（%徽章窗口 / 缩放倍率 / 缎带上浮 %W）
+      rankDiscInFrom: 0,
+      rankDiscInTo: 55,
+      rankDiscScaleFrom: 0.86,
+      rankDiscOvershoot: 0.02,
+      rankLetterInFrom: 28,
+      rankLetterInTo: 100,
+      rankLetterScaleFrom: 1.28,
+      rankRibbonInFrom: 55,
+      rankRibbonInTo: 100,
+      rankRibbonRise: 0.3125,
     });
   });
 
@@ -396,32 +412,89 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(texts(settle.calls)).toContain('Score');
   });
 
-  it('票 73 · 有 `RhythmGameUI.png` 时 Score 行贴官方圆星章（缺件留空，不画假章）', () => {
-    const rhythmGameUI = { naturalWidth: 1024, naturalHeight: 1024 } as unknown as HTMLImageElement;
+  it('票 73/83 · 有 `result/score-medal.png` 时 Score 行贴官方圆星章（缺件留空，不画假章）', () => {
+    const medal = { naturalWidth: 29, naturalHeight: 30 } as unknown as HTMLImageElement;
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(
       proxy, 1920, 1080,
-      frameInput({ assets: { ...NO_ASSETS, rhythmGameUI } }), ENDING_SECONDS - 0.1,
+      frameInput({ assets: { ...NO_ASSETS, scoreMedal: medal } }), ENDING_SECONDS - 0.1,
     );
     const hit = calls.filter(([k]) => k === 'drawImage')
-      .map(([, a]) => a as unknown[]).find((a) => a[0] === rhythmGameUI);
-    expect(hit?.slice(1, 5)).toEqual([7, 421, 29, 30]);
+      .map(([, a]) => a as unknown[]).find((a) => a[0] === medal);
+    // 票 83 起是整图派生件 ⇒ 源矩形从 (0,0) 起，尺寸 = 素材尺寸
+    expect(hit?.slice(1, 5)).toEqual([0, 0, 29, 30]);
   });
 
-  it('票 73 · 有 `MenuAtlas.png` 时右上徽章 = 太阳纹盘 + 字母层 + SCORE RANK 缎带', () => {
-    const menu = { naturalWidth: 2048, naturalHeight: 2048 } as unknown as HTMLImageElement;
+  it('票 73/82 · 右上徽章三层各自整图：太阳纹盘 + 字母层 + SCORE RANK 缎带', () => {
+    const rankDisc = { naturalWidth: 140, naturalHeight: 132 } as unknown as HTMLImageElement;
+    const rankLetter = { naturalWidth: 86, naturalHeight: 82 } as unknown as HTMLImageElement;
+    const rankRibbon = { naturalWidth: 190, naturalHeight: 35 } as unknown as HTMLImageElement;
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(
       proxy, 1920, 1080,
-      frameInput({ assets: { ...NO_ASSETS, menu } }), ENDING_SECONDS - 0.1,
+      frameInput({ assets: { ...NO_ASSETS, rankDisc, rankLetterSs: rankLetter, rankRibbon } }), ENDING_SECONDS - 0.1,
     );
-    const boxes = calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === menu)
-      .map(([, a]) => (a as unknown[]).slice(1, 5));
-    expect(boxes).toContainEqual([1080, 1286, 140, 132]); // 太阳纹盘
-    expect(boxes).toContainEqual([1375, 855, 190, 35]); // SCORE RANK 缎带
-    // 2026-11-14：满分档是 SS（实机没有 SS+ 徽章）⇒ 直接贴已登记的大号 SS 字母切图
-    expect(boxes).toContainEqual([1303, 969, 86, 82]);
+    const args = calls.filter(([k]) => k === 'drawImage').map(([, a]) => a as unknown[]);
+    const disc = args.find((a) => a[0] === rankDisc);
+    const letter = args.find((a) => a[0] === rankLetter);
+    const ribbon = args.find((a) => a[0] === rankRibbon);
+    expect(disc?.slice(1, 5)).toEqual([0, 0, 140, 132]);
+    expect(letter?.slice(1, 5)).toEqual([0, 0, 86, 82]);
+    expect(ribbon?.slice(1, 5)).toEqual([0, 0, 190, 35]);
+    // 终态尺寸与票 73 一致：盘 8.125%W、字母 6 成盘宽、缎带 10.4167%W
+    expect(disc?.[7] as number).toBeCloseTo(156, 1);
+    expect(letter?.[7] as number).toBeCloseTo(93.6, 1);
+    expect(ribbon?.[7] as number).toBeCloseTo(200, 0);
+    // 满分档是 SS（实机没有 SS+ 徽章）⇒ 贴大号字母，不再走纯字
     expect(texts(calls)).not.toContain('SS');
+  });
+
+  it('票 82 · 分层入场：窗口前段只有圆盘，字母 / 缎带还在路上（不是整组一起淡入）', () => {
+    const rankDisc = { naturalWidth: 140, naturalHeight: 132 } as unknown as HTMLImageElement;
+    const rankLetter = { naturalWidth: 86, naturalHeight: 82 } as unknown as HTMLImageElement;
+    const rankRibbon = { naturalWidth: 190, naturalHeight: 35 } as unknown as HTMLImageElement;
+    const assets = { ...NO_ASSETS, rankDisc, rankLetterSs: rankLetter, rankRibbon };
+    // 窗口 = rankInAt / rankInDur，落在 transDur 的那条 q 轴上（endingFrame 的 `at()` 同源）
+    const span = Math.max(0.45, ENDING_TRANS_SECONDS * 0.6);
+    const base = ENDING_STAMP_SECONDS + ENDING_TRANS_SECONDS * 0.4;
+    const windowStart = base + span * (ENDING_SPEC.rankInAt / 100);
+    const windowDur = span * (ENDING_SPEC.rankInDur / 100);
+    const at = (pct: number) => {
+      const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+      drawEndingFrameAt(proxy, 1920, 1080, frameInput({ assets }), windowStart + windowDur * (pct / 100));
+      const args = calls.filter(([k]) => k === 'drawImage').map(([, a]) => a as unknown[]);
+      return { calls, args, images: args.map((a) => a[0]) };
+    };
+    /** 某次 drawImage 发生时的 globalAlpha（取它之前最近一次赋值） */
+    const alphaOf = (calls: RecordedCall[], img: unknown): number | undefined => {
+      const i = calls.findIndex(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === img);
+      if (i < 0) return undefined;
+      for (let j = i; j >= 0; j--) if (calls[j]![0] === 'globalAlpha') return calls[j]![1][0] as number;
+      return 1;
+    };
+
+    const early = at(20);
+    expect(early.images).toContain(rankDisc);
+    expect(early.images).not.toContain(rankLetter);
+    expect(early.images).not.toContain(rankRibbon);
+
+    const done = at(100);
+    expect(done.images).toContain(rankDisc);
+    expect(done.images).toContain(rankLetter);
+    expect(done.images).toContain(rankRibbon);
+
+    // 三层各自 alpha（票 82 锁测原句）：中段三个值互不相同，共用一份时这里只会有一个数
+    const mid = at(80);
+    const midAlphas = [rankDisc, rankLetter, rankRibbon].map((img) => alphaOf(mid.calls, img));
+    expect(midAlphas.every((v) => v !== undefined)).toBe(true);
+    expect(new Set(midAlphas).size).toBe(3);
+
+    // 圆盘过冲 1.02（票 82 实现口径表）：峰值段宽度大于终态 156
+    const discPeak = at(35).args.find((a) => a[0] === rankDisc);
+    expect(discPeak?.[7] as number).toBeGreaterThan(156);
+    // 窗口走完回到终态，过冲不得留在排版上
+    const discDone = done.args.find((a) => a[0] === rankDisc);
+    expect(discDone?.[7] as number).toBeCloseTo(156, 1);
   });
 
   it('五行判定 + MAX COMBO 的计数照 `counts` / `maxCombo` 画（四位补零）', () => {
@@ -485,27 +558,25 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(texts(calls)).not.toContain('COMBO');
   });
 
-  it('顶栏星徽按 `atlas/MenuAtlas.png` 切三格（虹彩 / 粉 / 金），不是另一张 HUD 图集', () => {
-    const menu = { naturalWidth: 2048, naturalHeight: 2048 } as unknown as HTMLImageElement;
+  it('顶栏星徽三态各取自己的派生件（虹彩 / 粉 / 金），同一比例尺保留相对大小', () => {
+    const badgeAp = { naturalWidth: 57, naturalHeight: 55 } as unknown as HTMLImageElement;
+    const badgeFc = { naturalWidth: 57, naturalHeight: 55 } as unknown as HTMLImageElement;
+    const badgeClear = { naturalWidth: 47, naturalHeight: 45 } as unknown as HTMLImageElement;
+    const assets = { ...NO_ASSETS, badgeAp, badgeFc, badgeClear };
     const boxOf = (stamp: 'ap' | 'fc' | 'clear'): unknown[] | null => {
       const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
-      drawEndingFrameAt(
-        proxy,
-        1920,
-        1080,
-        frameInput({ stamp, assets: { ...NO_ASSETS, menu } }),
-        ENDING_SECONDS - 0.1,
-      );
+      drawEndingFrameAt(proxy, 1920, 1080, frameInput({ stamp, assets }), ENDING_SECONDS - 0.1);
+      const want = stamp === 'ap' ? badgeAp : stamp === 'fc' ? badgeFc : badgeClear;
       const hit = calls
         .filter(([k]) => k === 'drawImage')
         .map(([, a]) => a as unknown[])
-        .find((a) => a[0] === menu);
+        .find((a) => a[0] === want);
       return hit ? hit.slice(1, 5) : null;
     };
-    // 三格不同尺寸 ⇒ 绘制按**同一比例尺**（`starSize` 对最大那格），保留相对大小
-    expect(boxOf('ap')).toEqual([116, 218, 57, 55]);
-    expect(boxOf('fc')).toEqual([60, 257, 57, 55]);
-    expect(boxOf('clear')).toEqual([275, 230, 47, 45]);
+    // 源矩形 = 素材本体；`clear` 素材更小 ⇒ 同一比例尺下画出来也小
+    expect(boxOf('ap')).toEqual([0, 0, 57, 55]);
+    expect(boxOf('fc')).toEqual([0, 0, 57, 55]);
+    expect(boxOf('clear')).toEqual([0, 0, 47, 45]);
   });
 
   it('AP / FC 是**两套材质**：结算标只认 mark*，不拿中央章那张大图缩下去', () => {

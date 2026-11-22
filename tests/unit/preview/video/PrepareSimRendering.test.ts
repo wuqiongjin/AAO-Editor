@@ -14,7 +14,7 @@ async function preparedScores(hits: number[]) {
   const drawing = { setTransform: vi.fn(), drawImage: vi.fn(), getImageData: vi.fn() };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(drawing as unknown as CanvasRenderingContext2D);
   const frame = {
-    metrics: { w: 1920, h: 1080 }, assets: { hud: { rhythmGameUI: {} } },
+    metrics: { w: 1920, h: 1080 }, assets: { hud: { scoreFill: {} } },
     scene: {}, chart: { elements: [], bands: [], hitTimes: hits },
   } as unknown as SimFrameInput;
   await prepareSimRendering(frame, 1, { yieldNow: async () => {} });
