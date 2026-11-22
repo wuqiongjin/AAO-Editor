@@ -347,6 +347,33 @@ async function getProjectSummary(dataRoot, rawId) {
     return summary;
 }
 
+async function updateSummaryIndexEntry(dataRoot, id, jsonPath, durableDoc, coverDir) {
+    const [projectStat, coverStat] = await Promise.all([
+        statOptional(jsonPath),
+        durableDoc.coverPresent ? statOptional(path.join(coverDir, 'cover.bin')) : Promise.resolve(null),
+    ]);
+    if (!projectStat) return;
+    const summary = summarizeProjectDoc(id, durableDoc, coverStat);
+    await enqueueIndexWrite(dataRoot, async () => {
+        const { index } = await readSummaryIndex(dataRoot);
+        index.entries[id] = buildIndexEntry(projectStat, coverStat, summary);
+        await writeSummaryIndex(dataRoot, index);
+    });
+}
+
+async function touchLastOpened(dataRoot, rawId, now) {
+    const id = safeProjectId(rawId);
+    const dir = projectDir(dataRoot, id);
+    const doc = await readProjectJson(dir);
+    if (!isCurrentDoc(doc)) return false;
+    const nextLastOpened = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+    const durableDoc = { ...doc, lastOpened: nextLastOpened };
+    const jsonPath = path.join(dir, 'project.json');
+    await writeFileAtomic(jsonPath, JSON.stringify(durableDoc));
+    await updateSummaryIndexEntry(dataRoot, id, jsonPath, durableDoc, dir).catch(() => {});
+    return true;
+}
+
 async function putProject(dataRoot, payload) {
     const { id, doc, audio, cover, audioStagedPath, coverStagedPath } = payload || {};
     const dir = projectDir(dataRoot, id);
@@ -367,18 +394,7 @@ async function putProject(dataRoot, payload) {
     const jsonPath = path.join(dir, 'project.json');
     await writeFileAtomic(jsonPath, JSON.stringify(durableDoc));
 
-    const [projectStat, coverStat] = await Promise.all([
-        statOptional(jsonPath),
-        coverPresent ? statOptional(path.join(dir, 'cover.bin')) : Promise.resolve(null),
-    ]);
-    if (projectStat) {
-        const summary = summarizeProjectDoc(id, durableDoc, coverStat);
-        await enqueueIndexWrite(dataRoot, async () => {
-            const { index } = await readSummaryIndex(dataRoot);
-            index.entries[id] = buildIndexEntry(projectStat, coverStat, summary);
-            await writeSummaryIndex(dataRoot, index);
-        });
-    }
+    await updateSummaryIndexEntry(dataRoot, id, jsonPath, durableDoc, dir);
     return true;
 }
 
@@ -546,7 +562,12 @@ async function uploadRefs(dataRoot, rawId) {
 function registerProjectStoreIpc(ipcMain, deps) {
     const currentDataRoot = deps.currentDataRoot;
 
-    ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));
+    ipcMain.handle('project:get', async (_event, rawId) => {
+        const project = await getProject(currentDataRoot(), rawId);
+        if (!project) return null;
+        return { doc: JSON.stringify(project.doc), audio: project.audio, cover: project.cover };
+    });
+    ipcMain.handle('project:touchLastOpened', (_event, rawId, now) => touchLastOpened(currentDataRoot(), rawId, now));
     ipcMain.handle('project:put', (_event, payload) => {
         // issue 232：在渲染侧编码后传文本，嵌套对象不跨 contextBridge / IPC。
         // 解析与闸门在任何文件副作用之前；路径、旧记录保护和素材 intent 仍由 putProject 执行。
@@ -575,6 +596,7 @@ module.exports = {
     countChartNotes,
     getProject,
     getProjectSummary,
+    touchLastOpened,
     putProject,
     listProjects,
     deleteProject,

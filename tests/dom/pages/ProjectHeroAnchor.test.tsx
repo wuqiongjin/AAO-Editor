@@ -7,6 +7,7 @@
 // a / b / b2 是两条报症状的复现形态；c ~ f 锁定定案的边界（防只修一半）。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { useState } from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
@@ -73,12 +74,31 @@ beforeEach(() => {
 });
 
 function renderHub(projects: ChartProject[]) {
-  return renderWithProviders(
-    <ConfigProvider>
-      <AppNavProvider value={navValue}><ProjectsPage /></AppNavProvider>
-    </ConfigProvider>,
+  let setPageRef!: (page: PageId) => void;
+  let currentPage: PageId = 'projects';
+  function HubHost() {
+    const [activePage, setActivePage] = useState<PageId>('projects');
+    currentPage = activePage;
+    setPageRef = setActivePage;
+    return (
+      <ConfigProvider>
+        <AppNavProvider value={{ ...navValue, activePage, setActivePage }}>
+          <ProjectsPage active={activePage === 'projects'} />
+        </AppNavProvider>
+      </ConfigProvider>
+    );
+  }
+  const view = renderWithProviders(
+    <HubHost />,
     { store: new ChartProjectStore(makeMemoryProjectBackend(projects)) },
   );
+  return {
+    ...view,
+    waitAndReturnToProjects: async () => {
+      await waitFor(() => expect(currentPage).toBe('workspace'));
+      await act(async () => { setPageRef('projects'); });
+    },
+  };
 }
 
 /** 卡片显示序：`data-project-id`（DOM 顺序即展示序） */
@@ -158,12 +178,13 @@ describe('issue 40 · 横幅锚跟随排序键（定案 A）', () => {
 
 describe('issue 40 · 打开工程后横幅不滞留老工程（症状 a）', () => {
   it('a) 主页打开 p2 再回来，横幅换成刚打开的 p2', async () => {
-    renderHub(OPEN_PROJECTS);
+    const hub = renderHub(OPEN_PROJECTS);
     await screen.findByText('全部工程');
     await waitFor(() => expect(cardOrder()).toEqual(['p1', 'p2']));
     expect(heroName()).toHaveTextContent('Old');
 
     fireEvent.click(playOf('p2'));
+    await hub.waitAndReturnToProjects();
 
     // 列表已按新 lastOpened 重排（p2 到头），横幅必须跟着走
     await waitFor(() => expect(cardOrder()).toEqual(['p2', 'p1']));
@@ -173,7 +194,7 @@ describe('issue 40 · 打开工程后横幅不滞留老工程（症状 a）', ()
 
 describe('issue 40 · 手动浏览焦点让位（定案 Q2）', () => {
   it('c) 浏览到 p3 后打开 p2：手动焦点让位，回落后排序头（刚打开的 p2）', async () => {
-    renderHub(BROWSE_PROJECTS);
+    const hub = renderHub(BROWSE_PROJECTS);
     await screen.findByText('全部工程');
     await waitFor(() => expect(cardOrder()).toEqual(['p1', 'p2', 'p3']));
     await settleColumns();
@@ -183,6 +204,7 @@ describe('issue 40 · 手动浏览焦点让位（定案 Q2）', () => {
     expect(heroName()).toHaveTextContent('Oldest');
 
     fireEvent.click(playOf('p2'));
+    await hub.waitAndReturnToProjects();
 
     await waitFor(() => expect(cardOrder()).toEqual(['p2', 'p1', 'p3']));
     expect(heroName()).toHaveTextContent('Middle');

@@ -1,7 +1,7 @@
 // CurrentProjectProvider（chart-projects 03 / ADR-0015 §3）：
 // 会话内唯一当前工程 + 当前谱面。进工作台/音频页时 ensure；切工程走 open。
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChartProjectStore, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import { ChartProjectStore, type ChartProject, type ChartSummary, type ProjectChart, type ProjectSummary } from '../../project/ChartProject';
 import { CurrentProjectSession } from '../../project/CurrentProjectSession';
 
 export interface CurrentProjectContextValue {
@@ -12,7 +12,7 @@ export interface CurrentProjectContextValue {
   /** 启动期首次目录 list() 是否已落定（供后台工作台延迟预热避开启动读盘窗口） */
   catalogSettled: boolean;
   ensure: () => Promise<{ project: ChartProject; chart: ProjectChart; created: boolean }>;
-  open: (projectId: string, chartId?: string) => Promise<{ project: ChartProject; chart: ProjectChart }>;
+  open: (projectId: string, chartId?: string, opts?: { notifyCatalog?: boolean }) => Promise<{ project: ProjectSummary; chart: ChartSummary }>;
   reset: () => void;
   notifyCatalogChanged: () => void;
   /** 仅标记某工程在工作台发生了内容编辑（ref 计数，不触发 Provider 重渲） */
@@ -105,10 +105,15 @@ export function CurrentProjectProvider({
     return result;
   }, [notifyCatalogChanged]);
 
-  const open = useCallback(async (nextProjectId: string, nextChartId?: string) => {
+  const open = useCallback(async (
+    nextProjectId: string,
+    nextChartId?: string,
+    opts?: { notifyCatalog?: boolean },
+  ) => {
     const result = await sessionRef.current!.open(nextProjectId, nextChartId);
     setProjectId(result.project.id);
     setChartId(result.chart.id);
+    if (opts?.notifyCatalog) setCatalogEpoch((n) => n + 1);
     return result;
   }, []);
 

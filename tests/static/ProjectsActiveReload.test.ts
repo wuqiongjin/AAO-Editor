@@ -42,8 +42,9 @@ describe('issue 38 · 工程页激活重读的次序锁', () => {
     expect(src).toMatch(/\}, \[active, flushPersist, reload\]\)/);
   });
 
-  it('目录变化那条 reload 不受影响（catalogEpoch 仍在依赖里：写路径的通知照旧生效）', () => {
-    expect(src).toMatch(/useEffect\(\(\) => \{ void reload\(\); \}, \[reload, catalogEpoch\]\)/);
+  it('目录变化那条 reload 在激活且非离开切页时触发，非激活态仅记脏不重读（issue 45）', () => {
+    expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(!activeRef\.current \|\| enteringWorkspaceRef\.current\)/);
+    expect(src).toMatch(/void reload\(\);\s*\}, \[reload, catalogEpoch\]\)/);
   });
 });
 

@@ -76,6 +76,10 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     setDetailId(null);
   }, []);
 
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const enteringWorkspaceRef = useRef(false);
+
   const reload = useCallback(async () => {
     // 落盘原序入库；展示序在下面按当前排序设置算（issue 19 #4）
     const listed = await store.list();
@@ -83,7 +87,10 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     setDetailId((id) => (id && !listed.some((p) => p.id === id) ? mostRecentlyOpenedId(listed) : id));
   }, [store]);
 
-  useEffect(() => { void reload(); }, [reload, catalogEpoch]);
+  useEffect(() => {
+    if (!activeRef.current || enteringWorkspaceRef.current) { enteringWorkspaceRef.current = false; return; }
+    void reload();
+  }, [reload, catalogEpoch]);
 
   // 每次被激活（保活页从隐藏变可见，issue 38）时先 flush 再重读一次。列表的数据源是**工程记录**，
   // 而记录被工作台以 800ms 防抖落盘——防抖那笔落地时**不通知目录**，切页也不 flush：只靠
@@ -101,6 +108,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       return;
     }
     wasActiveRef.current = true;
+    enteringWorkspaceRef.current = false;
     void (async () => {
       await flushPersist();
       await reload();
@@ -125,15 +133,22 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 全仓只允许出现在 enterWorkspace 一处 —— 别再把它和 setCurrent 绑回一起。
   const setCurrent = useCallback(async (id: string, chartId?: string) => {
     await flushPersist();
-    await open(id, chartId);
-    notifyCatalogChanged();
-  }, [flushPersist, open, notifyCatalogChanged]);
+    await open(id, chartId, { notifyCatalog: true });
+  }, [flushPersist, open]);
 
   const enterWorkspace = useCallback(async (id: string, chartId?: string) => {
-    await setCurrent(id, chartId);
-    await waitForRestore(id, chartId);
-    setActivePage('workspace');
-  }, [setCurrent, waitForRestore, setActivePage]);
+    const switchingProject = id !== projectId;
+    enteringWorkspaceRef.current = true;
+    try {
+      await setCurrent(id, chartId);
+      if (!switchingProject) await waitForRestore(id, chartId);
+      setActivePage('workspace');
+    } catch (err) {
+      enteringWorkspaceRef.current = false;
+      if (activeRef.current) void reload();
+      throw err;
+    }
+  }, [projectId, setCurrent, waitForRestore, setActivePage, reload]);
 
   // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
   const deleteProject = useCallback(async (p: ProjectSummary) => {
@@ -159,9 +174,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 创建 / 复制工程的统一落点（issue 23 #1/#3）：留在工程详情页、把新工程设为当前工程、
   // 视图切到它，都不跳工作台。视图切换直接改 detailId 而不走 goDetail —— goDetail 会置
   // navDir='forward' 播一次滑入，而"详情内换工程"本就不该重放动画（票 19 #1 的锁测）。
-  const goDetailKeepAnimation = useCallback((id: string) => {
-    setDetailId(id);
-  }, []);
+  const goDetailKeepAnimation = useCallback((id: string) => { setDetailId(id); }, []);
   const createBlank = useCallback(async (input: { name: string; artist: string; diff: ChartDifficulty }) => {
     await flushPersist();
     const now = Date.now();
@@ -416,13 +429,8 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     </>
   );
 
-  const newButton = (
-    <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />
-  );
-
-  const handleCopyProject = useCallback((id: string) => {
-    void copyProject(id);
-  }, [copyProject]);
+  const newButton = <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />;
+  const handleCopyProject = useCallback((id: string) => { void copyProject(id); }, [copyProject]);
 
   const hub = (
     <ProjectStartView

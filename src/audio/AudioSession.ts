@@ -250,10 +250,7 @@ export class AudioSession {
     this._chartDuration = duration;
     this._loading = true;
     this.emit();
-    const file = opts.audioBlob instanceof File
-      ? opts.audioBlob
-      : new File([opts.audioBlob], opts.audioName);
-    return this.engine.load(file)
+    return this.engine.load(opts.audioBlob)
       .then(() => {
         if (token !== this.inFlightToken) return;
         this._loading = false;

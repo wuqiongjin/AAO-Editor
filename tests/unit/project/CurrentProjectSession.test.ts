@@ -1,6 +1,6 @@
 // chart-projects 03 / 20：当前工程会话。ensure 按选工程规则落盘；open 切工程并刷新 lastOpened；
 // issue 20 起当前工程跨刷新存活（指针注入内存实现，测试不碰真 localStorage）。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ChartProjectStore,
   summarizeProject,
@@ -38,6 +38,16 @@ class MemoryBackend implements ChartProjectBackend {
   }
   async list(): Promise<ProjectSummary[]> {
     return [...this.data.values()].map(summarizeProject);
+  }
+  async getSummary(id: string): Promise<ProjectSummary | null> {
+    const p = this.data.get(id);
+    return p ? summarizeProject(p) : null;
+  }
+  async touchLastOpened(id: string, now: number): Promise<boolean> {
+    const p = this.data.get(id);
+    if (!p) return false;
+    this.data.set(id, { ...p, lastOpened: now });
+    return true;
   }
   async delete(id: string): Promise<void> {
     this.data.delete(id);
@@ -122,6 +132,24 @@ describe('CurrentProjectSession · open', () => {
     expect(result.chart.id).toBe('cHard');
     expect(session.chartId).toBe('cHard');
     expect((await backend.get('songA'))!.lastOpened).toBe(80);
+  });
+
+  it('chart-projects 45 · open 走轻量 touchLastOpened，0 次 backend.get 与 0 次 backend.list，不存在仍抛错', async () => {
+    const backend = new MemoryBackend();
+    await backend.save(saved({ id: 'songA', lastOpened: 1 }));
+    const getSpy = vi.spyOn(backend, 'get');
+    const listSpy = vi.spyOn(backend, 'list');
+    const touchSpy = vi.spyOn(backend, 'touchLastOpened');
+
+    const session = sessionOf(backend, 123);
+    const result = await session.open('songA');
+    expect(result.project.id).toBe('songA');
+    expect(result.chart.id).toBe('c-songA');
+    expect(touchSpy).toHaveBeenCalledWith('songA', 123);
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(listSpy).not.toHaveBeenCalled();
+
+    await expect(session.open('missing')).rejects.toThrow('谱面工程不存在');
   });
 });
 

@@ -51,6 +51,11 @@ export default memo(function ChartSwitcher() {
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
+    setOpenMenu(false);
+    setChartInfo(null);
+  }, [projectId]);
+
+  useEffect(() => {
     if (!projectId) {
       setProject(null);
       return;

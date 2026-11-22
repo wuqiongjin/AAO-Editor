@@ -141,9 +141,11 @@ describe('applyProjectSwitch · 切工程编辑态', () => {
     expect(body.slice(0, body.indexOf('const undo'))).not.toMatch(/setClipboard/);
   });
 
-  it('切工程时谱面代码弹窗随当前工程卸载', () => {
+  it('切工程时不以 key 重挂载工作台，而由 projectId prop 驱动谱面代码弹窗与瞬态编辑态重置', () => {
     const src = readStripped('src/pages/workspace/WorkspacePage.tsx');
-    expect(src).toMatch(/ChartCodeEditorProvider key=\{projectId/);
+    expect(src).not.toMatch(/ChartCodeEditorProvider[^>]*\bkey=/);
+    expect(src).toMatch(/<ChartCodeEditorProvider[^>]*projectId=\{projectId\}/);
+    expect(src).toMatch(/<FinalVirtualCanvas[\s\S]*?projectId=\{projectId\}/);
   });
 
   it('切谱面与切工程走同一条 resetNotes：剪贴板不清、历史不串', () => {

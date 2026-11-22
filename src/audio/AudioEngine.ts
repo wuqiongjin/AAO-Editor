@@ -337,7 +337,7 @@ export class AudioEngine {
   }
 
   /** 解码文件（ArrayBuffer → decodeAudioData），并复位播放进度（若已在播放中则平滑接入，防打断卡顿） */
-  async load(file: File): Promise<void> {
+  async load(file: Blob): Promise<void> {
     const ctx = this.ensureCtx();
     const gen = ++this.loadGen;
     const arrayBuffer = await file.arrayBuffer();

@@ -16,6 +16,7 @@ import {
   listProjects,
   putProject,
   registerProjectStoreIpc,
+  touchLastOpened,
 } from '@/electron/storage/projectStore.cjs';
 import { countChartNotes as rendererCountChartNotes } from '@/src/chart/editing/NoteEditing';
 import type { ChartNote } from '@/src/chart/types';
@@ -226,6 +227,48 @@ describe('chart-projects 44 · index.json 单索引缓存、自愈与缩略图�
       expect(typeof summaryRaw).toBe('string');
       expect(JSON.parse(summaryRaw as string)).toEqual(listParsed[0]);
       expect(await getProjectSummary(root, 'pMissing')).toBeNull();
+
+      const gotWire = await handlers.get('project:get')!(null, 'p1') as { doc: unknown; audio: unknown; cover: unknown };
+      expect(typeof gotWire.doc).toBe('string');
+      expect(JSON.parse(gotWire.doc as string).name).toBe('Song A');
+      expect(await handlers.get('project:touchLastOpened')!(null, 'p1', 9999)).toBe(true);
+      expect(await handlers.get('project:touchLastOpened')!(null, 'pMissing', 9999)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('chart-projects 45 · touchLastOpened 仅更新 project.json 与 index.json，不读 audio.bin/cover.bin 并拦截旧 schema', async () => {
+    const root = tmpDir('aao-touch-last-');
+    try {
+      ensureDataRootLayoutSync(root);
+      await putProject(root, {
+        id: 'p1',
+        doc: makeDoc({ audioIntent: 'set', coverIntent: 'set', lastOpened: 1000 }),
+        audio: new Uint8Array([1, 2, 3]),
+        cover: new Uint8Array([4, 5, 6]),
+      });
+      const legacyJson = join(root, 'projects', 'pLegacy', 'project.json');
+      mkdirSync(join(root, 'projects', 'pLegacy'), { recursive: true });
+      writeFileSync(legacyJson, JSON.stringify({ schemaVersion: 1, notes: [] }), 'utf8');
+
+      const { promises: fsp } = await import('node:fs');
+      const readSpy = vi.spyOn(fsp, 'readFile');
+
+      expect(await touchLastOpened(root, 'p1', 5678)).toBe(true);
+      const readTargets = readSpy.mock.calls.map(([p]) => String(p));
+      expect(readTargets.some((p) => p.endsWith('audio.bin'))).toBe(false);
+      expect(readTargets.some((p) => p.endsWith('cover.bin'))).toBe(false);
+
+      const diskDoc = JSON.parse(readFileSync(join(root, 'projects', 'p1', 'project.json'), 'utf8'));
+      expect(diskDoc.lastOpened).toBe(5678);
+      const listed = await listProjects(root);
+      expect(listed.find((p: { id: string }) => p.id === 'p1')?.lastOpened).toBe(5678);
+
+      // 不存在与旧 schema 返回 false，且不覆写旧 schema
+      expect(await touchLastOpened(root, 'pMissing', 9999)).toBe(false);
+      expect(await touchLastOpened(root, 'pLegacy', 9999)).toBe(false);
+      expect(JSON.parse(readFileSync(legacyJson, 'utf8'))).toEqual({ schemaVersion: 1, notes: [] });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -83,6 +83,12 @@ export function makeMemoryProjectBackend(
       const p = read(disk.get(id));
       return p ? summarizeProject(p) : null;
     },
+    touchLastOpened: async (id, now) => {
+      const p = disk.get(id);
+      if (!p) return false;
+      disk.set(id, { ...p, lastOpened: now });
+      return true;
+    },
     delete: async (id) => {
       disk.delete(id);
     },

@@ -51,9 +51,9 @@ export interface ProjectPutWire {
   coverStagedPath?: string;
 }
 
-/** 主进程 → 渲染进程 get 返回（null = 无数据 / 旧 schema） */
+/** 主进程 → 渲染进程 get 返回（null = 无数据 / 旧 schema；issue 45 起 doc 为 JSON 文本，兼容旧对象桩） */
 export interface ProjectGetWire {
-  doc: ProjectRecordDoc;
+  doc: string | ProjectRecordDoc;
   audio: Uint8Array | null;
   cover: Uint8Array | null;
 }
@@ -204,7 +204,7 @@ function cloneJson<T>(value: T): T {
 
 function blobFromBytes(bytes: Uint8Array | null | undefined): Blob | undefined {
   if (!bytes || bytes.byteLength === 0) return undefined;
-  return new Blob([new Uint8Array(bytes)]);
+  return new Blob([bytes as unknown as Uint8Array<ArrayBuffer>]);
 }
 
 /* ------------------------------------------------------------------ */

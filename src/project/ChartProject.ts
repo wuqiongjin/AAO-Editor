@@ -21,6 +21,7 @@ import {
   type ElectronProjectBridge,
   type ProjectSummaryWire,
   type ProjectUploadRefs,
+  type StoredProjectRecord,
 } from './ChartProjectRecord';
 
 export type ChartDifficulty = 0 | 1 | 2 | 3 | 4;
@@ -155,6 +156,7 @@ export interface ChartProjectBackend {
   save(project: ChartProject, staged?: ProjectBinarySources): Promise<void>;
   list(): Promise<ProjectSummary[]>;
   getSummary?(id: string): Promise<ProjectSummary | null>;
+  touchLastOpened?(id: string, now: number): Promise<boolean>;
   delete(id: string): Promise<void>;
 }
 
@@ -271,6 +273,19 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
     return project ? summarizeProject(project) : null;
   }
 
+  async touchLastOpened(id: string, now: number): Promise<boolean> {
+    const db = await this.db();
+    const existing = await this.rawGet(db, id);
+    if (!isCurrentProjectSchema(existing)) return false;
+    const record = { ...(existing as StoredProjectRecord), lastOpened: now };
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put(record);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
   async delete(id: string): Promise<void> {
     const db = await this.db();
     const existing = await this.rawGet(db, id);
@@ -356,8 +371,12 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
   async get(id: string): Promise<ChartProject | null> {
     assertValidProjectId(id);
     const wire = await this.bridge.get(id);
-    if (!wire?.doc || !isCurrentProjectSchema(wire.doc)) return null;
-    const project = projectFromRecord(id, wire.doc, wire.audio, wire.cover);
+    if (!wire?.doc) return null;
+    const doc = typeof wire.doc === 'string'
+      ? (JSON.parse(wire.doc) as import('./ChartProjectRecord').ProjectRecordDoc)
+      : wire.doc;
+    if (!isCurrentProjectSchema(doc)) return null;
+    const project = projectFromRecord(id, doc, wire.audio, wire.cover);
     this.lastWrittenAudio.set(id, project.audioBlob ?? null);
     this.lastWrittenCover.set(id, project.coverBlob ?? null);
     return project;
@@ -372,6 +391,17 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     }
     const project = await this.get(id);
     return project ? summarizeProject(project) : null;
+  }
+
+  async touchLastOpened(id: string, now: number): Promise<boolean> {
+    assertValidProjectId(id);
+    if (this.bridge.touchLastOpened) {
+      return this.bridge.touchLastOpened(id, now);
+    }
+    const project = await this.get(id);
+    if (!project) return false;
+    await this.save({ ...project, lastOpened: now });
+    return true;
   }
 
   async save(project: ChartProject, staged: ProjectBinarySources = {}): Promise<void> {
@@ -473,6 +503,23 @@ export class ChartProjectStore {
       return this.stabilizeCover(summary);
     }
     return null;
+  }
+
+  async touchLastOpened(id: string, now: number): Promise<boolean> {
+    let ok: boolean;
+    if (this.backend.touchLastOpened) {
+      ok = await this.backend.touchLastOpened(id, now);
+    } else {
+      const existing = await this.backend.get(id);
+      if (!existing) return false;
+      const floor = this.lastOpenedFloor.get(id) ?? 0;
+      await this.backend.save({ ...existing, lastOpened: Math.max(floor, existing.lastOpened, now) });
+      ok = true;
+    }
+    if (ok) {
+      this.lastOpenedFloor.set(id, Math.max(this.lastOpenedFloor.get(id) ?? 0, now));
+    }
+    return ok;
   }
 
   save(project: ChartProject, staged?: ProjectBinarySources): Promise<void> {

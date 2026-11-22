@@ -29,6 +29,7 @@ import type { AppUpdateState, UpdateSource } from './appUpdate';
 export interface ElectronProjectBridge {
   get(id: string): Promise<ProjectGetWire | null>;
   getSummary?(id: string): Promise<string | null>;
+  touchLastOpened?(id: string, now: number): Promise<boolean>;
   put(payload: ProjectPutWire): Promise<unknown>;
   list(): Promise<string | ProjectListItem[]>;
   delete(id: string): Promise<unknown>;

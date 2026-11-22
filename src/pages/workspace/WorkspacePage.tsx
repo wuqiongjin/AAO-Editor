@@ -161,10 +161,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onIsPlayingChange: syncIsPlaying,
   });
   // 关键：把音频元数据稳定暴露给持久化层（替换旧的 audioMetaRef ref 环）
-  // 引用稳定：audioName 和 audioBlob 在 importAudio/clearAudio 时一起变，session 是单例
+  // 引用稳定：audioName/audioLoadGeneration 和 audioBlob 在 importAudio/clearAudio 时一起变（含同名替换），session 是单例
   const audioForPersist = useMemo(
     () => ({ audioName: audioSnap.audioName, audioBlob: audioSession.getAudioBlob() }),
-    [audioSnap.audioName, audioSession],
+    [audioSnap.audioName, audioSnap.audioLoadGeneration, audioSession],
   );
 
   const {
@@ -313,6 +313,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return () => editing.setReadonlyGate?.(null);
   }, [editing, triggerReadonlyPrompt]);
 
+  const clearMarkerState = useCallback(() => {
+    setMarker(null);
+    virtualCanvasRef.current?.clearMarker?.();
+  }, [setMarker]);
+
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
     project: ChartProject,
@@ -337,7 +342,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 随后到达的新几何会走「按秒重锚」（语义 = 保留当前秒）把视图留在非开头位置；
     // `resetToStart` 在几何/高度落地后再落一次权威值（冷启动首次恢复就是这条路径）。
     resetToStart();
-    setMarker(null);
+    clearMarkerState();
     if (!opts.restoreAudio) {
       audioSession.setAudioLocked(audioLocked);
       return;
@@ -353,7 +358,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 替换等解码落地（会话时长落到音频实际值）后由 useAudioAnomaly 的 effect 判。
     audioAnomaly.noteRestoredProject(project, opts);
     await audioReady;
-  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker, audioAnomaly]);
+  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, clearMarkerState, audioAnomaly]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
   // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
@@ -364,7 +369,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   ) => {
     seek(0);
     resetToStart(); // issue 166：同上，音频换掉后时长会变，视口同样归零到 beat 0
-    setMarker(null);
+    clearMarkerState();
     if (project.durationSeconds > 0) setCtxDuration(project.durationSeconds);
     audioSession.hydrateFromProject({
       audioName: project.audioName,
@@ -375,7 +380,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 33 票：这条路径不是 restore，检测入口得自己调用一次——否则替换信号拿的是换音频之前
     // 那份记录的时长（音频页换完音频就误报「与工程记录不一致」，清除音频则旧横幅赖着不走）。
     audioAnomaly.noteRecordAudioChanged(project);
-  }, [audioSession, audioAnomaly, seek, resetToStart, setMarker, setCtxDuration]);
+  }, [audioSession, audioAnomaly, seek, resetToStart, clearMarkerState, setCtxDuration]);
 
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
@@ -624,10 +629,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   return (
     // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（顶栏）与「音符代码」工具（画布）
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
-    // workspaceProject.test.ts 契约：切工程时谱面代码弹窗随当前工程卸载 (key={projectId})
-    // issue 169：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
+    // issue 45：拆除 key={projectId} 破坏性整页重挂载，由 ChartCodeEditorProvider.projectId、
+    // ChartSwitcher 与 FinalVirtualCanvas 各自随 projectId 显式重置瞬态状态，保留 Canvas 与缓存壳。
     <WorkspacePrewarmContext.Provider value={restoreEnabled}>
-    <ChartCodeEditorProvider key={projectId ?? 'none'} projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
+    <ChartCodeEditorProvider projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
     <div className="ws-loading-host" aria-busy={preparing}>
     <div className="ws-shell" inert={preparing || undefined} aria-hidden={preparing || undefined}>
       <WorkspaceToolRail />
@@ -674,6 +679,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             <CrashBoundaryHost scope="canvas" pageId="workspace">
               <FinalVirtualCanvas
                 ref={virtualCanvasRef}
+                projectId={projectId}
                 scrollHostRef={chartAreaRef}
                 onScrollChange={viewSession.onCanvasScrollChange}
                 geometry={geometry}

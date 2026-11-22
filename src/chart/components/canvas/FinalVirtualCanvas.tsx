@@ -72,6 +72,8 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
 });
 
 interface FinalVirtualCanvasProps {
+  /** 当前工程 id（issue 45：拆除顶层 key remount 后用于显式清空工程级瞬态编辑态） */
+  projectId?: string | null;
   /** issue 218 判定线向上偏移（CSS px） */
   judgeLineOffsetY?: number;
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
@@ -110,6 +112,8 @@ export interface FinalVirtualCanvasHandle {
   setFrameInterval?: (intervalMs: number) => void;
   /** 播放起点（ADR-0004 §4）：Editor 经此做回跳。**秒**（时间轴锚定，issue 152）。 */
   getMarkerSeconds?: () => number | null;
+  /** 切谱面/重对齐音频时清空画布持有的标记点（issue 45） */
+  clearMarker?: () => void;
   /** Esc 快照（issue 135）：手势四旗 + 锚点；选区 / 持工具态由 Editor 填进 resolveEscapeTarget。 */
   getEscapeFlags?: () => {
     pen: boolean;
@@ -161,6 +165,7 @@ const offsetVirtualY = (offsetPx: number | undefined, scale: number) =>
     (offsetPx != null && offsetPx > 0 && scale > 0 ? offsetPx / scale : 0);
 
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
+    projectId,
     judgeLineOffsetY,
     onScrollChange,
     scrollHostRef,
@@ -487,6 +492,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const attachBpmInput = useCallback((el: HTMLInputElement | null) => {
         if (el) { el.focus(); el.select(); }
     }, []);
+
+    // issue 45：拆除顶层 key={projectId} 后，切工程时显式重置此前依赖卸载自动归零的瞬态编辑态
+    useEffect(() => {
+        setSlideBuffer(null);
+        setCurveDraft(null);
+        setBpmEdit(null);
+        setExpandedBpmGroupKey(null);
+        setMarkerSeconds(null);
+        setMarkerDomHovered(false);
+        setMarkerLineHovered(false);
+        session.cancel();
+        lastBpmRef.current = 120;
+    }, [projectId, session]);
 
     session.bindWorld({
         notes, selectedItems, armedTool, beatDisplay, chartEndBeat,
@@ -837,6 +855,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做回跳
         getMarkerSeconds: () => markerSeconds,
+        clearMarker: () => {
+            setMarkerSeconds(null);
+            setMarkerDomHovered(false);
+            setMarkerLineHovered(false);
+        },
         getEscapeFlags: () => ({
             ...session.escapeGestureFlags(),
             anchor: slideBuffer !== null || curveDraft !== null,

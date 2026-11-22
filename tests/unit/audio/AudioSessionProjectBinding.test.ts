@@ -12,10 +12,10 @@ class FakeAudioEngine {
   private _duration: number | null = null;
   get duration(): number | null { return this._duration; }
   set simulatedDuration(v: number | null) { this._duration = v; }
-  loadCalls: File[] = [];
+  loadCalls: Blob[] = [];
   clearCalls = 0;
 
-  async load(file: File): Promise<void> { this.loadCalls.push(file); }
+  async load(file: Blob): Promise<void> { this.loadCalls.push(file); }
   clear(): void { this.clearCalls++; this._duration = null; }
   setKeySetId(): void { /* noop */ }
   async previewKeySample(): Promise<void> { /* noop */ }
@@ -70,7 +70,7 @@ describe('票 15 · 音频会话与工程记录的对齐', () => {
     session.hydrateFromProject({ audioName: '曲目.mp3', audioBlob: blob, durationSeconds: 30 });
     expect(session.getSnapshot().audioName).toBe('曲目.mp3');
     expect(session.getAudioBlob()).toBe(blob);
-    expect(engine.loadCalls[0]?.name).toBe('曲目.mp3');
+    expect(engine.loadCalls[0]).toBe(blob);
 
     await Promise.resolve();
     await Promise.resolve();

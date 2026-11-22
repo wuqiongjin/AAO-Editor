@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { ElectronFileProjectBackend, type ChartProject } from '@/src/project/ChartProject';
+import { ChartProjectStore, ElectronFileProjectBackend, type ChartProject } from '@/src/project/ChartProject';
 import { registerProjectStoreIpc } from '@/electron/storage/projectStore.cjs';
 import type { ElectronProjectBridge } from '@/src/app/electronBridge';
 import { tmpDir } from '@/tests/support/fs';
@@ -29,16 +29,17 @@ function fixture(): ChartProject {
 }
 
 function transport(root: string) {
-  const handlers = new Map<string, (event: unknown, payload?: unknown) => unknown>();
-  registerProjectStoreIpc({ handle: (name: string, fn: (event: unknown, payload?: unknown) => unknown) => {
+  const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+  registerProjectStoreIpc({ handle: (name: string, fn: (event: unknown, ...args: unknown[]) => unknown) => {
     handlers.set(name, fn);
   } }, { currentDataRoot: () => root });
-  const invoke = (name: string, payload?: unknown) => Promise.resolve(handlers.get(name)!(null, payload));
+  const invoke = (name: string, ...args: unknown[]) => Promise.resolve(handlers.get(name)!(null, ...args));
   const put = vi.fn((payload: Parameters<ElectronProjectBridge['put']>[0]) => invoke('project:put', payload));
   const bridge: ElectronProjectBridge = {
     put,
     get: (id) => invoke('project:get', id) as ReturnType<ElectronProjectBridge['get']>,
     getSummary: (id) => invoke('project:getSummary', id) as ReturnType<NonNullable<ElectronProjectBridge['getSummary']>>,
+    touchLastOpened: (id, now) => invoke('project:touchLastOpened', id, now) as ReturnType<NonNullable<ElectronProjectBridge['touchLastOpened']>>,
     list: () => invoke('project:list') as ReturnType<ElectronProjectBridge['list']>,
     delete: (id) => invoke('project:delete', id),
     uploadRefs: (id) => invoke('project:uploadRefs', id) as ReturnType<ElectronProjectBridge['uploadRefs']>,
@@ -100,6 +101,26 @@ describe('issue 232 · 工程保存文本传输', () => {
       const cleared = await backend.get(project.id);
       expect(cleared!.audioBlob).toBeUndefined();
       expect(cleared!.coverBlob).toBeUndefined();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('chart-projects 45 · project:get 文本跨桥往返与 store.touchLastOpened 推进 lastOpenedFloor', async () => {
+    const root = tmpDir('aao-touch-floor-');
+    try {
+      const { backend, invoke } = transport(root);
+      const store = new ChartProjectStore(backend);
+      const project = fixture();
+      await store.save(project);
+
+      const wire = await invoke('project:get', project.id) as { doc: unknown };
+      expect(typeof wire.doc).toBe('string');
+
+      expect(await store.touchLastOpened(project.id, 5000)).toBe(true);
+      expect(await store.touchLastOpened('pMissing', 5000)).toBe(false);
+
+      // 即使后续用旧的 lastOpened=1 保存，lastOpenedFloor 也守住 5000 不倒退
+      await store.save({ ...project, lastOpened: 1 });
+      expect((await store.getSummary(project.id))?.lastOpened).toBe(5000);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
