@@ -275,7 +275,6 @@ describe('84 · 相框封面不吃 issue 80 的冷路径', () => {
     // 保活切走会 close 位图；若 pending 随 active 变 false，隐藏的舞台会按「没用自定义」去取内置包
     expect(hook).toMatch(/const pending = Boolean\(projectId && useCustom && hasImage && full == null\)/);
     expect(hook).not.toMatch(/active && projectId && useCustom/);
-    expect(stage).toMatch(/stageReady && \(liveBgPending \|\| !renderingReady\)/);
     expect(stage).toMatch(/if \(!pb \|\| liveBgPending \|\| !frameReady/);
 
     const css = readStripped('src/pages/preview/PreviewPage.css');
@@ -287,5 +286,19 @@ describe('84 · 相框封面不吃 issue 80 的冷路径', () => {
   it('播放器不跟 `assets` 重建（换包 / 封面晚到只重烤场地底图）', () => {
     expect(stage).toMatch(/\}, \[stageReady, audio, gpuBands\]\);/);
     expect(stage).not.toMatch(/\}, \[stageReady, audio, assets, gpuBands\]\);/);
+  });
+});
+
+describe('票 85 · 舞台遮罩与预热门禁', () => {
+  it('遮罩不再等于任意 `!renderingReady`，预热也不跟 scene 身份', () => {
+    const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+    const prepare = readStripped('src/preview/video/sim/prepareSimRendering.ts');
+    // 票 42 那句会把亮度 / 全屏也盖住；收窄后不能再当回归锁
+    expect(stage).not.toMatch(/stageReady && \(liveBgPending \|\| !renderingReady\)/);
+    expect(stage).toMatch(/liveBgPending/);
+    expect(stage).toMatch(/pv-field__pending/);
+    expect(stage).toMatch(/simRenderingNeedsWarmup/);
+    expect(prepare).toMatch(/export function simRenderingNeedsWarmup/);
+    expect(prepare).not.toMatch(/scene === /);
   });
 });

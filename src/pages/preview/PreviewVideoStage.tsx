@@ -29,7 +29,12 @@ import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection, type ActiveNoteIcons } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../../preview/video/sim/prepareSimNoteSprites';
-import { prepareSimRendering } from '../../preview/video/sim/prepareSimRendering';
+import {
+  prepareSimRendering,
+  simRenderingNeedsWarmup,
+  simRenderingWarmupKey,
+  type SimRenderingWarmupKey,
+} from '../../preview/video/sim/prepareSimRendering';
 import { createSimGpuBandRenderer } from '../../preview/video/sim/simBandGpu';
 import {
   buildSimChartInChunks,
@@ -63,6 +68,62 @@ interface DerivedChart {
   noteIcons: ActiveNoteIcons;
   chart: SimChart;
   bpmEvents: BpmEvent[];
+}
+
+/** 上次已经推上画布的冷/包身份（票 85）：用来判断遮罩，不跟 scene 对象身份 */
+interface PaintedField {
+  audio: SimPlaybackAudio | null;
+  density: number;
+  assets: SimAssets;
+  gpu: unknown;
+  bgPackId: SimScene['bgPackId'];
+  fieldPackId: SimScene['fieldPackId'];
+  customLiveBg: SimScene['customLiveBg'];
+  liveBgFit: SimScene['liveBgFit'];
+}
+
+/** 派生表只吃这些字段；亮度 / HUD / 包 ID 变了不必整表重算 */
+function simChartGeometryMatches(derived: DerivedChart, scene: SimScene, noteIcons: ActiveNoteIcons): boolean {
+  return derived.noteIcons === noteIcons
+    && derived.scene.notes === scene.notes
+    && derived.scene.beatDisplay === scene.beatDisplay
+    && derived.scene.noteSpeed === scene.noteSpeed
+    && derived.scene.mirror === scene.mirror
+    && derived.scene.colorAssist === scene.colorAssist;
+}
+
+/** 画面不能给人看：自定义背景还在读、还没出过帧、画质/素材/包对不上。全屏拉伸与亮度不在此列。 */
+function simFieldPixelsUnsafe(
+  liveBgPending: boolean,
+  painted: PaintedField | null,
+  current: {
+    audio: SimPlaybackAudio | null;
+    density: number;
+    assets: SimAssets | null;
+    gpu: unknown;
+    scene: SimScene;
+  },
+): boolean {
+  if (liveBgPending) return true;
+  if (painted == null) return true;
+  if (painted.audio !== current.audio) return true;
+  if (painted.density !== current.density) return true;
+  if (painted.gpu !== current.gpu) return true;
+  if (current.assets == null || painted.assets !== current.assets) return true;
+  if (!simScenePacksMatch(painted, current.scene)) return true;
+  return false;
+}
+
+function simScenePacksMatch(painted: PaintedField, scene: SimScene): boolean {
+  return painted.bgPackId === scene.bgPackId
+    && painted.fieldPackId === scene.fieldPackId
+    && painted.customLiveBg === scene.customLiveBg
+    && painted.liveBgFit === scene.liveBgFit;
+}
+
+function waitingOnPackAssets(painted: PaintedField | null, scene: SimScene, assets: SimAssets): boolean {
+  if (painted == null) return false;
+  return !simScenePacksMatch(painted, scene) && painted.assets === assets;
 }
 
 export interface PreviewVideoStageProps {
@@ -169,9 +230,10 @@ export default function PreviewVideoStage({
   const [preparedIcons, setPreparedIcons] = useState<typeof noteIcons | null>(null);
   /** 票 69：谱面派生表异步进场 —— 首帧不再被 O(notes) 的同步派生压住 */
   const [derived, setDerived] = useState<DerivedChart | null>(null);
-  const [preparedRendering, setPreparedRendering] = useState<{
-    input: SimFrameInput; density: number; audio: SimPlaybackAudio | null; syncToken: VideoSyncToken | null;
-  } | null>(null);
+  /** 已经安全出过的那一帧的冷/包身份（票 85）；跟 scene 对象身份脱钩 */
+  const [paintedField, setPaintedField] = useState<PaintedField | null>(null);
+  const paintedFieldRef = useRef<PaintedField | null>(null);
+  const warmupKeyRef = useRef<SimRenderingWarmupKey | null>(null);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
   // 导出侧的固定档由 07 显式给，不跟这里走
   const density = resolveCanvasDpr(imageQuality);
@@ -227,7 +289,9 @@ export default function PreviewVideoStage({
       if (!cancelled && next) setDerived({ scene, noteIcons, chart: next, bpmEvents });
     });
     return () => { cancelled = true; };
-  }, [scene, noteIcons]);
+    // 亮度 / HUD / 包 ID 不进派生表：跟 scene 身份会把热更新拖去整表重建（票 85）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟几何字段 + 皮肤
+  }, [scene.notes, scene.beatDisplay, scene.noteSpeed, scene.mirror, scene.colorAssist, noteIcons]);
 
   // ---------------- 量舞台（jsdom 无布局：ResizeObserver 缺席时靠挂载 / resize 两条同步路径） ----------------
   const syncFromHost = useCallback(() => {
@@ -260,12 +324,11 @@ export default function PreviewVideoStage({
   // `ready` 本身保持票 05 / 68 的门禁不动，只在它的下游追加「派生表到了」这一条。
   const chartReady = derived != null;
   const stageReady = ready && chartReady;
-  const frameReady = ready && derived?.scene === scene && derived?.noteIcons === noteIcons;
-  const renderingReady = frameReady && preparedRendering?.input.scene === scene
-    && preparedRendering.input.noteIcons === noteIcons && preparedRendering.input.assets === assets
-    && preparedRendering.input.chart === derived?.chart && preparedRendering.input.metrics === metrics
-    && preparedRendering.density === density && preparedRendering.audio === audio
-    && preparedRendering.syncToken === syncToken;
+  const frameReady = ready && derived != null && simChartGeometryMatches(derived, scene, noteIcons);
+  const fieldPending = simFieldPixelsUnsafe(liveBgPending, paintedField, {
+    audio, density, assets, gpu: gpuBands, scene,
+  });
+  const renderingReady = !fieldPending;
 
   const onSecondsChangeRef = useRef(onSecondsChange);
   onSecondsChangeRef.current = onSecondsChange;
@@ -372,11 +435,13 @@ export default function PreviewVideoStage({
   }, [active]);
 
   // 一帧输入：谱面 / 设置 / 场地尺寸 / 素材任一变化都重推（内部按需重建键音事件表并立即重画）。
-  // frameReady 还钉住「派生表属于当前 scene / 皮肤」：换谱面重新派生那几帧不推过期的表。
+  // frameReady 钉住「派生表属于当前几何」：换速度 / 镜向那几帧不推过期的表。
+  // 票 85：GPU 预热只走冷路径；亮度 / HUD 直接 setFrame。换包时旧素材还在就不推，免得把新包 ID 记成已画。
   useEffect(() => {
     const pb = playbackRef.current;
     const spriteIcon = spriteIconRef.current;
     if (!pb || liveBgPending || !frameReady || !derived || !spriteIcon || !assets || !metrics || assets.missing) return;
+    if (waitingOnPackAssets(paintedFieldRef.current, scene, assets)) return;
     const input: SimFrameInput = {
       chart: derived.chart,
       scene,
@@ -386,7 +451,31 @@ export default function PreviewVideoStage({
       spriteIcon,
       bpmEvents: derived.bpmEvents,
     };
+    const nextKey = simRenderingWarmupKey(density, assets, gpuBands);
+    const needsWarmup = simRenderingNeedsWarmup(warmupKeyRef.current, nextKey);
     let cancelled = false;
+    const commit = () => {
+      if (cancelled) return;
+      pb.setFrame(input);
+      warmupKeyRef.current = nextKey;
+      const painted: PaintedField = {
+        audio,
+        density,
+        assets,
+        gpu: gpuBands,
+        bgPackId: scene.bgPackId,
+        fieldPackId: scene.fieldPackId,
+        customLiveBg: scene.customLiveBg,
+        liveBgFit: scene.liveBgFit,
+      };
+      paintedFieldRef.current = painted;
+      setPaintedField(painted);
+      if (syncToken != null) onSyncComplete?.(syncToken);
+    };
+    if (!needsWarmup) {
+      commit();
+      return;
+    }
     void prepareSimRendering(input, density, { isCancelled: () => cancelled, bandRenderer: gpuBands?.draw })
       .catch((e) => {
         console.warn('[preview] 仿真场绘制预热失败（按原路径渲染）:', e);
@@ -394,9 +483,7 @@ export default function PreviewVideoStage({
       })
       .then((prepared) => {
         if (cancelled || !prepared) return;
-        pb.setFrame(input);
-        setPreparedRendering({ input, density, audio, syncToken });
-        if (syncToken != null) onSyncComplete?.(syncToken);
+        commit();
       });
     return () => { cancelled = true; };
     // skinVersion 是"图集到位"的信号：它不进 input，但要触发重推（暂停态那帧是缺图画的）
@@ -460,8 +547,8 @@ export default function PreviewVideoStage({
         ) : (
           <p className="preview-stage__pending">{t('preview.video.loading')}</p>
         )}
-        {/* 推帧未就绪或自定义背景还在读：盖住保活 canvas 上的旧场地（包图 / 已 close 的自定义图） */}
-        {stageReady && (liveBgPending || !renderingReady) ? (
+        {/* 不安全像素才盖：首帧 / 自定义背景还在读 / 换包 / 画质。亮度与全屏拉伸不盖。 */}
+        {stageReady && fieldPending ? (
           <p className="preview-stage__pending pv-field__pending" role="status">{t('preview.video.loading')}</p>
         ) : null}
       </div>

@@ -40,6 +40,35 @@ function preparationSeconds(input: SimFrameInput): number[] {
 }
 
 /**
+ * 冷路径身份（票 85）：density / 素材 / GPU 变了才重跑预热。
+ * scene 身份、亮度、HUD、全屏/窗口尺寸不在此列 —— 那些走 `setFrame`（可留一帧拉伸）。
+ * 画布像素随 density 变；跟场地 CSS 尺寸走会在播放中 `getImageData`，全屏往返会卡一下。
+ */
+export interface SimRenderingWarmupKey {
+  density: number;
+  assets: unknown;
+  gpu: unknown;
+}
+
+export function simRenderingWarmupKey(
+  density: number,
+  assets: unknown,
+  gpu: unknown,
+): SimRenderingWarmupKey {
+  return { density, assets, gpu };
+}
+
+export function simRenderingNeedsWarmup(
+  prepared: SimRenderingWarmupKey | null,
+  next: SimRenderingWarmupKey,
+): boolean {
+  if (prepared == null) return true;
+  return prepared.density !== next.density
+    || prepared.assets !== next.assets
+    || prepared.gpu !== next.gpu;
+}
+
+/**
  * 当前素材 / 场地尺寸的完整绘制准备（issue 80）。
  * 1px touch 只会排队，不能证明 GPU 冷路径已完成：用独立的 CPU 回读画布接收完整结果，
  * 播放主画布保持原来的 GPU 后端。逐帧让出；输入变化或卸载时丢弃旧任务。
