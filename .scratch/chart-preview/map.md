@@ -34,6 +34,7 @@
 
 ## Decisions so far
 
+- [2026-11-23 调研 · 票 87] 播放中全屏进出与设置 / 导出 / 切谱浮层卡顿是**两条链**：全屏 = `ResizeObserver` → 新 metrics → `setFrame` 同步烘场地底图 + combo 阴影 + 主画布 / WebGL 重置；浮层 = portal 全视口 scrim 合成（工作台设置另加 `backdrop-filter`，导出另加 WebCodecs probe）。票 85 已去掉加载遮罩与 `prepareSimRendering`，没有拿掉这条同步重建。未改产品代码。→ [票 87](./issues/87-播放中全屏与浮层卡顿.md)
 - [2026-11-23 落地 · 票 86] 切动态形态那一帧的加载文案不再贴顶：`is-filled` 舞台下的直接子级文案用 `align-self: center` 收回居中，切换时序与性能路径未动；真机目测待用户验收。→ [票 86](./issues/86-动态预览切形态加载文案位置跳变.md)
 - [2026-11-23 落地 · 票 85] 动态预览调设置 / 全屏不再误出「正在读取场地素材」：舞台遮罩只盖不安全像素；亮度 / 全屏留旧帧只 `setFrame`；`prepareSimRendering` 只在 density / 素材 / GPU 变时跑。→ [票 85](./issues/85-动态预览调设置误出加载态.md)
 - [2026-11-23 落地 · 票 42] 自定义表演背景进仿真场：工程 sidecar 懒加载、网格第一格、铺设计面 cover/contain、实时 / 导出 / 开场③段同一张图、不进社区。→ [票 42](./issues/42-自定义表演背景图.md)
