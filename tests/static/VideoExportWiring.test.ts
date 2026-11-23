@@ -222,7 +222,7 @@ describe('07 · 导出与预览解耦（不读窗口，不阻塞页面）', () =
   it('导出入口在动态形态工具栏（票 20 定案），全屏仍在末位', () => {
     const toolbar = page.slice(page.indexOf("mode === 'static' ? ("));
     // 84 起面板还接一个作用域工程封面（相框用），这里只锁"动态形态里有它"
-    expect(toolbar).toMatch(/<PreviewDisplayPanel mode="video" cover=\{stageCover\} \/>/);
+    expect(toolbar).toMatch(/<PreviewDisplayPanel mode="video" cover=\{stageCover\.image\} \/>/);
     expect(toolbar).toMatch(/<VideoExportControl/);
     expect(toolbar.indexOf('<VideoExportControl')).toBeLessThan(toolbar.indexOf('<PreviewEnterFullscreenButton'));
   });

@@ -254,3 +254,23 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// 票 84（相框封面）× issue 80（首播冷路径）：封面是**后到**的一张图，接线不能让它的晚到
+// 把场地素材与播放器重来一遍 ——
+//   ① 解码未落定前不取素材（否则按"空相框"取两遍、`assets` 换两次身份）；
+//   ② 播放器只在「音频身份 / 就绪门禁 / GPU 渲染器」变化时重建，素材换代走 `setFrame`。
+describe('84 · 相框封面不吃 issue 80 的冷路径', () => {
+  const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+  const page = readStripped('src/pages/preview/PreviewPage.tsx');
+
+  it('页面把 `pending` 交给舞台当取素材门禁', () => {
+    expect(page).toMatch(/cover=\{stageCover\.image\}/);
+    expect(page).toMatch(/coverPending=\{stageCover\.pending\}/);
+    expect(stage).toMatch(/if \(coverPending\) return;/);
+  });
+
+  it('播放器不跟 `assets` 重建（换包 / 封面晚到只重烤场地底图）', () => {
+    expect(stage).toMatch(/\}, \[stageReady, audio, gpuBands\]\);/);
+    expect(stage).not.toMatch(/\}, \[stageReady, audio, assets, gpuBands\]\);/);
+  });
+});

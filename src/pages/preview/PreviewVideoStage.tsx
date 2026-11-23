@@ -81,6 +81,11 @@ export interface PreviewVideoStageProps {
    * 已解码的图（页面用 `useStageCoverImage` 备好）；null = 无封面 → 相框留空。
    */
   cover?: CanvasImageSource | null;
+  /**
+   * 封面仍在解码（票 84 + issue 80）：true 时**先不取场地素材** —— 否则会按"空相框"取一遍、
+   * 解码完再取第二遍，`assets` 两次换身份会把播放器和 BGM 一起重建。
+   */
+  coverPending?: boolean;
   /** 作用域工程的音频（null = 无音频 → 引擎走合成时间线） */
   audio: SimPlaybackAudio | null;
   /** 键音素材包（`settings.audio.keySet`） */
@@ -116,6 +121,7 @@ export default function PreviewVideoStage({
   scene,
   duration,
   cover = null,
+  coverPending = false,
   audio,
   keySetId,
   seVolume,
@@ -185,17 +191,21 @@ export default function PreviewVideoStage({
   // 背景 / 轨道包（41）换了也重读 —— 包 ID 随 scene 进来（settings.preview），
   // 实时预览与视频导出 / 开场第③段因此永远是同一份素材（ADR-0018 §5）。
   useEffect(() => {
+    // 封面还在解码就先不取素材（票 84 + issue 80）：先按"空相框"取一遍、解码完再取第二遍，
+    // 等于把场地图 / 带体 / 精灵 / HUD 解码两次，`assets` 还会两次换身份（第二次连播放器一起重建、
+    // 重新解码 BGM）。等解码落定再取，全程只有一次。
+    if (coverPending) return;
     let cancelled = false;
     void loadSimAssets({
       bandSrc: noteIcons.slideBand.src,
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: scene?.fieldPackId, background: scene?.bgPackId },
-      // 相框封面（票 84）：换封面 / 换工程要重新读一次素材 —— `assets` 换身份才会重建场地底图
+      // 相框封面（票 84）：`assets` 换身份才会重建场地底图，所以取素材时就得带上
       cover,
     })
       .then((next) => { if (!cancelled) setAssets(next); });
     return () => { cancelled = true; };
-  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId, cover]);
+  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId, cover, coverPending]);
 
   // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）。
   // 票 69：不再用同步 useMemo —— 挪到 effect 里分批 yieldToMainThread()，让骨架 /「正在读取场地素材…」
@@ -254,7 +264,7 @@ export default function PreviewVideoStage({
   const onSecondsChangeRef = useRef(onSecondsChange);
   onSecondsChangeRef.current = onSecondsChange;
 
-  // ---------------- 回放：只在「音频身份」或「素材」变化时重建（引擎不随设置面板抖） ----------------
+  // ---------------- 回放：只在「音频身份 / 就绪门禁」变化时重建（引擎不随设置面板抖，也不随素材换代） ----------------
   useEffect(() => {
     const canvas = canvasRef.current;
     const currentAssets = assets;
@@ -300,10 +310,12 @@ export default function PreviewVideoStage({
       }
       pb.dispose();
     };
-    // 只有音频身份与素材进场会重建引擎：keySetId / seVolume / density 走下面的 setOptions
+    // 只有音频身份 / 就绪门禁 / GPU 渲染器会重建引擎：keySetId / seVolume / density 走 setOptions，
+    // **素材换代也走 `setFrame`**（换包、相框封面晚到都只重建场地底图）。把 `assets` 放进依赖会
+    // 让封面一到就把引擎拆了重建 —— 那是重新解码一遍 BGM，issue 80 的冷路径就白做了。
     // stageReady 是布尔量（派生表首次到位才翻一次），换谱面重新派生不会重建引擎 / 重载音频
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟「音频身份 + 素材进场」：别的旋钮走 setOptions，重建就要重载音频
-  }, [stageReady, audio, assets, gpuBands]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟「音频身份 + 就绪门禁 + 渲染器」
+  }, [stageReady, audio, gpuBands]);
 
   // 全屏曲中长暂停后，Windows 重新打开预览的音频流会阻塞起播数百毫秒。
   const canResume = tick.seconds < duration;
@@ -321,7 +333,7 @@ export default function PreviewVideoStage({
       document.removeEventListener('visibilitychange', sync);
       pb.setKeepPausedAudioReady(false);
     };
-  }, [active, fullscreen, canResume, stageReady, audio, assets, gpuBands]);
+  }, [active, fullscreen, canResume, stageReady, audio, gpuBands]);
 
   // 引擎侧 / 画布侧的旋钮：不重建引擎（重建一次就要把音频重新解码）
   useEffect(() => {

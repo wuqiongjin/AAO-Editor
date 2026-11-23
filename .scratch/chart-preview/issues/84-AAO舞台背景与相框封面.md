@@ -164,3 +164,18 @@ Spec 轴与 Standards 轴各跑了一遍，落下来的修改：
    2.0 > ④ 段 1.8 ⇒ 尾段 0.2s 落在切到打歌之后，但 p = 0.9 时缩放差 0.02%、扫光 / 屏沿残影 ≤3%，接缝不可见。
 3. **原型旋钮**：`?scene=opening` 右侧「封面登场（④ 相框封面）」= 动效时长 / 起始缩放 / 扫光强度 / 屏沿亮度；
    `?scene=ending` 右侧「结算 · 封面卡柔光（0 = 不加）」= 浓度 / 光斑半径。URL 同名参数可直接贴。
+
+### 第五轮复核（2026-11-23 · issue 80 性能联动）
+
+用户要求确认背景图 / 封面不吃掉 issue 80 的优化。复核结论与两处接线修正：
+
+- **每帧成本不变**：相框封面跟背景一起在场地底图（issue 80 的 static field bitmap）里烤好，
+  播放期仍只有 `drawImage(fieldBitmap)` 一次。新增锁测：`SimField.test.ts`
+  「AAO 背景 + 相框封面一起进场地底图（播放期不重画封面）」。
+- **封面晚到不再重取素材**：`useStageCoverImage` 增加 `pending`，`PreviewVideoStage` 在解码
+  落定前不调 `loadSimAssets` —— 否则会按"空相框"取一遍、解码完再取一遍（场地图 / 带体 /
+  精灵 / HUD 解码两遍，`assets` 换两次身份）。原型接线锁在 `PreviewPageWiring.test.ts`。
+- **播放器不再随素材重建**：`createSimPlayback` 的 effect 依赖去掉 `assets`（换包 / 封面晚到
+  只走 `setFrame` + 重烤底图）。原先 `assets` 换身份会把播放器拆了重建、重新解码 BGM。
+- 未改变：底图尺寸 / 重建触发条件、GPU 带体、HUD 与音符预热。
+- 边界：只做了单测与静态接线（139 文件 1432 例），未做 PresentMon / 高刷实机复测。

@@ -75,7 +75,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
 
   // 相框封面（票 84 · ADR-0018 §7）：取**作用域工程**的封面（不是"当前工程" —— 预览页可以看别人的工程），
-  // 与开场片头 / 结算卡同一口径。解码一次，舞台与面板 hover 大预览共用。
+  // 与开场片头 / 结算卡同一口径。解码一次，舞台与面板 hover 大预览共用；
+  // `pending` 交给舞台当取素材门禁（issue 80：别按"空相框"先取一遍再重取）。
   const stageCover = useStageCoverImage(project?.coverBlob ?? null);
 
   // 静态预览的看谱档：缩放 / 全屏是"这一屏怎么看"（页面内 state，不落设置）；
@@ -490,7 +491,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 />
               ) : (
                 <div className="preview-controls">
-                  <PreviewDisplayPanel mode="video" cover={stageCover} />
+                  <PreviewDisplayPanel mode="video" cover={stageCover.image} />
                   {/* 导出（07）：票 20 定案，动态形态工具栏的这一枚随视频导出落地；全屏在末位 */}
                   <VideoExportControl
                     disabled={videoScene == null}
@@ -552,7 +553,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 initialSeconds={videoPlaybackSeconds}
                 onSecondsChange={setVideoPlaybackSeconds}
                 duration={project?.durationSeconds ?? 0}
-                cover={stageCover}
+                cover={stageCover.image}
+                coverPending={stageCover.pending}
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}
                 seVolume={settings.audio.seVolume}

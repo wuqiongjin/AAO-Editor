@@ -145,6 +145,47 @@ it('静止场地按最终物理像素和播放时的高质量滤波合成', () =
   }
 });
 
+// 84 × issue 80：相框封面必须跟背景一起烤进**同一张**场地底图 —— 播放期仍然只 drawImage 一次，
+// 不会因为多了一张封面就每帧多一层缩放 / 裁剪。漏进播放期 = 帧预算里多一笔（高刷尤其要命）。
+it('AAO 背景 + 相框封面一起进场地底图（播放期不重画封面）', () => {
+  const { proxy, calls } = recordingCtx();
+  const bitmap = {} as ImageBitmap;
+  vi.stubGlobal('OffscreenCanvas', class {
+    getContext() { return proxy; }
+    transferToImageBitmap() { return bitmap; }
+  });
+  try {
+    const frame = frameOf([], makeRecordingSprite().spriteIcon);
+    const bg = { width: 2048, height: 1024 } as unknown as HTMLImageElement;
+    const cover = { width: 512, height: 512 } as unknown as ImageBitmap;
+    frame.assets.background = bg;
+    frame.assets.stageFrame = { cover };
+    expect(prepareSimFieldBitmap(frame, 1)).toBe(bitmap);
+    // 底图烘焙顺序：背景图 → 相框封面（之后才是场地图 / 判定线 / 亮度罩）
+    const drawn = calls.filter(([k]) => k === 'drawImage').map(([, a]) => (a as unknown[])[0]);
+    expect(drawn.slice(0, 2)).toEqual([bg, cover]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+// 同一口径的另一半：有底图时**整块场地层都不再重画**（背景 / 相框封面 / 场地图 / 判定线）。
+// 这条是 issue 80 的底线 —— 谁把某层偷偷挪回播放期，先在这里红。
+it('有场地底图时播放帧不重画背景 / 相框封面', () => {
+  const { proxy, calls } = recordingCtx();
+  const frame = frameOf([], makeRecordingSprite().spriteIcon);
+  const bg = { width: 2048, height: 1024 } as unknown as HTMLImageElement;
+  const cover = { width: 512, height: 512 } as unknown as ImageBitmap;
+  frame.assets.background = bg;
+  frame.assets.stageFrame = { cover };
+  const bitmap = {} as ImageBitmap;
+  drawSimFrameAt(proxy, frame, 0, { fieldBitmap: bitmap });
+  const drawn = calls.filter(([k]) => k === 'drawImage').map(([, a]) => (a as unknown[])[0]);
+  expect(drawn[0]).toBe(bitmap);
+  expect(drawn).not.toContain(bg);
+  expect(drawn).not.toContain(cover);
+});
+
 /** 65：离屏 RGBA 缓冲的假画布（记录 createImageData / putImageData，能直接读像素） */
 interface FakeScratch {
   width: number;
