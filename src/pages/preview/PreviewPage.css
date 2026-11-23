@@ -992,6 +992,12 @@
   text-align: center;
 }
 
+/* 票 86：切形态那一帧的加载文案直接挂在舞台上；is-filled 把 align-items 改成 stretch，
+   这里只把直接子级的文案收回居中（底部 8px 收白差异属票 19/26 既有口径，不在本票范围）。 */
+.preview-stage.is-filled > .preview-stage__pending {
+  align-self: center;
+}
+
 /* ---- 票 70：记录内容换代期间盖住保活页旧画布的加载态 ----
    激活重读在飞（checking）或数据换了代、可见面板还没分批出完时都出现；
    常态切回数据没变也会短显示一层，但只盖 DOM、不重画、不出图。

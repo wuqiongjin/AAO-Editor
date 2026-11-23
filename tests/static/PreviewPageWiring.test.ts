@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { PAGE_NAV } from '@/src/layouts/pageNav';
 import { PAGE_REGISTRY } from '@/src/pages/PageRegistry';
 import { FUNCTIONS } from '@/src/settings/ShortcutConfig';
-import { readStripped, repoRoot } from '@/tests/support/source';
+import { cssRuleBody, readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */
 function sourceFiles(dir: string, re = /\.(ts|tsx|css)$/): string[] {
@@ -191,6 +191,15 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(css).toMatch(/\.preview-page\.is-video:has\(\.preview-stage\.is-filled\)\s*\{[^}]*padding-bottom:\s*8px/);
     // 播放条自 issue 22 起是工作台同一件 PlayBar（变体类 `.play-bar--preview`）
     expect(css).toMatch(/\.preview-page\.is-video \.play-bar--preview\s*\{[^}]*min-height:\s*32px/);
+  });
+
+  it('票 86：切形态那一帧的加载文案在 is-filled 舞台上仍垂直居中', () => {
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    // is-filled 把 align-items 改成 stretch，过渡帧那句裸 <p> 会被拉满高度贴顶；
+    // 只锁行为：该帧文案要么用 align-self 收回居中，要么按遮罩口径绝对居中。
+    expect(cssRuleBody(css, '.preview-stage.is-filled')).toMatch(/align-items:\s*stretch/);
+    const pending = css.match(/\.preview-stage\.is-filled[^{}]*\.preview-stage__pending[^{}]*\{([^}]*)\}/)?.[1];
+    expect(pending).toMatch(/align-self:\s*center|(?:position:\s*absolute[\s\S]*align-items:\s*center)/);
   });
 });
 
