@@ -50,6 +50,7 @@ import PreviewDisplayPanel from './PreviewDisplayPanel';
 import PreviewVideoStage, { type VideoSyncToken } from './PreviewVideoStage';
 import VideoExportControl from './VideoExportControl';
 import { usePreviewScope } from './usePreviewScope';
+import { useStageCoverImage } from './useStageCoverImage';
 import { useVideoExport, exportDoneText } from './useVideoExport';
 import './PreviewPage.css';
 
@@ -72,6 +73,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
 
   // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
   const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
+
+  // 相框封面（票 84 · ADR-0018 §7）：取**作用域工程**的封面（不是"当前工程" —— 预览页可以看别人的工程），
+  // 与开场片头 / 结算卡同一口径。解码一次，舞台与面板 hover 大预览共用。
+  const stageCover = useStageCoverImage(project?.coverBlob ?? null);
 
   // 静态预览的看谱档：缩放 / 全屏是"这一屏怎么看"（页面内 state，不落设置）；
   // 叠加项（BPM / 时间 / 节拍线）落 `settings.preview`、画布共享项落 `settings.display`
@@ -312,6 +317,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     scene: videoScene,
     audio: videoAudio,
     durationSeconds: project?.durationSeconds ?? 0,
+    // 票 84：相框封面与预览用的是同一份（作用域工程封面）
+    cover: project?.coverBlob ?? null,
     keySetId: settings.audio.keySet,
     seVolume: settings.audio.seVolume,
     volume: settings.audio.volume,
@@ -483,7 +490,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 />
               ) : (
                 <div className="preview-controls">
-                  <PreviewDisplayPanel mode="video" />
+                  <PreviewDisplayPanel mode="video" cover={stageCover} />
                   {/* 导出（07）：票 20 定案，动态形态工具栏的这一枚随视频导出落地；全屏在末位 */}
                   <VideoExportControl
                     disabled={videoScene == null}
@@ -545,6 +552,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 initialSeconds={videoPlaybackSeconds}
                 onSecondsChange={setVideoPlaybackSeconds}
                 duration={project?.durationSeconds ?? 0}
+                cover={stageCover}
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}
                 seVolume={settings.audio.seVolume}

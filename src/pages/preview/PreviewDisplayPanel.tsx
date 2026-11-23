@@ -35,6 +35,7 @@ import {
 import { drawFieldLayers } from '../../preview/video/sim/simField';
 import { fieldMetrics } from '../../preview/video/sim/simGeometry';
 import {
+  isAppBackgroundPack,
   listSimBackgroundPacks,
   listSimFieldPacks,
   normalizeSimAssetPackId,
@@ -453,7 +454,7 @@ function SimPackGrid({
  * 亮度（票 43）也照当前设置压，所见即所得。
  */
 function SimPackPreview({
-  kind, packId, name, bgPackId, fieldPackId, brightness, panel,
+  kind, packId, name, bgPackId, fieldPackId, brightness, cover, panel,
 }: {
   kind: SimAssetPackKind;
   packId: string;
@@ -462,6 +463,8 @@ function SimPackPreview({
   bgPackId: string;
   fieldPackId: string;
   brightness: number;
+  /** 作用域工程封面（票 84）：hover 到「AAO 舞台」时相框里要有东西，与舞台上一致 */
+  cover: CanvasImageSource | null;
   /** 面板的 fixed 位置（大预览贴它左侧） */
   panel: { top: number; left: number };
 }) {
@@ -505,16 +508,23 @@ function SimPackPreview({
         }
         if (!ctx) return;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // 相框只在"预览里的背景是自带包"时存在（背景格子 hover 到的就是背景本身；轨道格子用当前背景）
+        const appOwned = isAppBackgroundPack(kind === 'background' ? packId : bgPackId);
         drawFieldLayers(
           ctx,
           fieldMetrics(PACK_PREVIEW_W, PACK_PREVIEW_H),
-          { background, field, playLine },
+          {
+            background,
+            field,
+            playLine,
+            stageFrame: appOwned ? { cover } : null,
+          },
           brightness,
         );
       });
 
     return () => { cancelled = true; };
-  }, [urls, brightness]);
+  }, [urls, brightness, kind, packId, bgPackId, cover]);
 
   return createPortal(
     <div className="pdp__preview" style={{ top: pos.top, left: pos.left }} aria-hidden="true">
@@ -533,9 +543,14 @@ function SimPackPreview({
  */
 export interface PreviewDisplayPanelProps {
   mode?: PreviewMode;
+  /**
+   * 作用域工程封面（票 84）：只给动态形态的 hover 大预览用 ——
+   * 挑背景时要能看见「AAO 舞台」相框里实际会填什么（空相框会让人以为没生效）。
+   */
+  cover?: CanvasImageSource | null;
 }
 
-export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayPanelProps) {
+export default function PreviewDisplayPanel({ mode = 'static', cover = null }: PreviewDisplayPanelProps) {
   const { settings, setDisplay, setPreview, setSeVolume } = useConfig();
   const nav = useOptionalAppNav();
   const [open, setOpen] = useState(false);
@@ -1038,6 +1053,7 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
               bgPackId={preview.bgPackId}
               fieldPackId={preview.fieldPackId}
               brightness={preview.bgBrightness}
+              cover={cover}
               panel={pos}
             />
           ) : null}

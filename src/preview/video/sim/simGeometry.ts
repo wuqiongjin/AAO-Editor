@@ -156,6 +156,45 @@ export function backgroundRect(m: SimFieldMetrics): SimRect {
   return { x: m.centerX - w / 2, y: m.h / 2 - BACKGROUND_TOP_ANCHOR * h, w, h };
 }
 
+// ---------------------------------------------------------------- 应用自带背景包（AAO 舞台）
+
+/**
+ * 「AAO 舞台」这张应用自带背景图的取景（chart-preview 84 · ADR-0018 §7）。
+ *
+ * **不走 `backgroundRect`**：那条 `h = 1.0065W` 是 Bestdori 给自家 2:1 `liveBG` 的"幕布"口径
+ * （纵向放大 1.525 倍 —— 点 23 #2③ 就是照它的 inline style 复刻的）。这张图本身就是照 2:1
+ * 画的完整舞台，再拉 1.525 倍会把灯柱 / 音箱 / 相框全拉成竖长条（实测相框 287×439、封面只能竖裁）。
+ * 所以这里按**自然比例**铺：宽沿用幕布宽 `1.32W`、高 = 宽 / 2、**图顶贴设计面顶**
+ * （`y = 0`，底部溢出 130px 裁掉 —— 裁的只是观众席最下一排）。
+ */
+export const AAO_STAGE_BG_RATIO = { w: 1.32, aspect: 2, top: 0 } as const;
+
+export function aaoStageBackgroundRect(m: SimFieldMetrics): SimRect {
+  const w = AAO_STAGE_BG_RATIO.w * m.w;
+  return { x: m.centerX - w / 2, y: AAO_STAGE_BG_RATIO.top, w, h: w / AAO_STAGE_BG_RATIO.aspect };
+}
+
+/**
+ * 「相框区」比例（**源图像素实测**，`public/assets/preview/aao-stage-frame-bg.webp` 2048×1024）：
+ * 玻璃屏本体 `x 856..1190 / y 190..525` ⇒ 334×335 —— 正好正方形，工程封面 1:1 落进去几乎不裁。
+ *
+ * 量法：沿中心行 / 列扫亮度，外侧装饰带在 `x 837 / 1210` 收边，再往里有一道暗缝、之后才是屏体。
+ * **别把装饰带当屏幕**（照 `x 837..1210` 量会多出 40px，封面压到边框上）。
+ * 换图就要重量这四个数（`tests/unit/preview/video/SimGeometry.test.ts` 锁着当前这组值）。
+ */
+export const AAO_FRAME_RATIO = { x0: 0.418, x1: 0.5811, y0: 0.1855, y1: 0.5127 } as const;
+
+/** 相框区在设计面上的落位（背景图矩形内的相对位置 × 背景图矩形） */
+export function aaoFrameRect(m: SimFieldMetrics): SimRect {
+  const bg = aaoStageBackgroundRect(m);
+  return {
+    x: bg.x + AAO_FRAME_RATIO.x0 * bg.w,
+    y: bg.y + AAO_FRAME_RATIO.y0 * bg.h,
+    w: (AAO_FRAME_RATIO.x1 - AAO_FRAME_RATIO.x0) * bg.w,
+    h: (AAO_FRAME_RATIO.y1 - AAO_FRAME_RATIO.y0) * bg.h,
+  };
+}
+
 // ---------------------------------------------------------------- 接近模型
 
 /**

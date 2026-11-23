@@ -413,8 +413,9 @@ export interface PreviewSettings {
   noteSpeed: number;
   /**
    * 仿真场**表演背景**包 ID（chart-preview 41 · ADR-0018 §3：应用级，"我的默认口味"；
-   * 新建工程默认沿用上次选的包）。取值 = 取件侧包清单里的包 ID（`bgPackId` 非法 / 不在
-   * 清单里 → 归一化回落默认 `skin00`，见 `normalizeSimAssetPackId`）。
+   * 新建工程默认沿用上次选的包）。取值 = 包清单里的包 ID —— 取件侧 `skin*` / 主题包，
+   * 或**应用自带**的 `aao-stage`（票 84 · ADR-0018 §7，出厂默认）；`bgPackId` 非法 / 不在
+   * 清单里 → 归一化回落默认包（见 `normalizeSimAssetPackId`），**已存的合法值不迁移**。
    */
   bgPackId: string;
   /**
@@ -494,7 +495,8 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   // 顶部状态栏总开关缺省全开（additive：旧数据缺字段不静默藏掉顶栏）
   showGameUi: true,
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
-  // 表演背景 / 场地皮肤包各默认 skin00（ADR-0018 §1；非法 ID 读盘时归一化回落）
+  // 表演背景默认应用自带包「AAO 舞台」（票 84 · ADR-0018 §7）、场地皮肤包默认 skin00；
+  // 非法 ID 读盘时归一化回落各自默认，已存的合法值（含老设置的 skin00）不迁移
   bgPackId: SIM_DEFAULT_PACK_IDS.background,
   fieldPackId: SIM_DEFAULT_PACK_IDS.field,
   // 背景亮度默认 0.7（用户 2026-10-29 验收定档；1 = 原图）

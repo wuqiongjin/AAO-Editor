@@ -11,7 +11,17 @@ import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../sim/prepareSimNoteSprites';
 import { saveBinaryAs } from '../../static/saveBinary';
 import { yieldToMainThread } from '../../static/exportPanels';
-import { approachSeconds, buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio, type SimScene } from '../sim';
+import {
+  approachSeconds,
+  buildSimChart,
+  isAppBackgroundPack,
+  loadSimAssets,
+  loadSimBackgroundImage,
+  normalizeSimAssetPackId,
+  type SimFrameInput,
+  type SimPlaybackAudio,
+  type SimScene,
+} from '../sim';
 import {
   OPENING_SECONDS,
   openingItemOrder,
@@ -21,6 +31,7 @@ import {
 } from '../opening';
 import {
   ENDING_SECONDS,
+  ENDING_STAGE_BG_PACK,
   EMPTY_ENDING_ASSETS,
   loadEndingAssets,
   type EndingContentInput,
@@ -80,6 +91,11 @@ export interface VideoExportRequest {
   audio: SimPlaybackAudio | null;
   /** 谱面长度（秒，ADR-0005 第一性） */
   durationSeconds: number;
+  /**
+   * 作用域工程的封面（chart-preview 84 · ADR-0018 §7）：背景是「AAO 舞台」那格时，
+   * 它会填进图正中的相框。`null` = 工程没有封面 → 相框留空（不画占位块）。
+   */
+  cover?: Blob | null;
   keySetId: string;
   seVolume: number;
   volume: number;
@@ -271,15 +287,24 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   // ---------------- 素材（一次性出帧没有"下一帧补上"的机会，只能等齐） ----------------
   req.onProgress?.({ phase: 'assets', frame: 0, totalFrames: 0 });
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(req.noteSkin));
-  const [assets, endingAssets] = await Promise.all([
+  // 相框封面（票 84）：出图只有一次机会 ⇒ 先解码到位再进素材；只对自带背景包解码（别的包用不上）
+  const coverImage = isAppBackgroundPack(normalizeSimAssetPackId('background', req.scene.bgPackId))
+    ? await loadCoverImage(req.cover ?? null)
+    : null;
+  const [assets, endingAssets, endingStageBg] = await Promise.all([
     // 背景 / 轨道包（chart-preview 41）随 scene 进来 ⇒ 导出物与实时预览同一份素材（ADR-0018 §5）
     loadSimAssets({
       bandSrc: noteIcons.slideBand.src,
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
+      cover: coverImage,
     }),
     // 结尾段的游戏 UI 素材（票 52）：缺件是常态（素材不在安装包里），逐件兜底、从不抛错
     req.ending ? loadEndingAssets() : Promise.resolve(EMPTY_ENDING_ASSETS),
+    // 结算舞台的固定背景（票 84 回修 · 定案 B）：固定官方默认包，不跟打歌的背景包；
+    // 取不到 = null ⇒ 结算只剩深色底（不回落用户当前选的包，否则"固定"等于没定）。
+    // 只取这一张图：不为了它把整棵场地素材树再解码一遍（场地图 / 带体 / 精灵 / HUD 全部重复）
+    req.ending ? loadSimBackgroundImage(ENDING_STAGE_BG_PACK) : Promise.resolve(null),
     // 票 68：开播前预热独立音符切片与 mip，消除播放期首次创建尖峰
     prepareSimNoteSprites(noteIcons).catch(() => undefined),
   ]);
@@ -429,6 +454,8 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
           level: req.ending.level,
           cover: await loadCoverImage(req.ending.cover),
           coverHue: req.ending.coverHue,
+          // 结算舞台固定背景（票 84 回修 · 定案 B）：不跟打歌的背景包，也不放相框封面
+          stageBackground: endingStageBg,
           counts: req.ending.counts,
           maxCombo: req.ending.maxCombo,
           score: req.ending.score,

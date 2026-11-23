@@ -13,9 +13,11 @@ import type { SimHudAssets, SimSprites } from '@/src/preview/video/sim/simAssets
 import {
   buildSimChart,
   drawSimFrameAt,
+  drawSimBackground,
   drawSimHudLayer,
   prepareSimFieldBitmap,
   SIM_FALLBACK_BG,
+  STAGE_COVER_INTRO_STYLE,
   visibleSimBandGroups,
   type SimFrameInput,
   type SimFrameLayers,
@@ -29,6 +31,8 @@ import {
   type VideoHudTimeline,
 } from '@/src/preview/video/encode/exportSpec';
 import {
+  aaoFrameRect,
+  aaoStageBackgroundRect,
   approachSeconds,
   backgroundRect,
   comboPopScale,
@@ -1500,5 +1504,97 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     expect(on.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.scoreBar)).toHaveLength(4);
     expect(on.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.lifeBar)).toHaveLength(4);
     expect(drawnTexts(on.calls)).toContain('1000/1000');
+  });
+});
+
+// chart-preview 84 · ADR-0018 §7：应用自带背景包「AAO 舞台」的相框封面。
+// 锁的是**绘制顺序**（这是单测唯一能看到的那一层 —— 合成结果要靠 sim-shot 出图人眼验收）：
+//   兜底底色 → 背景图 → 相框封面 → 亮度黑罩
+// 封面在黑罩之前 ⇒ 跟着亮度一起压暗（票 84 Q7=B"亮度照吃"）；在黑罩之前、场地图之前 ⇒
+// 轨道那层半透玻璃把相框压暗、车道线压在它上面，音符下落时仍看得见轨道（Q3'）。
+describe('drawSimBackground · 相框封面（票 84）', () => {
+  const m = fieldMetrics(1334, 750);
+  const bg = { width: 2048, height: 1024, tag: 'bg' } as unknown as CanvasImageSource;
+  const cover = { width: 600, height: 600, tag: 'cover' } as unknown as CanvasImageSource;
+  /** 底色 / 黑罩是 fillRect，图是 drawImage —— 只留这两类笔触读顺序 */
+  const paintOps = (calls: RecordedCall[]) => calls.filter(([k]) => k === 'drawImage' || k === 'fillRect');
+
+  it('封面画在背景图之后、亮度黑罩之前（跟着亮度压暗，且不盖住场地图）', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, bg, 0.7, 1, { stageFrame: { cover } });
+    const ops = paintOps(calls);
+    expect(ops).toHaveLength(4);
+    expect(ops[0]![0]).toBe('fillRect'); // 兜底底色
+    expect((ops[1]![1] as unknown[])[0]).toBe(bg);
+    expect((ops[2]![1] as unknown[])[0]).toBe(cover);
+    expect(ops[3]![0]).toBe('fillRect'); // 亮度黑罩最后 → 封面也被压暗
+  });
+
+  it('自带包取景走自然比例（1.32W / 2:1 / 图顶贴顶），不是幕布那条 1.525 倍拉伸', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, bg, 1, 1, { stageFrame: { cover } });
+    const r = aaoStageBackgroundRect(m);
+    // drawImage 的第 0 个参数是图本身，后面才是目标矩形
+    expect((calls.filter(([k]) => k === 'drawImage')[0]![1] as number[]).slice(1)).toEqual([r.x, r.y, r.w, r.h]);
+    expect(r.h).toBeCloseTo(r.w / 2, 6);
+    expect(r.y).toBe(0);
+  });
+
+  it('封面按 cover 铺进相框矩形：目标 = 相框区，源按比例居中裁（不拉伸）', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, bg, 1, 1, { stageFrame: { cover } });
+    const args = calls.filter(([k]) => k === 'drawImage')[1]![1] as number[];
+    const f = aaoFrameRect(m);
+    expect(args.slice(5)).toEqual([f.x, f.y, f.w, f.h]);
+    expect(args[3]! / args[4]!).toBeCloseTo(f.w / f.h, 3); // 源裁切后与相框同比 ⇒ 无拉伸
+    expect(args[3]!).toBeLessThanOrEqual(600);
+  });
+
+  it('coverAlpha 单独压封面：开场③段 = 0 ⇒ 相框空着、背景图照旧（票 84 回修）', () => {
+    const zero = recordingCtx();
+    drawSimBackground(zero.proxy, m, bg, 0.7, 1, { stageFrame: { cover }, coverAlpha: 0 });
+    expect(zero.calls.filter(([k]) => k === 'drawImage')).toHaveLength(1); // 只剩背景图
+
+    const half = recordingCtx();
+    drawSimBackground(half.proxy, m, bg, 0.7, 1, { stageFrame: { cover }, coverAlpha: 0.5 });
+    expect(half.calls.filter(([k]) => k === 'drawImage')).toHaveLength(2); // 封面回来了（半透明）
+  });
+
+  it('没给封面（别的背景包 / 工程没封面）就只画背景，不画相框', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, bg, 0.7, 1);
+    const ops = paintOps(calls);
+    expect(ops).toHaveLength(3); // 底色 → 背景图 → 黑罩
+    expect(calls.filter(([k]) => k === 'drawImage')).toHaveLength(1);
+  });
+
+  it('背景图缺件（空态）时不画相框，也不压黑', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, null, 0.7, 1, { stageFrame: { cover } });
+    expect(paintOps(calls)).toHaveLength(1); // 只剩兜底底色
+  });
+
+  // 2026-11-23 用户在原型里定档；原型不入库 ⇒ 这份常量是唯一真相，改错没人拦
+  it('封面登场力度常量：缩放 1.2 / 扫光带宽 0.26 / 扫光 0.65 / 屏沿线宽 0.014 / 屏沿 1.1', () => {
+    expect(STAGE_COVER_INTRO_STYLE).toEqual({
+      scaleFrom: 1.2,
+      sweepBand: 0.26,
+      sweep: 0.65,
+      edgeWidth: 0.014,
+      edge: 1.1,
+    });
+  });
+
+  it('力度覆盖真的进绘制：`scaleFrom` 换成 2 ⇒ 半程缩放 1.125×（1.2 缺省不吃这个断言）', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, bg, 1, 1, {
+      stageFrame: { cover },
+      coverIntro: 0.5,
+      coverIntroStyle: { scaleFrom: 2 },
+    });
+    // 第 0 张是背景图，第 1 张是相框封面：drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
+    const args = calls.filter(([k]) => k === 'drawImage')[1]![1] as number[];
+    // p = 0.5 ⇒ easeOutCubic = 0.875 ⇒ scale = 2 − (2 − 1) × 0.875 = 1.125
+    expect(args[7]!).toBeCloseTo(aaoFrameRect(m).w * 1.125, 6);
   });
 });

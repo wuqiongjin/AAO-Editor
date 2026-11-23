@@ -76,6 +76,11 @@ export interface PreviewVideoStageProps {
   scene: SimScene;
   /** 谱面长度（秒，ADR-0005 第一性）：播到这里停住 */
   duration: number;
+  /**
+   * 作用域工程的封面（chart-preview 84 · ADR-0018 §7）：背景是「AAO 舞台」时填进相框。
+   * 已解码的图（页面用 `useStageCoverImage` 备好）；null = 无封面 → 相框留空。
+   */
+  cover?: CanvasImageSource | null;
   /** 作用域工程的音频（null = 无音频 → 引擎走合成时间线） */
   audio: SimPlaybackAudio | null;
   /** 键音素材包（`settings.audio.keySet`） */
@@ -110,6 +115,7 @@ export default function PreviewVideoStage({
   fullscreen = false,
   scene,
   duration,
+  cover = null,
   audio,
   keySetId,
   seVolume,
@@ -184,10 +190,12 @@ export default function PreviewVideoStage({
       bandSrc: noteIcons.slideBand.src,
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: scene?.fieldPackId, background: scene?.bgPackId },
+      // 相框封面（票 84）：换封面 / 换工程要重新读一次素材 —— `assets` 换身份才会重建场地底图
+      cover,
     })
       .then((next) => { if (!cancelled) setAssets(next); });
     return () => { cancelled = true; };
-  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId]);
+  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId, cover]);
 
   // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）。
   // 票 69：不再用同步 useMemo —— 挪到 effect 里分批 yieldToMainThread()，让骨架 /「正在读取场地素材…」

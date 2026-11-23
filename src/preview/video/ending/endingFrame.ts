@@ -71,6 +71,17 @@ export interface EndingContentInput {
   cover: CanvasImageSource | null;
   /** 无封面时占位块的色相（页面按工程 id 派生） */
   coverHue: number;
+  /**
+   * **结算舞台的固定背景**（票 84 回修，用户 2026-11-23 定案 B）：结算不跟打歌的背景包走，
+   * 固定用官方默认背景（`skin00/liveBG_normal.png`），并**不放相框封面**（否则同一张封面
+   * 在结算里出现两次：左方卡 + 舞台相框）。
+   *
+   * **只在结算画面生效**（2026-11-23 第二轮反馈）：中央章与黑幕淡入仍用打歌末帧的舞台
+   * （含相框封面），换景落在黑幕盖满的那一帧（见 `drawStage`）—— 章还没演完就换成房间太早。
+   * - `undefined` = 沿用末帧那份背景（旧调用方 / 原型行为不变）
+   * - `null` = 结算不画背景图，只剩深色底 + 轨道（缺件 / 「将来自定义结算背景」的兜底）
+   */
+  stageBackground?: CanvasImageSource | null;
   counts: EndingCounts;
   maxCombo: number;
   /** 归一最终分（票 73：0–1,000,000；AUTO 全 PERFECT = 满分） */
@@ -100,6 +111,12 @@ export type EndingHudDrawer = (
 const WORD_ASPECT = 187 / 1028;
 /** 幕布抬起后最后一次粒子余烬的时长（秒） */
 const EMBERS_SECONDS = 0.55;
+
+/**
+ * 黑幕**盖满**的时刻（占转场段的比例）：`curtainAlpha` 的淡入段与「换结算背景」共用这一刻。
+ * 换景必须落在全黑的那一帧 —— 中央章 / 幕布淡入时还是打歌的舞台（用户 2026-11-23 第二轮反馈）。
+ */
+const CURTAIN_IN_RATIO = 0.22;
 
 /**
  * 结算 Score 行的标签（票 73 定稿）：**固定 `Score`、不做多语言**。
@@ -308,50 +325,72 @@ function layerAlpha(elapsed: number, at: number, dur: number): number {
   return 1 - clamp01((elapsed - at) / dur);
 }
 
-/** 结算左半幅的背景封面（虚化 + 压暗 + 向右渐隐）：一张图，按封面身份缓存 */
-let bleedCache: { cover: CanvasImageSource; key: string; canvas: HTMLCanvasElement } | null = null;
+/**
+ * 封面卡背后柔光的**取色**（票 84 回修，2026-11-23 第四轮改口径）。
+ *
+ * 演变：票 52 = 封面满幅虚化铺左半（同一张封面出现三次、像拉糊的照片）→ 票 84 二轮 =
+ * 平均色铺满左半（用户 2026-11-23："像污染"：大面积色板压掉官方房间背景，渐变边界还压在
+ * 白卡边缘）→ 本轮 = **只在卡背后点一盏同色的灯**（浓度 / 半径见 `ENDING_SPEC.bgWash` /
+ * `bgGlowSize`，用户定档 25 / 1.15）。
+ *
+ * 取色：把封面缩到 8×8 求平均，再向饱和方向拉一把（平均值天生偏灰，做光会"脏"）。
+ * 按封面身份缓存 —— 一张图只采一次。
+ */
+let washCache: { cover: CanvasImageSource; rgb: string } | null = null;
 
-function bleedCanvas(cover: CanvasImageSource, u: EndingUnits): HTMLCanvasElement | null {
+function coverWashColor(cover: CanvasImageSource): string | null {
   if (typeof document === 'undefined') return null;
-  const key = `${u.w}x${u.h}|${u.spec.bgBlur}|${u.spec.bgBright}|${u.spec.bgScrim}`;
-  if (bleedCache && bleedCache.cover === cover && bleedCache.key === key) {
-    return bleedCache.canvas;
-  }
+  if (washCache && washCache.cover === cover) return washCache.rgb;
   const { w: iw, h: ih } = imageSide(cover);
   if (!iw || !ih) return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = u.w;
-  canvas.height = u.h;
-  const g = canvas.getContext('2d');
+  const n = 8;
+  const probe = document.createElement('canvas');
+  probe.width = n;
+  probe.height = n;
+  const g = probe.getContext('2d', { willReadFrequently: true });
   if (!g) return null;
-  const dw = (iw * u.h) / ih;
+  g.drawImage(cover, 0, 0, n, n);
+  const d = g.getImageData(0, 0, n, n).data;
+  let r = 0;
+  let gg = 0;
+  let b = 0;
+  let count = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3]! < 8) continue; // 透明像素不参与（封面可能带透明边）
+    r += d[i]!;
+    gg += d[i + 1]!;
+    b += d[i + 2]!;
+    count++;
+  }
+  if (!count) return null;
+  // 向饱和方向拉（倍率 1.7 封顶到 0..255）：平均色偏灰，直接铺上去是一片脏。
+  const boost = (v: number, mid: number): number => Math.min(255, Math.max(0, Math.round(mid + (v - mid) * 1.7)));
+  const mid = (Math.max(r, gg, b) + Math.min(r, gg, b)) / (2 * count);
+  const rgb = `${boost(r / count, mid)}, ${boost(gg / count, mid)}, ${boost(b / count, mid)}`;
+  washCache = { cover, rgb };
+  return rgb;
+}
 
-  g.filter = `blur(${u.spec.bgBlur}px) saturate(0.9) brightness(${u.spec.bgBright / 100})`;
-  g.drawImage(cover, 0, 0, dw, u.h);
-  g.filter = 'none';
-
-  // 压暗（只压在封面层上）
-  const scrim = g.createLinearGradient(0, 0, u.wp('bgFadeTo'), 0);
-  scrim.addColorStop(0, `rgba(8,12,20,${u.spec.bgScrim / 100})`);
-  scrim.addColorStop(1, 'rgba(8,12,20,0)');
-  g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = scrim;
-  g.fillRect(0, 0, u.w, u.h);
-
-  // 向右渐隐（**绝对坐标**渐变：起点左侧恒不透明、终点右侧恒透明，不需要分档）
-  g.globalCompositeOperation = 'destination-out';
-  const fade = g.createLinearGradient(
-    u.wp('bgFadeFrom'),
-    0,
-    Math.max(u.wp('bgFadeTo'), u.wp('bgFadeFrom') + 1),
-    0,
-  );
-  fade.addColorStop(0, 'rgba(0,0,0,0)');
-  fade.addColorStop(1, 'rgba(0,0,0,1)');
-  g.fillStyle = fade;
-  g.fillRect(0, 0, u.w, u.h);
-  bleedCache = { cover, key, canvas };
-  return canvas;
+/**
+ * 封面卡背后的**柔光**（2026-11-23 第四轮）：只在卡的正后方铺一团径向渐变，像卡面打亮了
+ * 身后一小片墙 —— 不做整屏 / 半屏铺色，也不压暗。
+ *
+ * 内圈半径取卡的 0.45 边长（卡体自己会盖住正中那圈最亮的部分），外圈由 `bgGlowSize` 定；
+ * 浓度 = `bgWash`（0 = 完全不画；缺省 25）。外圈小于 0.6 倍卡边长时兜到 0.6，免得光斑缩进卡里看不见。
+ */
+function drawCoverGlow(ctx: CanvasRenderingContext2D, u: EndingUnits, rgb: string): void {
+  const a = u.spec.bgWash / 100;
+  if (a <= 0.004) return;
+  const size = u.hp('coverSize');
+  const cx = u.wp('coverX');
+  const cy = u.hp('coverY');
+  const outer = Math.max(size * 0.6, size * u.spec.bgGlowSize);
+  const glow = ctx.createRadialGradient(cx, cy, size * 0.45, cx, cy, outer);
+  glow.addColorStop(0, `rgba(${rgb}, ${a})`);
+  glow.addColorStop(0.6, `rgba(${rgb}, ${a * 0.45})`);
+  glow.addColorStop(1, `rgba(${rgb}, 0)`);
+  ctx.fillStyle = glow;
+  ctx.fillRect(cx - outer, cy - outer, outer * 2, outer * 2);
 }
 
 /*
@@ -725,9 +764,21 @@ function drawStage(
   elapsed: number,
 ): void {
   const { stage } = input;
+  // 结算背景（票 84 回修）：**黑幕盖满之后**才换掉末帧那份背景，并清掉相框层 ——
+  // 结算左半幅已经有一张封面方卡，舞台上再来一次就是"同一张图出现两遍"（用户 2026-11-23）。
+  // 换景落在全黑那一拍看不出来；中央章与幕布淡入（0→0.22T）仍用打歌末帧的舞台 + 相框封面，
+  // 否则章还没演完背景就突然变成房间（用户 2026-11-23 第二轮反馈）。
+  const settled = elapsed >= u.spec.stampDur + u.spec.transDur * CURTAIN_IN_RATIO;
+  const frame: SimFrameInput =
+    input.stageBackground === undefined || !settled
+      ? stage.frame
+      : {
+          ...stage.frame,
+          assets: { ...stage.frame.assets, background: input.stageBackground, stageFrame: null },
+        };
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, stage.x, stage.y);
-  drawSimFrameAt(ctx, stage.frame, stage.seconds, {
+  drawSimFrameAt(ctx, frame, stage.seconds, {
     trackAlpha: layerAlpha(elapsed, u.spec.trackFadeAt, u.spec.trackFadeDur),
     comboAlpha: layerAlpha(elapsed, u.spec.comboFadeAt, u.spec.comboFadeDur),
     // 结尾段不画判定字 / 打歌顶栏：那是打歌时的东西，结算只剩舞台
@@ -2072,13 +2123,16 @@ function drawSettlement(
   const rankQ = clamp01((q - u.spec.rankInAt / 100) / Math.max(1e-6, u.spec.rankInDur / 100));
 
   const cover = input.cover ?? openingPlaceholderCover(input.coverHue);
-  const bleed = cover ? bleedCanvas(cover, u) : null;
-  if (bleed && coverP > 0.002) {
+  if (cover && coverP > 0.002) {
     ctx.save();
     ctx.globalAlpha = coverP;
     ctx.translate(-(1 - coverP) * u.w * 0.04, 0);
-    ctx.drawImage(bleed, 0, 0);
-    drawCoverProp(ctx, u, cover!);
+    // 浓度 0 = 不画且不取色（结算就是官方房间 + 封面卡）；缺省 25，见 `ENDING_SPEC.bgWash`
+    if (u.spec.bgWash > 0.004) {
+      const rgb = coverWashColor(cover);
+      if (rgb) drawCoverGlow(ctx, u, rgb);
+    }
+    drawCoverProp(ctx, u, cover);
     ctx.restore();
   }
 
@@ -2123,7 +2177,7 @@ function drawCoverProp(ctx: CanvasRenderingContext2D, u: EndingUnits, cover: Can
 
 /** 黑幕：盖住 → 停一拍 → 抬起（抬完 0.62T，剩下 0.38T 正好留给组件逐个入场） */
 function curtainAlpha(elapsed: number, transDur: number): number {
-  const inT = transDur * 0.22;
+  const inT = transDur * CURTAIN_IN_RATIO;
   const holdT = transDur * 0.3;
   const outT = transDur * 0.62;
   if (elapsed < inT) return smooth(elapsed / inT);

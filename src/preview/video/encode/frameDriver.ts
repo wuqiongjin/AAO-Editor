@@ -21,6 +21,7 @@ import {
   drawOpeningTrack,
   openingAlphaAt,
   openingSegmentAt,
+  openingCoverIntroAt,
   openingTrackAlphaAt,
   type OpeningFrameInput,
 } from '../opening';
@@ -210,9 +211,14 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
       // ③ 入场过渡 / ④ 轨道淡入：只画场地的分层（背景 → 轨道），**不进 drawSimFrameAt**
       // （负秒下它会画出正在接近的音符 / 带体，不是干净的场地）
       ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
-      // 背景亮度（票 43）与正片同一份 scene：开场③段也压暗，导出物才与预览一致
-      drawOpeningFieldBackground(ctx, metrics, frame.assets, frame.scene.bgBrightness);
-      drawOpeningTrack(ctx, metrics, frame.assets, openingTrackAlphaAt(t));
+      // 背景亮度（票 43）与正片同一份 scene：开场③段也压暗，导出物才与预览一致。
+      // 相框封面跟轨道同一个淡入窗（票 84 回修）：③ 只留空相框，④ 封面与车道线一起浮现
+      // —— 否则它会在开场画面退场的同一瞬间整块出现（用户 2026-11-23 反馈"没有淡入"）。
+      const trackAlpha = openingTrackAlphaAt(t);
+      drawOpeningFieldBackground(
+        ctx, metrics, frame.assets, frame.scene.bgBrightness, trackAlpha, openingCoverIntroAt(t),
+      );
+      drawOpeningTrack(ctx, metrics, frame.assets, trackAlpha);
       if (seg === 'fadeOut') {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         drawOpeningFrameAt(ctx, geometry.width, geometry.height, req.opening!, openingAlphaAt(t), t);

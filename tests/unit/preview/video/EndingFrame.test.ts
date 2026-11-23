@@ -3,7 +3,7 @@
 // 为什么单测：`ENDING_SPEC` 是用户交回的那份参数 JSON 的落码，键名 / 数值都是验收口径 ——
 // 谁顺手"调一下更好看"，这里当场红。绘制形状用记录型假 context 钉住（node 环境没有真 canvas）；
 // 光栅观感（章好不好看、粒子的层次）归原型目视验收 + 用户导一条真视频看。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ENDING_RESULT_SECONDS,
   ENDING_SECONDS,
@@ -172,11 +172,9 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       coverY: 50,
       coverFrame: 0.3,
       coverShadow: 0.45,
-      bgBlur: 6,
-      bgBright: 65,
-      bgScrim: 42,
-      bgFadeFrom: 30,
-      bgFadeTo: 56,
+      // 2026-11-23 第四轮：整块半屏氛围色判为"污染" ⇒ 改卡后柔光；用户原型对比后定档 25 / 1.15
+      bgWash: 25,
+      bgGlowSize: 1.15,
       stampW: 62.2,
       stampY: 50.5,
       stampIn: 1.3,
@@ -410,6 +408,56 @@ describe('chart-preview 52 · 一帧绘制', () => {
     const settle = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(settle.proxy, 1920, 1080, frameInput(), ENDING_SECONDS - 0.1);
     expect(texts(settle.calls)).toContain('Score');
+  });
+
+  // 票 84 第四轮：左半幅整块氛围色被用户判为"污染"（大面积色板压掉官方房间背景）。
+  // 新口径 = 只在封面卡背后点一盏同色的灯；浓度 0 = 完全不画（生产缺省 25 / 半径 1.15）。
+  it('结算氛围：浓度 0 一笔不画；拉起只有卡后一团径向光，没有半屏线性色板', () => {
+    const radial: number[][] = [];
+    const linear: number[][] = [];
+    const fakeCtx = {
+      drawImage: () => undefined,
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({
+        data: new Uint8ClampedArray(w * h * 4).fill(128),
+      }),
+    };
+    // `coverWashColor` 在 node 下没有 document 会直接返回 null；这里给一个只够它取色的假 canvas
+    vi.stubGlobal('document', {
+      createElement: () => ({ width: 0, height: 0, getContext: () => fakeCtx }),
+    });
+    try {
+      const draw = (bgWash: number) => {
+        const { proxy } = makeRecordingCtx({
+          measureText: measureTextOk,
+          createRadialGradient: (...a: unknown[]) => {
+            radial.push(a as number[]);
+            return { addColorStop: () => undefined };
+          },
+          createLinearGradient: (...a: unknown[]) => {
+            linear.push(a as number[]);
+            return { addColorStop: () => undefined };
+          },
+        });
+        drawEndingFrameAt(proxy, 1920, 1080, frameInput(), ENDING_SECONDS - 0.1, { bgWash });
+      };
+      draw(0);
+      expect(radial).toHaveLength(0);
+
+      draw(40);
+      expect(radial).toHaveLength(1);
+      expect(linear).toHaveLength(0);
+      // createRadialGradient(x0, y0, r0, x1, y1, r1)：内外圈同心
+      const [cx, cy, r0, cx1, cy1, r1] = radial[0]!;
+      expect(cx!).toBeCloseTo(0.212 * 1920, 6);
+      expect(cy!).toBeCloseTo(0.5 * 1080, 6);
+      expect(cx1).toBe(cx);
+      expect(cy1).toBe(cy);
+      // 内圈 = 卡边长的 0.45（卡体自己盖住最亮那圈）、外圈 = ×`bgGlowSize`（生产缺省 1.15）
+      expect(r0!).toBeCloseTo(0.45 * 0.45 * 1080, 6);
+      expect(r1!).toBeCloseTo(1.15 * 0.45 * 1080, 6);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('票 73/83 · 有 `result/score-medal.png` 时 Score 行贴官方圆星章（缺件留空，不画假章）', () => {
@@ -656,5 +704,66 @@ describe('chart-preview 52 · 一帧绘制', () => {
     // 幕布抬完（0.62T）之后不再压黑
     expect(propValues(done.calls, 'globalAlpha').filter((v) => v === 1).length).toBeGreaterThan(0);
     expect(done.calls.filter(([k, a]) => k === 'fillStyle' && a[0] === '#000000')).toEqual([]);
+  });
+});
+
+// 票 84 第二次回修（用户 2026-11-23）：结算的固定背景**只从结算画面起**生效。
+// 中央章与黑幕淡入那一拍仍是打歌末帧的舞台（相框封面也在）；换景落在黑幕盖满（0.22T）之后，
+// 那一帧整屏全黑，看不出换景。提前换 = 章还没演完背景就变成房间。
+describe('票 84 回修 · 结算固定背景只在黑幕盖满之后换上', () => {
+  const lastBg = { width: 2048, height: 1024, tag: 'last' } as unknown as CanvasImageSource;
+  const fixedBg = { width: 2048, height: 1024, tag: 'fixed' } as unknown as CanvasImageSource;
+  const frameCover = { width: 512, height: 512, tag: 'frame-cover' } as unknown as CanvasImageSource;
+
+  /** 打歌末帧用的是 AAO 舞台（末帧背景 + 相框封面），结算固定背景另给一张假图 */
+  const stageFrameInput = (): EndingFrameInput => {
+    const base = frameInput({ stageBackground: fixedBg });
+    return {
+      ...base,
+      stage: {
+        ...base.stage,
+        frame: {
+          ...base.stage.frame,
+          assets: {
+            ...base.stage.frame.assets,
+            background: lastBg,
+            stageFrame: { cover: frameCover },
+          },
+        },
+      },
+    };
+  };
+
+  const sources = (calls: RecordedCall[]) =>
+    calls.filter(([k]) => k === 'drawImage').map(([, a]) => (a as unknown[])[0]);
+
+  const draw = (elapsed: number) => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(proxy, 1920, 1080, stageFrameInput(), elapsed);
+    return sources(calls);
+  };
+
+  it('中央章：仍是打歌末帧的舞台 + 相框封面，不出现固定背景', () => {
+    const s = draw(1.0);
+    expect(s).toContain(lastBg);
+    expect(s).toContain(frameCover);
+    expect(s).not.toContain(fixedBg);
+  });
+
+  it('黑幕淡入段（< 0.22T）不换景；盖满之后换固定背景并撤掉相框', () => {
+    const fading = draw(ENDING_STAMP_SECONDS + ENDING_TRANS_SECONDS * 0.2);
+    expect(fading).toContain(lastBg);
+    expect(fading).toContain(frameCover);
+    expect(fading).not.toContain(fixedBg);
+
+    const covered = draw(ENDING_STAMP_SECONDS + ENDING_TRANS_SECONDS * 0.3);
+    expect(covered).toContain(fixedBg);
+    expect(covered).not.toContain(lastBg);
+    expect(covered).not.toContain(frameCover);
+
+    const settle = draw(ENDING_SECONDS - 0.1);
+    expect(settle).toContain(fixedBg);
+    expect(settle).not.toContain(lastBg);
+    expect(settle).not.toContain(frameCover);
   });
 });

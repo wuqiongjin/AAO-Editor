@@ -31,6 +31,7 @@ import {
   SIM_EMPTY_REGISTRY_FILES,
   type SimAssetPackKind,
 } from './simAssetPacks';
+import { appBackgroundUrl, findAppBackgroundPack, isAppBackgroundPack, type SimStageFrame } from './appAssetPacks';
 import { warmupSimSprites } from './simSprites';
 /**
  * 仿真场素材根（Vite 把 `public/` 挂在站点根，dev 的前缀就是 `/`）。
@@ -157,8 +158,13 @@ export function simAssetUrls(server: string, packs: SimAssetPackSelection = {}):
   const bgId = normalizeSimAssetPackId('background', packs.background);
   const fieldPack = findSimFieldPack(fieldId);
   const bgPack = findSimBackgroundPack(bgId);
+  const appBg = findAppBackgroundPack(bgId);
   return {
-    background: simPackUrl('background', server, bgId, bgPack?.background ?? SIM_EMPTY_REGISTRY_FILES.background),
+    // 应用自带包（ADR-0018 §7）不在 bgskin 目录里：URL 是 `public/assets/preview/…`，
+    // 与服务端无关 ⇒ 逐服探测时它对每个服都是同一个地址。
+    background: appBg
+      ? appBackgroundUrl(appBg)
+      : simPackUrl('background', server, bgId, bgPack?.background ?? SIM_EMPTY_REGISTRY_FILES.background),
     field: simPackUrl('field', server, fieldId, fieldPack?.field ?? SIM_EMPTY_REGISTRY_FILES.field),
     playLine: simPackUrl('field', server, fieldId, fieldPack?.playLine ?? SIM_EMPTY_REGISTRY_FILES.playLine),
   };
@@ -180,6 +186,9 @@ export function simAssetPackThumbUrl(
     const entry = findSimFieldPack(id);
     return entry ? simPackUrl(kind, server, id, entry.field) : null;
   }
+  // 自带包（ADR-0018 §7）：缩略图就是原图本身（2048×1024 / 59 KB，格子自己缩）
+  const appBg = findAppBackgroundPack(id);
+  if (appBg) return appBackgroundUrl(appBg);
   const entry = findSimBackgroundPack(id);
   return entry ? simPackUrl(kind, server, id, entry.background) : null;
 }
@@ -218,6 +227,13 @@ export interface SimAssets {
   background: HTMLImageElement | null;
   field: HTMLImageElement | null;
   playLine: HTMLImageElement | null;
+  /**
+   * **相框层**（chart-preview 84 · ADR-0018 §7）：只有选中「AAO 舞台」这个自带背景包时才有值
+   * ⇒ 取景走自然比例（`aaoStageBackgroundRect`）、图正中的玻璃屏存在，`cover` 是屏里的工程封面
+   * （null = 没封面 → 留空）。绘制落在背景图之后、亮度黑罩之前（见 `simField.drawSimBackground`），
+   * 因此实时预览 / 视频导出 / 开场第③段三处天然一致。
+   */
+  stageFrame: SimStageFrame | null;
   /** 带体体色 / 亮缘色（皮肤带体图中心取样；取不到 = 兜底绿） */
   bandColor: string;
   bandColorSp: string;
@@ -255,6 +271,12 @@ export interface SimAssetLoadOptions {
    * 缺省 / 非法 ID 回落默认 `skin00`。
    */
   packs?: SimAssetPackSelection;
+  /**
+   * 相框封面（chart-preview 84）：**已解码好**的图（`createImageBitmap` 或 `Image`）——
+   * 解码留在页面 / 导出的编排层（它们本来就要为开场 / 结算解码封面）。
+   * 只有背景是应用自带包时才随素材带出去（其余背景包画不了相框，带了也不用）。
+   */
+  cover?: CanvasImageSource | null;
   /** 图片加载（测试注入替身；缺省 `new Image()`） */
   loadImage?: (src: string) => Promise<HTMLImageElement>;
   /** 取色（测试注入替身；缺省读 1×1 离屏画布） */
@@ -269,6 +291,7 @@ export function emptySimAssets(): SimAssets {
     background: null,
     field: null,
     playLine: null,
+    stageFrame: null,
     bandColor: SIM_BAND_COLORS.band,
     bandColorSp: SIM_BAND_COLORS.sp,
     bandMaterial: { ...SIM_BAND_MATERIAL },
@@ -352,13 +375,14 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
     bandSpSrc = null,
     servers = SIM_ASSET_SERVERS,
     packs,
+    cover = null,
     loadImage = loadImageElement,
     sampleColor = sampleCenterColor,
     createSampleCanvas,
   } = opts;
 
   const probe = (selection: Required<SimAssetPackSelection>) => probeSimServers({
-    servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor, createSampleCanvas,
+    servers, selection, bandSrc, bandSpSrc, cover, loadImage, sampleColor, createSampleCanvas,
   });
   const selected: Required<SimAssetPackSelection> = {
     field: normalizeSimAssetPackId('field', packs?.field),
@@ -378,17 +402,44 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
   return emptySimAssets();
 }
 
+/**
+ * 只取一张**表演背景主图**（票 84 定案 B 的结算固定背景）。
+ *
+ * 为什么不用 `loadSimAssets`：那套为了"判定这个服归档没归档"要先读场地图，再把背景 /
+ * 判定线 / 带体两张 / 精灵三张 / HUD 六张一次全解码 —— 只要一张背景时全是重复解码
+ * （导出主素材在同一轮里已经加载了同一批 URL）。这里逐服只试 `background` 一项，
+ * 首个成功即返回；全服取不到 = null（结算只剩深色底，不回落用户当前选的包）。
+ */
+export async function loadSimBackgroundImage(
+  packId?: string,
+  opts: {
+    servers?: readonly string[];
+    loadImage?: (src: string) => Promise<HTMLImageElement>;
+  } = {},
+): Promise<HTMLImageElement | null> {
+  const { servers = SIM_ASSET_SERVERS, loadImage = loadImageElement } = opts;
+  for (const server of servers) {
+    try {
+      return await loadImage(simAssetUrls(server, { background: packId }).background);
+    } catch {
+      // 这个服没归档（或没摆这个包）：换下一个
+    }
+  }
+  return null;
+}
+
 /** 逐服探测一轮（`selection` 已是归一化后的包 ID）；命中 = 该服务器目录归档过 */
 async function probeSimServers(opts: {
   servers: readonly string[];
   selection: Required<SimAssetPackSelection>;
   bandSrc: string | null;
   bandSpSrc: string | null;
+  cover: CanvasImageSource | null;
   loadImage: (src: string) => Promise<HTMLImageElement>;
   sampleColor: (img: HTMLImageElement) => string | null;
   createSampleCanvas?: () => HTMLCanvasElement | null;
 }): Promise<SimAssets | null> {
-  const { servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor, createSampleCanvas } = opts;
+  const { servers, selection, bandSrc, bandSpSrc, cover, loadImage, sampleColor, createSampleCanvas } = opts;
   for (const server of servers) {
     const urls = simAssetUrls(server, selection);
     let field: HTMLImageElement;
@@ -432,6 +483,8 @@ async function probeSimServers(opts: {
       background,
       field,
       playLine,
+      // 相框层只在自带背景包上存在（ADR-0018 §7）：别的包带了也画不到，索性不往下传
+      stageFrame: isAppBackgroundPack(selection.background) ? { cover } : null,
       bandColor: (bandImg ? sampleColor(bandImg) : null) ?? SIM_BAND_COLORS.band,
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
       bandMaterial: bandSample?.material ?? { ...SIM_BAND_MATERIAL },

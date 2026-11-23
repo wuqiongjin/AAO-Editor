@@ -222,6 +222,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     // 52 起同层多一枚 `sfx.ts`：导出两端的游戏音效（开场人潮 / 结尾章双声）的 cue 表
     expect(entries('src/preview/video')).toEqual(['encode', 'ending', 'index.ts', 'opening', 'sfx.ts', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
+      'appAssetPacks.ts', // 84：应用自带素材包（不进快照清单，由应用侧前置合并）
       'gen',
       'index.ts',
       'prepareSimNoteSprites.ts', // 68：开播前准备独立音符切片与 mip（含按住端帽和挂件）

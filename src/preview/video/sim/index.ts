@@ -68,6 +68,7 @@ export {
   EMPTY_SIM_HUD_ASSETS,
   emptySimAssets,
   loadSimAssets,
+  loadSimBackgroundImage,
   sampleCenterColor,
   simAssetPackThumbUrl,
   simAssetUrls,
@@ -84,15 +85,18 @@ export {
   type SimSpriteUrls,
 } from './simAssets';
 export {
+  AAO_STAGE_PACK_ID,
   SIM_DEFAULT_PACK_IDS,
   SIM_EMPTY_REGISTRY_FILES,
   findSimBackgroundPack,
   findSimFieldPack,
+  isAppBackgroundPack,
   listSimBackgroundPacks,
   listSimFieldPacks,
   normalizeSimAssetPackId,
   type SimAssetPackKind,
 } from './simAssetPacks';
+export type { SimStageFrame } from './appAssetPacks';
 export {
   PLAYBACK_RATE_RANGE,
   SIM_PLAYBACK_RATE_PRESETS,

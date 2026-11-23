@@ -221,7 +221,8 @@ describe('07 · 导出与预览解耦（不读窗口，不阻塞页面）', () =
 
   it('导出入口在动态形态工具栏（票 20 定案），全屏仍在末位', () => {
     const toolbar = page.slice(page.indexOf("mode === 'static' ? ("));
-    expect(toolbar).toMatch(/<PreviewDisplayPanel mode="video" \/>/);
+    // 84 起面板还接一个作用域工程封面（相框用），这里只锁"动态形态里有它"
+    expect(toolbar).toMatch(/<PreviewDisplayPanel mode="video" cover=\{stageCover\} \/>/);
     expect(toolbar).toMatch(/<VideoExportControl/);
     expect(toolbar.indexOf('<VideoExportControl')).toBeLessThan(toolbar.indexOf('<PreviewEnterFullscreenButton'));
   });
@@ -559,7 +560,7 @@ describe('75 · 末击收尾补偿（tail）与结算画面残留', () => {
   it('结尾舞台固定秒 = D + tail；不给 SimFrameLayers 加 notes / effects alpha，三段 7.5s 不动', () => {
     expect(frameDriver).toMatch(/seconds: chartSeconds/);
     expect(simField).not.toMatch(/notesAlpha|effectsAlpha|effectAlpha\?: number/);
-    expect(endingFrame).toMatch(/drawSimFrameAt\(ctx, stage\.frame, stage\.seconds, \{/);
+    expect(endingFrame).toMatch(/drawSimFrameAt\(ctx, frame, stage\.seconds, \{/);
     expect(endingSpec).toMatch(
       /ENDING_SECONDS = ENDING_SPEC\.stampDur \+ ENDING_SPEC\.transDur \+ ENDING_SPEC\.resultDur/,
     );

@@ -106,7 +106,7 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
 
   it('结尾层的舞台直接调 drawSimFrameAt 画谱面末帧（同一份渲染真相）', () => {
     // 2026-10-27 起舞台**分层**：不再烤成一张整帧快照，按层给 alpha
-    expect(frame).toMatch(/drawSimFrameAt\(ctx, stage\.frame, stage\.seconds, \{/);
+    expect(frame).toMatch(/drawSimFrameAt\(ctx, frame, stage\.seconds, \{/);
     expect(frame).toMatch(/trackAlpha: layerAlpha\(elapsed, u\.spec\.trackFadeAt, u\.spec\.trackFadeDur\)/);
     expect(frame).toMatch(/comboAlpha: layerAlpha\(elapsed, u\.spec\.comboFadeAt, u\.spec\.comboFadeDur\)/);
     // 结尾段不画判定字 / 打歌顶栏（那是打歌时的东西）

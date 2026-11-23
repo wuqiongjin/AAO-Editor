@@ -560,6 +560,7 @@
   "preview.display.bgBrightness": "Background brightness",
   "preview.display.bgPack": "Background",
   "preview.display.bgPack.full": "Live background",
+  "preview.display.bgName.aao-stage": "AAO Stage",
   "preview.display.bgName.skin00": "Default Background",
   "preview.display.bgName.skin01": "Story Event Background",
   "preview.display.bgName.skin02": "Challenge Event Background",

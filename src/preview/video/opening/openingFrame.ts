@@ -11,7 +11,7 @@
 //     空间的轨道都要一起过渡"）；三张图的矩形直接复用 `simGeometry`，不抄第二份。
 import type { SimFieldMetrics } from '../sim/simGeometry';
 import { fieldImageRect, playLineRect } from '../sim/simGeometry';
-import { drawSimBackground } from '../sim/simField';
+import { drawSimBackground, type StageCoverIntroStyle } from '../sim/simField';
 import { drawOpeningDecor, type DecorSpacing } from './openingDecor';
 import { OPENING_ITEM_IDS, type OpeningItemId } from './openingItems';
 import { HEADER_SANS } from '../../fontStack';
@@ -69,6 +69,12 @@ export interface OpeningFieldImages {
   background: CanvasImageSource | null;
   field: CanvasImageSource | null;
   playLine: CanvasImageSource | null;
+  /**
+   * 相框层（chart-preview 84）：字段名与 `SimFrameAssets` 一致、结构上也只要求
+   * `{ cover }` ⇒ 导出侧直接把 `frame.assets` 递进来，③段自动带上相框封面
+   * （"导出与预览一致"），这一层不必依赖仿真场的类型。
+   */
+  stageFrame?: { cover: CanvasImageSource | null } | null;
 }
 
 // ---------------- 文字 ----------------
@@ -219,7 +225,7 @@ let placeholderCache: { hue: number; canvas: HTMLCanvasElement } | null = null;
  * 结尾段（票 52）的结算左栏复用同一张占位，不另造第二套。
  */
 export function openingPlaceholderCover(hue: number): HTMLCanvasElement | null {
-  // 无 DOM（单测 / node）时不造占位块：返回 null ⇒ 只画空画框，不炸
+  // 无 DOM（单测 / node）时不造占位块：返回 null ⇒ 封面位留空，不炸
   if (typeof document === 'undefined') return null;
   if (placeholderCache && placeholderCache.hue === hue) return placeholderCache.canvas;
   const size = 512;
@@ -363,9 +369,20 @@ export function drawOpeningFieldBackground(
   m: SimFieldMetrics,
   imgs: OpeningFieldImages,
   brightness: number = 1,
+  /** 相框封面的淡入（缺省 0 = ③ 只有空相框；④ 由调用方喂 `openingTrackAlphaAt(t)`） */
+  coverAlpha: number = 0,
+  /** 相框封面的登场动效进度（缺省 1 = 已落定；④ 喂 `openingCoverIntroAt(t)`） */
+  coverIntro: number = 1,
+  /** 登场动效的力度覆盖（原型调参用；缺省 = `STAGE_COVER_INTRO_STYLE`） */
+  coverIntroStyle?: Partial<StageCoverIntroStyle>,
 ): void {
   ctx.save();
-  drawSimBackground(ctx, m, imgs.background, brightness);
+  drawSimBackground(ctx, m, imgs.background, brightness, 1, {
+    stageFrame: imgs.stageFrame ?? null,
+    coverAlpha,
+    coverIntro,
+    coverIntroStyle,
+  });
   ctx.restore();
 }
 
@@ -411,6 +428,29 @@ export function openingAlphaAt(t: number, timing: OpeningTiming = OPENING_TIMING
     return 1 - Math.min(1, Math.max(0, a));
   }
   return 0;
+}
+
+/**
+ * 相框封面「登场」动效的时长（秒）：④ 开头这一小段走完落定 + 扫光 + 屏沿。
+ * 2026-11-23 用户定档：0.7 → 1.1 → **2.0**（原型里拉满、说"延长时间"那一版更稳）。
+ * 注意 2.0 > ④ 段时长（`trackIn` 1.8）⇒ 最后 0.2s 会落在切到打歌之后，但那时 p = 0.9、
+ * 缩放差 0.02%、扫光 / 屏沿都只剩残影（≤3%），接缝看不出来。
+ * 力度参数见 `STAGE_COVER_INTRO_STYLE`；原型「封面登场」一组可实时调时长 / 起始缩放 / 扫光 / 屏沿。
+ */
+export const OPENING_COVER_INTRO_SECONDS = 2.0;
+
+/**
+ * 相框封面的登场进度（票 84 回修）：③ 恒 0（只有空相框）、④ 开头 `seconds` 秒从 0 走到 1。
+ * 之后恒 1 —— 正片与实时预览都不会重放这套动效。
+ */
+export function openingCoverIntroAt(
+  t: number,
+  timing: OpeningTiming = OPENING_TIMING,
+  seconds: number = OPENING_COVER_INTRO_SECONDS,
+): number {
+  const at = openingTrackInAt(timing);
+  if (t < at) return 0;
+  return Math.min(1, (t - at) / Math.max(0.05, seconds));
 }
 
 /** 轨道层在该视频秒的 alpha（④ 里 0 → 1；⑤ 起恒 1 —— 正常仿真帧自己画场地） */

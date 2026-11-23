@@ -18,6 +18,13 @@ export const ENDING_STAMPS: readonly EndingStamp[] = ['ap', 'fc', 'clear'];
 export type EndingPalette = 'cycle' | 'warm' | 'cool' | 'pink' | 'mix';
 
 /**
+ * 结算舞台的**固定背景包**（票 84 回修，用户 2026-11-23 定案 B）：结算不跟打歌的背景包走，
+ * 固定用官方默认那张 `liveBG_normal.png`（`skin00`）。取不到就只剩深色底 ——
+ * **不**回落用户当前选的包，否则"结算背景固定"这条等于没定。
+ */
+export const ENDING_STAGE_BG_PACK = 'skin00';
+
+/**
  * 定稿参数表（票 52 · 最终版式 · 原型 v9 的整份 JSON）。
  *
  * 改版式时对着票面改这里，别在绘制里散落魔数：`endingUnits()` 负责 % → px 的换算，
@@ -83,11 +90,15 @@ export const ENDING_SPEC = {
   coverY: 50,
   coverFrame: 0.3,
   coverShadow: 0.45,
-  bgBlur: 6,
-  bgBright: 65,
-  bgScrim: 42,
-  bgFadeFrom: 30,
-  bgFadeTo: 56,
+  /**
+   * 封面卡背后**柔光**的浓度（0–100；**0 = 完全不画**）。
+   * 2026-11-23 第四轮：原"左半幅整块氛围色 + 压暗"被用户判为"污染"（大面积色板压住官方房间背景、
+   * 渐变边界还正好落在白卡边缘），改成卡背后一团同色径向柔光；用户在原型里对比后
+   * **定档 25 / 半径 1.15**（"叠加柔光好一点"）。嫌多余就把浓度拉回 0。
+   */
+  bgWash: 25,
+  /** 柔光外半径（× 封面卡边长）—— 只影响光斑大小，不做整屏铺色 */
+  bgGlowSize: 1.15,
   // 中央章
   stampW: 62.2,
   stampY: 50.5,

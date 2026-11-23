@@ -58,12 +58,25 @@ function fakeLoader(allow: (src: string) => boolean, seen: string[] = []) {
 describe('仿真场的素材 URL', () => {
   it('默认（不传包）= skin00：三张场地/背景图都在运行时素材树里（`assets/sim/<类别>/<server>/…`）', () => {
     const urls = simAssetUrls('jp');
-    for (const url of [urls.field, urls.background, urls.playLine]) {
+    // 轨道仍取件侧默认 skin00；**背景默认改成了应用自带包**（票 84 · ADR-0018 §7）
+    for (const url of [urls.field, urls.playLine]) {
       expect(url.startsWith(`${SIM_ASSET_BASE}/`)).toBe(true);
     }
     expect(urls.field).toContain('/fieldskin/jp/skin00_rip/bg_line_rhythm.png');
     expect(urls.playLine).toContain('/fieldskin/jp/skin00_rip/game_play_line.png');
-    expect(urls.background).toContain('/bgskin/jp/skin00_rip/liveBG_normal.png');
+    expect(urls.background).toBe(`${import.meta.env.BASE_URL}assets/preview/aao-stage-frame-bg.webp`);
+    // 显式选回 Bestdori 默认包时照旧在运行时素材树里
+    expect(simAssetUrls('jp', { background: 'skin00' }).background)
+      .toContain('/bgskin/jp/skin00_rip/liveBG_normal.png');
+  });
+
+  it('自带背景包的 URL 与服务端无关：逐服探测时每个服都是同一个本地地址（票 84）', () => {
+    const jp = simAssetUrls('jp', { background: 'aao-stage' });
+    const tw = simAssetUrls('tw', { background: 'aao-stage' });
+    expect(jp.background).toBe(tw.background);
+    expect(jp.background).not.toContain('/bgskin/');
+    // 轨道仍随服变
+    expect(jp.field).not.toBe(tw.field);
   });
 
   it('按包 ID 解析：两个选择器各自独立，文件名从清单取（不再拼文件名）', () => {
@@ -78,11 +91,11 @@ describe('仿真场的素材 URL', () => {
     expect(simAssetUrls('jp', { background: 'skin_miku' }).background).toContain('/bgskin/jp/skin_miku_rip/liveBG.png');
   });
 
-  it('非法 / 不在清单里的包 ID → 静默回落 skin00（两个选择器各自）', () => {
+  it('非法 / 不在清单里的包 ID → 静默回落各自默认（轨道 skin00 / 背景自带包）', () => {
     expect(simAssetUrls('jp', { field: 'skin_nope', background: 'skin_nope' }).field)
       .toContain('/fieldskin/jp/skin00_rip/bg_line_rhythm.png');
     expect(simAssetUrls('jp', { field: 'skin_nope', background: 'skin_nope' }).background)
-      .toContain('/bgskin/jp/skin00_rip/liveBG_normal.png');
+      .toBe(`${import.meta.env.BASE_URL}assets/preview/aao-stage-frame-bg.webp`);
     // 脏值（非字符串）同样回落，不抛错
     expect(simAssetUrls('jp', { field: 42 as unknown as string }).field)
       .toContain('/fieldskin/jp/skin00_rip/bg_line_rhythm.png');
@@ -95,6 +108,9 @@ describe('仿真场的素材 URL', () => {
       .toBe(`${SIM_ASSET_BASE}/bgskin/jp/skin00_rip/liveBG_normal.png`);
     expect(simAssetPackThumbUrl('background', 'skin_miku', 'jp'))
       .toBe(`${SIM_ASSET_BASE}/bgskin/jp/skin_miku_rip/liveBG.png`);
+    // 背景网格第一格是自带包（票 84）：缩略 = 本地素材原图，不拼 bgskin / _rip
+    expect(simAssetPackThumbUrl('background', 'aao-stage', 'jp'))
+      .toBe(`${import.meta.env.BASE_URL}assets/preview/aao-stage-frame-bg.webp`);
   });
 
   it('Bestdori 自家精灵也走同一条运行时素材树（chart-preview 21）', () => {
@@ -268,13 +284,13 @@ describe('loadSimAssets · 包选择透传（chart-preview 41）', () => {
     expect(assets.background?.src).toBe(urls.background);
   });
 
-  it('选中包整服读不到 → 兜底回落默认 skin00（不弹错、不进空态，ADR-0018 §1）', async () => {
-    // jp 只摆了 skin00_rip：选中 skin_miku 的场地图 404 ⇒ 按默认包再探一次，拿到 skin00
+  it('选中包整服读不到 → 兜底回落默认包（轨道 skin00 / 背景自带包；不弹错、不进空态，ADR-0018 §1）', async () => {
+    // jp 只摆了 skin00_rip + 本地自带包：选中 skin_miku 的场地图 404 ⇒ 按默认包再探一次
     const fallback = simAssetUrls('jp');
     const assets = await loadSimAssets({
       servers: ['jp'],
       packs: { field: 'skin_miku', background: 'skin_miku' },
-      loadImage: fakeLoader((src) => src.includes('skin00_rip')).load,
+      loadImage: fakeLoader((src) => src.includes('skin00_rip') || src.endsWith('aao-stage-frame-bg.webp')).load,
     });
     expect(assets.missing).toBe(false);
     expect(assets.field?.src).toBe(fallback.field);
@@ -425,5 +441,38 @@ describe('chart-preview 57 · loadImageElement 预解码', () => {
       if (prevImage === undefined) delete (globalThis as { Image?: unknown }).Image;
       else (globalThis as { Image?: unknown }).Image = prevImage;
     }
+  });
+});
+
+// chart-preview 84 · ADR-0018 §7：相框封面只在"背景是应用自带包"时随素材带出去。
+describe('loadSimAssets · 相框封面（票 84）', () => {
+  const cover = { width: 600, height: 600 } as unknown as CanvasImageSource;
+
+  it('背景是自带包 → 封面原样带出，并标出自带包（取景要分叉）', async () => {
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      packs: { background: 'aao-stage' },
+      cover,
+      loadImage: fakeLoader(() => true).load,
+    });
+    expect(assets.stageFrame).toEqual({ cover });
+  });
+
+  it('背景是 Bestdori 包 → 不带封面（那张图上没有相框）', async () => {
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      packs: { background: 'skin00' },
+      cover,
+      loadImage: fakeLoader(() => true).load,
+    });
+    expect(assets.stageFrame).toBeNull();
+  });
+
+  it('不传包（出厂默认）就命中自带包 ⇒ 封面生效；不传封面则留空', async () => {
+    const withCover = await loadSimAssets({ servers: ['jp'], cover, loadImage: fakeLoader(() => true).load });
+    expect(withCover.stageFrame).toEqual({ cover });
+    // 自带包但没有封面：相框层**仍在**（取景要分叉），只是封面留空
+    const noCover = await loadSimAssets({ servers: ['jp'], loadImage: fakeLoader(() => true).load });
+    expect(noCover.stageFrame).toEqual({ cover: null });
   });
 });

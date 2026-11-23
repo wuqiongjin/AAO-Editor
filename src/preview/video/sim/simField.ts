@@ -31,14 +31,18 @@ import { dirSideOf, singleIconConfig, slideNodeIconConfig, type IconChoiceCtx } 
 import type { ActiveNoteIcons } from '../../../rendering/skin/noteSkin';
 import type CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import type { SpriteIconConfig } from '../../../ui/CanvasSpriteIcon';
+import type { SimStageFrame } from './appAssetPacks';
 import { beatSecondsAt, getBpmEvents, type BpmEvent } from '../../../audio/AudioTiming';
 import type { KeySoundKind } from '../../../audio/KeySound';
 import {
   APPROACH,
   approachA,
   approachSeconds,
+  aaoFrameRect,
+  aaoStageBackgroundRect,
   backgroundRect,
   bandLaneAt,
+  type SimRect,
   bandQuad,
   clamp01,
   clampApproach,
@@ -148,8 +152,8 @@ export interface SimScene {
   showGameUi?: boolean;
   /**
    * `settings.preview.bgPackId`：表演背景包 ID（chart-preview 41 · ADR-0018）。
-   * **可选**（缺省 = 默认 `skin00`）：只喂 `loadSimAssets` 取文件名，画面不直接消费；
-   * 实时预览 / 视频导出 / 开场第③段走同一份 scene ⇒ 三处画面一致。
+   * **可选**（缺省 = 默认包：票 84 起是自带包 `aao-stage`）：只喂 `loadSimAssets` 取文件名，
+   * 画面不直接消费；实时预览 / 视频导出 / 开场第③段走同一份 scene ⇒ 三处画面一致。
    */
   bgPackId?: string;
   /** `settings.preview.fieldPackId`：场地皮肤包（轨道）ID；口径同 `bgPackId` */
@@ -283,8 +287,15 @@ function* bandsInWindow(bands: SimBand[], lo: number, hi: number): Generator<Sim
 
 /** 一帧要用的素材（缺图 = 不画该层；带体取色缺 = 走兜底色） */
 export interface SimFrameAssets {
-  /** 背景（bgskin `liveBG_normal.png`） */
+  /** 背景（bgskin `liveBG_normal.png`；应用自带包是那张 AAO 舞台图） */
   background: CanvasImageSource | null;
+  /**
+   * **相框层**（chart-preview 84 · ADR-0018 §7）：有值 = 背景是应用自带包「AAO 舞台」
+   * ⇒ 取景走 `aaoStageBackgroundRect`（自然比例，不是 Bestdori 那条 1.525 倍幕布拉伸），
+   * 且图正中的玻璃屏存在；`cover` 画在背景图之后、亮度黑罩之前
+   * ⇒ 跟着亮度一起压暗，也不会盖住场地图与车道线。绘制函数不认包 ID。
+   */
+  stageFrame: SimStageFrame | null;
   /** 场地图（fieldskin `bg_line_rhythm.png`） */
   field: CanvasImageSource | null;
   /** 场地判定线（fieldskin `game_play_line.png`） */
@@ -724,12 +735,14 @@ export function prepareSimFieldBitmap(input: SimFrameInput, density: number): Im
 export function drawFieldLayers(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   m: SimFieldMetrics,
-  assets: Pick<SimFrameAssets, 'background' | 'field' | 'playLine'>,
+  assets: Pick<SimFrameAssets, 'background' | 'stageFrame' | 'field' | 'playLine'>,
   brightness: number = 1,
   backgroundAlpha: number = 1,
   trackAlpha: number = 1,
 ): void {
-  drawSimBackground(ctx, m, assets.background, brightness, backgroundAlpha);
+  drawSimBackground(ctx, m, assets.background, brightness, backgroundAlpha, {
+    stageFrame: assets.stageFrame ?? null,
+  });
   // 轨道两层（场地图 + 判定线）一起退，背景留着 —— 结尾段"只剩舞台"就靠这个
   const track = clamp01(trackAlpha);
   if (assets.field && track > 0.002) {
@@ -746,12 +759,159 @@ export function drawFieldLayers(
   }
 }
 
+/** 背景层的"额外笔触"（chart-preview 84）：只有自带包才有的相框层 */
+export interface SimBackgroundPaint {
+  /** 有值 = 自带背景包（取景走自然比例 + 画相框）；`cover` 为 null 就只留空相框 */
+  stageFrame?: SimStageFrame | null;
+  /**
+   * 相框封面另给一层不透明度（缺省 1 = 跟背景同亮）。
+   * 开场③/④ 用它做"进正片前封面才亮起来"：③（只有背景）时 = 0、④ 跟着轨道淡入，
+   * 否则封面会在开场画面淡出的同一瞬间整块出现（用户 2026-11-23 反馈"没有淡入效果"）。
+   */
+  coverAlpha?: number;
+  /**
+   * 相框封面的**登场动效进度**（0 = 刚上屏、1 = 已落定；缺省 1 = 不重放）。
+   * 只在开场④段用：缩放落定 + 扫光 + 屏沿亮一圈（见 `drawStageCover`）。
+   */
+  coverIntro?: number;
+  /** 登场动效的力度覆盖（原型调参用；缺省 = `STAGE_COVER_INTRO_STYLE`） */
+  coverIntroStyle?: Partial<StageCoverIntroStyle>;
+}
+
 /**
- * 背景层：兜底底色 → 背景图 → 亮度黑罩（chart-preview 43 · ADR-0018 §5）。
+ * 相框封面「投影上屏」的力度参数（2026-11-23 第四轮）。**默认值就是生产口径**，
+ * 原型面板按同一份数显示"还没写回"的差异；时长不在这里（那是开场时间轴的事，
+ * 见 `OPENING_COVER_INTRO_SECONDS`）。
+ */
+export interface StageCoverIntroStyle {
+  /** 起始缩放（>1 = 从外缩回落定；越大越"压"） */
+  scaleFrom: number;
+  /** 扫光带高（× 相框高） */
+  sweepBand: number;
+  /** 扫光强度（0 = 不扫） */
+  sweep: number;
+  /** 屏沿亮圈线宽（× 相框宽） */
+  edgeWidth: number;
+  /** 屏沿亮圈强度（0 = 不亮） */
+  edge: number;
+}
+
+/**
+ * 登场动效力度的生产缺省（见 `StageCoverIntroStyle`）。
+ * 2026-11-23 用户在原型里定档：1.16 → **1.2**、扫光 0.6 → **0.65**、屏沿 0.85 → **1.1**（配合 2.0s 时长）。
+ */
+export const STAGE_COVER_INTRO_STYLE: StageCoverIntroStyle = {
+  scaleFrom: 1.2,
+  sweepBand: 0.26,
+  sweep: 0.65,
+  edgeWidth: 0.014,
+  edge: 1.1,
+};
+
+/** 源图的天然尺寸（`ImageBitmap` 用 width/height，`HTMLImageElement` 用 naturalWidth）；读不到 → null */
+function coverSourceSize(img: CanvasImageSource): { w: number; h: number } | null {
+  const src = img as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
+  const w = src.naturalWidth || src.width || 0;
+  const h = src.naturalHeight || src.height || 0;
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+/**
+ * 把封面按 **cover** 铺进相框矩形（居中裁切、不拉伸；拿不到源尺寸才退回拉伸）。
+ * 相框区是正方形（`AAO_FRAME_RATIO`），方形工程封面落进去几乎不裁。
+ */
+function drawFrameCover(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  img: CanvasImageSource,
+  r: SimRect,
+): void {
+  const size = coverSourceSize(img);
+  if (!size) {
+    ctx.drawImage(img, r.x, r.y, r.w, r.h);
+    return;
+  }
+  const scale = Math.max(r.w / size.w, r.h / size.h);
+  const sw = Math.min(size.w, r.w / scale);
+  const sh = Math.min(size.h, r.h / scale);
+  ctx.drawImage(img, (size.w - sw) / 2, (size.h - sh) / 2, sw, sh, r.x, r.y, r.w, r.h);
+}
+
+/**
+ * 相框封面的**登场**（票 84 回修 · 用户 2026-11-23「效果太简陋，没有高级动效的感觉」）。
+ *
+ * 纯 alpha 淡入在 287px 的相框里就是"一块色块亮起来"，所以改成**「投影上屏」三件套**，
+ * 全部是纯合成（不碰 `ctx.filter` / 离屏模糊 —— 导出逐帧也扛得住）：
+ *   ① **落定**：从 `scaleFrom`（缺省 1.2）缩回 1 倍（ease-out-cubic）。只缩小、不放大 ⇒
+ *      始终盖满玻璃屏，四周不会露出那道暗缝。
+ *   ② **扫光**：一道横向亮带自上而下掠过一遍（`lighter`），像投影灯扫过银幕。
+ *   ③ **屏沿**：相框内沿亮一圈再收（`lighter` + 二次方衰减）。
+ *
+ * `intro` = 进度（0 刚上屏 / 1 已落定）。缺省 1 ⇒ 正片与实时预览不会再放一遍。
+ * `alpha` = 已经算好的总不透明度（背景层 alpha × 相框封面自己的 alpha）。
+ * `style` = 力度覆盖（原型调参；缺省 = `STAGE_COVER_INTRO_STYLE`）。
+ */
+function drawStageCover(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  img: CanvasImageSource,
+  r: SimRect,
+  alpha: number,
+  intro: number,
+  style: Partial<StageCoverIntroStyle> = {},
+): void {
+  const st = { ...STAGE_COVER_INTRO_STYLE, ...style };
+  const p = clamp01(intro);
+  const ease = easeOutCubic(p);
+  // 落定后钉成 1：`scaleFrom − (scaleFrom − 1)` 在浮点里是 0.999…，会让封面被塞进半像素里糊掉
+  const scale = p >= 1 ? 1 : st.scaleFrom - (st.scaleFrom - 1) * ease;
+  const dw = r.w * scale;
+  const dh = r.h * scale;
+  const dx = r.x - (dw - r.w) / 2;
+  const dy = r.y - (dh - r.h) / 2;
+
+  ctx.save();
+  // 裁到玻璃屏：缩放中的封面不许溢到相框装饰带上
+  ctx.beginPath();
+  ctx.rect(r.x, r.y, r.w, r.h);
+  ctx.clip();
+  ctx.globalAlpha = alpha;
+  drawFrameCover(ctx, img, { x: dx, y: dy, w: dw, h: dh });
+  if (p < 1 && st.sweep > 0.002) {
+    const bandH = r.h * st.sweepBand;
+    const cy = dy - bandH + (dh + bandH * 2) * ease;
+    const band = ctx.createLinearGradient(0, cy - bandH, 0, cy + bandH);
+    const k = (1 - p) * st.sweep;
+    band.addColorStop(0, 'rgba(255,255,255,0)');
+    band.addColorStop(0.5, `rgba(255,255,255,${k.toFixed(3)})`);
+    band.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = band;
+    ctx.fillRect(dx, cy - bandH, dw, bandH * 2);
+  }
+  ctx.restore();
+
+  if (p < 1 && st.edge > 0.002) {
+    const lw = Math.max(1.5, r.w * st.edgeWidth);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha * Math.pow(1 - p, 2) * st.edge;
+    ctx.strokeStyle = 'rgba(200,232,255,1)';
+    ctx.lineWidth = lw;
+    ctx.strokeRect(r.x + lw / 2, r.y + lw / 2, r.w - lw, r.h - lw);
+    ctx.restore();
+  }
+}
+
+/**
+ * 背景层：兜底底色 → 背景图 →（相框封面）→ 亮度黑罩（chart-preview 43 · ADR-0018 §5/§7）。
  *
  * 黑罩 `alpha = 1 − 亮度`（`out = in × (1 − α)` 数学上就是 RGB × 亮度），**紧跟在背景图之后**
  * 落笔 ⇒ 只压背景，场地图 / 判定线 / 音符画在其后、不受影响。没有背景图时不压
  * （没有东西可压，兜底底色保持原样；缺素材空态也不该被无故压黑）。
+ *
+ * `cover`（chart-preview 84）= 「AAO 舞台」相框里那张工程封面：画在**背景图之后、黑罩之前**
+ * —— ① 跟着亮度一起压暗（票 84 Q7=B："亮度照吃"）；② 在场地图之前 —— 相框是舞台后墙的屏，
+ * 轨道那层半透玻璃（α≈0.38）与车道线要压在它上面，否则音符下落时看不见轨道。
+ * 三处消费方（实时 / 导出 / 开场第③段）都走这个函数 ⇒ 画面天然一致。
  *
  * 动画段 / 视频导出 / 面板预览都走这里 —— "只压暗、只压背景层"只有这一处实现。
  */
@@ -761,6 +921,7 @@ export function drawSimBackground(
   img: CanvasImageSource | null,
   brightness: number = 1,
   backgroundAlpha: number = 1,
+  paint: SimBackgroundPaint = {},
 ): void {
   // 兜底底色不受淡出影响：结尾段退掉的是背景图，露出的是这块底色
   ctx.fillStyle = SIM_FALLBACK_BG;
@@ -770,8 +931,22 @@ export function drawSimBackground(
   if (alpha <= 0.002) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  const r = backgroundRect(m);
+  const stage = paint.stageFrame ?? null;
+  const r = stage ? aaoStageBackgroundRect(m) : backgroundRect(m);
   ctx.drawImage(img, r.x, r.y, r.w, r.h);
+  // 相框：自带背景包才有。目标矩形 = 相框区（与上面同一个取景坐标系）。
+  // `coverAlpha` 是**额外的**淡入（开场③段 = 0、④段 0→1），与背景图本身的不透明度相乘。
+  const coverA = stage?.cover ? clamp01(paint.coverAlpha ?? 1) : 0;
+  if (stage?.cover && coverA > 0.002) {
+    drawStageCover(
+      ctx,
+      stage.cover,
+      aaoFrameRect(m),
+      alpha * coverA,
+      paint.coverIntro ?? 1,
+      paint.coverIntroStyle,
+    );
+  }
   // 非有限值按"原图"（不是按 0：那会把整屏压黑）
   const level = Number.isFinite(brightness) ? Math.min(1, Math.max(0, brightness)) : 1;
   const dim = 1 - level;

@@ -50,6 +50,11 @@ export interface UseVideoExportArgs {
   seVolume: number;
   volume: number;
   noteSkin: AppSettings['visual']['noteSkin'];
+  /**
+   * 作用域工程的封面（票 84）：背景是「AAO 舞台」时它填进相框；`null` = 没有封面（相框留空）。
+   * 与开场 / 结算各自的 `cover` 同源（都由页面按作用域工程给）。
+   */
+  cover?: Blob | null;
   /** 文件名基础名（不含扩展名） */
   suggestedBaseName: string;
   /**
@@ -195,6 +200,7 @@ export function useVideoExport(
         scene: args.scene,
         audio: args.audio,
         durationSeconds: args.durationSeconds,
+        cover: args.cover ?? null,
         keySetId: args.keySetId,
         seVolume: args.seVolume,
         volume: args.volume,

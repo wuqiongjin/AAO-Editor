@@ -420,7 +420,8 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     expect(within(panel()).queryByRole('group', { name: '场地皮肤包' })).toBeNull();
     // 行上直接显示当前包（选服后的显示名）；按 title 取——轨道皮肤的官方名可能与
     // 「音符皮肤」那行的名字撞字（都是「按键条皮肤00」）
-    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('skin00'), 'background'))).toBeInTheDocument();
+    // 背景行显示的是**当前选择** = 出厂默认的自带包「AAO 舞台」（票 84 · ADR-0018 §7）
+    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('aao-stage'), 'background'))).toBeInTheDocument();
     expect(within(panel()).getByTitle(simPackDisplayName(fieldPack('skin00'), 'field'))).toBeInTheDocument();
     expect(bgRow()).toBeInTheDocument();
     expect(fieldRow()).toBeInTheDocument();
@@ -438,9 +439,14 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     // 背景 skin00：官方名五服同值日文 → 显示 i18n 中文名，不出原始日文（用户 2026-10-22 反馈）
     expect(within(pickerGrid('表演背景')).getByText('默认背景')).toBeInTheDocument();
     expect(within(pickerGrid('表演背景')).queryByText('デフォルト背景')).toBeNull();
-    // 缩略从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
-    const thumb = bgBtn(bgPacks[0].id).querySelector('img');
-    expect(thumb?.getAttribute('src')).toContain(`/bgskin/jp/${bgPacks[0].id}_rip/`);
+    // 第一格是应用自带包「AAO 舞台」（票 84）：缩略 = 本地素材原图，不在 bgskin 树里
+    expect(bgPacks[0]!.id).toBe('aao-stage');
+    expect(within(pickerGrid('表演背景')).getByText('AAO 舞台')).toBeInTheDocument();
+    const appThumb = bgBtn('aao-stage').querySelector('img');
+    expect(appThumb?.getAttribute('src')).toContain('/assets/preview/aao-stage-frame-bg.webp');
+    // 官方包的缩略仍从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
+    const thumb = bgBtn('skin00').querySelector('img');
+    expect(thumb?.getAttribute('src')).toContain('/bgskin/jp/skin00_rip/');
 
     // 点一个**非默认**包：落盘的就是它，另一个选择器没被碰；仍停选择器里（可连着比较）
     fireEvent.click(bgBtn('skin_miku'));
@@ -458,7 +464,7 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
 
     fireEvent.click(fieldBtn('skin_maid'));
     expect(stored().preview.fieldPackId).toBe('skin_maid');
-    expect(stored().preview.bgPackId).toBe('skin00');
+    expect(stored().preview.bgPackId).toBe('aao-stage'); // 两个选择器互不干涉，背景仍是出厂默认（票 84）
   });
 
   it('进选择器焦点落在当前选中格；返回 / Esc 先回设置视图（焦点还给「更换」钮），再 Esc 才关面板', () => {
@@ -482,12 +488,13 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
 
   it('存了清单里没有的旧包 ID：行上显示归一化后的默认名；选择器里默认格高亮', () => {
     setupDynamic({ preview: { bgPackId: 'skin_已消失' } });
-    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('skin00'), 'background'))).toBeInTheDocument();
+    // 背景的归一化落点是出厂默认（票 84 起 = 自带包「AAO 舞台」）
+    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('aao-stage'), 'background'))).toBeInTheDocument();
 
     openPicker('background');
-    expect(bgBtn('skin00')).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
-    fireEvent.click(bgBtn('skin00'));
-    expect(stored().preview.bgPackId).toBe('skin00');
+    expect(bgBtn('aao-stage')).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
+    fireEvent.click(bgBtn('aao-stage'));
+    expect(stored().preview.bgPackId).toBe('aao-stage');
   });
 
   it('hover / focus 一格浮出大预览（名字 = 该包显示名），移开即收', () => {

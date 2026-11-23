@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPENING_ITEMS,
+  OPENING_COVER_INTRO_SECONDS,
   OPENING_STACK,
   OPENING_STACK_T,
   OPENING_FADE_IN_SECONDS,
@@ -22,6 +23,7 @@ import {
   drawOpeningTrack,
   extractCreditLines,
   openingAlphaAt,
+  openingCoverIntroAt,
   openingItemOrder,
   openingSegmentAt,
   openingStackDriftAt,
@@ -223,6 +225,17 @@ describe('chart-preview 30 · 场地的两层（③ 背景 / ④ 轨道）', () 
     expect(drawn.length).toBe(2);
     expect(drawn.map(([, a]) => a[0])).toEqual([imgs.field, imgs.playLine]);
     expect(propValues(calls, 'globalAlpha')).toEqual([1]);
+  });
+
+  // 票 84 第四轮：用户"有点快" ⇒ 0.7 → 1.1 → **2.0s**（原型定档）；原型可按 `coverIntroDur` 覆盖
+  it('④ 相框封面登场：④ 起点起算、缺省 2.0s 走完；时长可覆盖（原型调参）', () => {
+    expect(OPENING_COVER_INTRO_SECONDS).toBe(2);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT - 0.01)).toBe(0);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT)).toBe(0);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT + 1)).toBeCloseTo(0.5, 6);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT + 2.1)).toBe(1);
+    // 覆盖时长 1.2s：同一时刻只走到 0.5
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT + 0.6, undefined, 1.2)).toBeCloseTo(0.5, 6);
   });
 
   it('④ 的 alpha 渐显；alpha ≤ 0 时整层不画', () => {
