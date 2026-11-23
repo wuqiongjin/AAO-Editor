@@ -1064,8 +1064,19 @@
   overflow: hidden;
 }
 
+/* 票 42：自定义背景还在读 / 推帧未就绪时盖住已挂上的 canvas。
+   只 `position: absolute` 没有铺底的话，「正在读取场地素材…」会浮在旧场地上，包图从文案后面漏出来。 */
 .pv-field__pending {
   position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 /* 场地：尺寸由 JS 按设计面 contain 算（`fitDesignSurface`），这里是它的容器。

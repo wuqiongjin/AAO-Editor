@@ -270,6 +270,20 @@ describe('84 · 相框封面不吃 issue 80 的冷路径', () => {
     expect(stage).toMatch(/if \(coverPending \|\| liveBgPending\) return;/);
   });
 
+  it('票 42：自定义背景 pending 不跟页面 active 走，遮罩盖住保活画布', () => {
+    const hook = readStripped('src/pages/preview/useLiveBg.ts');
+    // 保活切走会 close 位图；若 pending 随 active 变 false，隐藏的舞台会按「没用自定义」去取内置包
+    expect(hook).toMatch(/const pending = Boolean\(projectId && useCustom && hasImage && full == null\)/);
+    expect(hook).not.toMatch(/active && projectId && useCustom/);
+    expect(stage).toMatch(/stageReady && \(liveBgPending \|\| !renderingReady\)/);
+    expect(stage).toMatch(/if \(!pb \|\| liveBgPending \|\| !frameReady/);
+
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    expect(css).toMatch(/\.pv-field__pending\s*\{[^}]*position:\s*absolute/s);
+    expect(css).toMatch(/\.pv-field__pending\s*\{[^}]*inset:\s*0/s);
+    expect(css).toMatch(/\.pv-field__pending\s*\{[^}]*background:/s);
+  });
+
   it('播放器不跟 `assets` 重建（换包 / 封面晚到只重烤场地底图）', () => {
     expect(stage).toMatch(/\}, \[stageReady, audio, gpuBands\]\);/);
     expect(stage).not.toMatch(/\}, \[stageReady, audio, assets, gpuBands\]\);/);

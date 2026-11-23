@@ -196,7 +196,9 @@ export function useLiveBg(project: ChartProject | null, active = true): LiveBgCo
   }, [mutate]);
 
   const hasImage = hasMeta && !failed;
-  const pending = Boolean(active && projectId && useCustom && hasImage && full == null);
+  // 不把 `active` 算进 pending：保活切走会 close 位图，但舞台还挂着。
+  // 若 pending 随 active 变 false，隐藏的舞台会按「没用自定义」去取内置包，切回来先闪包图。
+  const pending = Boolean(projectId && useCustom && hasImage && full == null);
   const slot = useMemo<LiveBgSlotState>(() => ({
     available: projectId != null,
     hasImage,

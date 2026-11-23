@@ -197,6 +197,7 @@ export default function PreviewVideoStage({
     // 封面还在解码就先不取素材（票 84 + issue 80）：先按"空相框"取一遍、解码完再取第二遍，
     // 等于把场地图 / 带体 / 精灵 / HUD 解码两次，`assets` 还会两次换身份（第二次连播放器一起重建、
     // 重新解码 BGM）。等解码落定再取，全程只有一次。
+    // 自定义表演背景还在读也一样（票 42）：先按内置包取一遍再换成自定义，保活切回来会先闪包图。
     if (coverPending || liveBgPending) return;
     let cancelled = false;
     void loadSimAssets({
@@ -375,7 +376,7 @@ export default function PreviewVideoStage({
   useEffect(() => {
     const pb = playbackRef.current;
     const spriteIcon = spriteIconRef.current;
-    if (!pb || !frameReady || !derived || !spriteIcon || !assets || !metrics || assets.missing) return;
+    if (!pb || liveBgPending || !frameReady || !derived || !spriteIcon || !assets || !metrics || assets.missing) return;
     const input: SimFrameInput = {
       chart: derived.chart,
       scene,
@@ -399,7 +400,8 @@ export default function PreviewVideoStage({
       });
     return () => { cancelled = true; };
     // skinVersion 是"图集到位"的信号：它不进 input，但要触发重推（暂停态那帧是缺图画的）
-  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, density, stageReady, audio, syncToken, onSyncComplete, gpuBands]);
+    // liveBgPending：自定义背景还在读时不要用手上的包图 / 已 close 的位图去推帧
+  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, density, stageReady, audio, syncToken, onSyncComplete, gpuBands, liveBgPending]);
 
   const togglePlay = useCallback(() => {
     // 未就绪时只允许暂停；HUD 的 playing 可能属于刚被换掉的旧播放器。
@@ -458,7 +460,8 @@ export default function PreviewVideoStage({
         ) : (
           <p className="preview-stage__pending">{t('preview.video.loading')}</p>
         )}
-        {stageReady && !renderingReady ? (
+        {/* 推帧未就绪或自定义背景还在读：盖住保活 canvas 上的旧场地（包图 / 已 close 的自定义图） */}
+        {stageReady && (liveBgPending || !renderingReady) ? (
           <p className="preview-stage__pending pv-field__pending" role="status">{t('preview.video.loading')}</p>
         ) : null}
       </div>

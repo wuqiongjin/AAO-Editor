@@ -107,7 +107,7 @@ import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
 import type { ChartNote } from '@/src/chart/types';
 import { prepareSimNoteSprites } from '@/src/preview/video/sim/prepareSimNoteSprites';
 import { prepareSimRendering } from '@/src/preview/video/sim/prepareSimRendering';
-import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
+import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, loadSimAssets, type SimPlaybackAudio, type SimScene } from '@/src/preview';
 import { getDefaultConfig, setCapturingShortcut } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
 import type { AppSettings } from '@/src/settings/AppSettings';
@@ -200,6 +200,7 @@ beforeEach(() => {
   calls.setFrame.mockClear();
   calls.play.mockClear();
   calls.seek.mockClear();
+  vi.mocked(loadSimAssets).mockClear();
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
@@ -836,5 +837,76 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
 
     await waitFor(() => expect(onSyncComplete).toHaveBeenCalledWith(token2));
     expect(calls.setFrame).toHaveBeenCalled();
+  });
+});
+
+describe('票 42 · 自定义背景未就绪时不露出内置包', () => {
+  const custom = { width: 64, height: 36 } as unknown as CanvasImageSource;
+
+  function tree(overrides: {
+    liveBgPending?: boolean;
+    scene?: SimScene;
+  } = {}) {
+    return (
+      <PreviewVideoStage
+        active
+        scene={overrides.scene ?? scene}
+        duration={12}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        liveBgPending={overrides.liveBgPending}
+      />
+    );
+  }
+
+  it('sidecar 还在读：不取场地素材，也不把画布顶上来', async () => {
+    const { act } = await import('@testing-library/react');
+    render(tree({ liveBgPending: true }));
+    await act(async () => { await Promise.resolve(); });
+    expect(loadSimAssets).not.toHaveBeenCalled();
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: t('preview.video.aria') })).toBeNull();
+  });
+
+  it('保活舞台已画出内置包后 pending 再翻上来：不再取包，用不透明遮罩盖住旧场地', async () => {
+    const { act } = await import('@testing-library/react');
+    const { rerender } = await renderStage();
+    expect(screen.getByRole('img', { name: t('preview.video.aria') })).toBeInTheDocument();
+    vi.mocked(loadSimAssets).mockClear();
+    calls.setFrame.mockClear();
+
+    rerender(tree({ liveBgPending: true }));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(loadSimAssets).not.toHaveBeenCalled();
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    const overlay = document.querySelector('.pv-field__pending');
+    expect(overlay).not.toBeNull();
+    expect(overlay).toHaveTextContent(t('preview.video.loading'));
+    // 画布可以保活挂着（避免拆播放器），但加载文案必须叠在它上面，不能只剩居中一句
+    expect(screen.getByRole('img', { name: t('preview.video.aria') })).toBeInTheDocument();
+  });
+
+  it('pending 落定且 scene 带上自定义图：只取这一次，带着 customLiveBg', async () => {
+    const { rerender } = render(tree({ liveBgPending: true }));
+    expect(loadSimAssets).not.toHaveBeenCalled();
+
+    rerender(tree({
+      liveBgPending: false,
+      scene: { ...scene, customLiveBg: custom, liveBgFit: 'contain' },
+    }));
+    await waitFor(() => expect(loadSimAssets).toHaveBeenCalled());
+    expect(vi.mocked(loadSimAssets).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      customLiveBg: custom,
+      liveBgFit: 'contain',
+    }));
+    expect(loadSimAssets).toHaveBeenCalledTimes(1);
   });
 });
