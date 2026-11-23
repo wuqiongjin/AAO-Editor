@@ -7,7 +7,7 @@
 //      所以这里断言的是"落盘里的那一份"而不是面板内的副本；
 //   3. 浮层交互照站内菜单壳：Esc 关并把焦点还给触发钮、点遮罩关。
 //
-// 按结构取节点一处：`.pp-menu__scrim`（"点面板外"只有遮罩能表达，照 ScopePicker.test.tsx）。
+// 票 87：点面板外走 document pointerdown，不再铺全视口 scrim。
 //
 // 控件文案**复用设置页那套**（节奏图示大小 / 同时点击线 / 色觉辅助 / 图像品质 / 轨道颜色…）：
 // 面板是同一份设置的第二个入口，两处名字必须一样（面板不另起一套词汇）。
@@ -113,7 +113,7 @@ function setupDynamic(patch: Record<string, unknown> = {}, liveBg?: LiveBgSlotSt
 
 const trigger = () => screen.getByRole('button', { name: '设置' });
 const panel = () => screen.getByRole('dialog', { name: '显示设置' });
-const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
+const clickOutside = () => fireEvent.pointerDown(document.body);
 /** 落盘的那份设置（ConfigProvider 每次改动都整份写回同一 key） */
 const stored = (): StoredSettings => JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as StoredSettings;
 const bpmSwitch = () => within(panel()).getByRole('switch', { name: 'BPM 标记' });
@@ -315,9 +315,9 @@ describe('chart-preview 08 · 浮层交互与皮肤入口', () => {
     expect(trigger()).toHaveFocus();
   });
 
-  it('点面板外（遮罩）关闭', () => {
+  it('点面板外关闭', () => {
     setup();
-    fireEvent.click(scrim());
+    clickOutside();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -530,7 +530,7 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     openPicker('background');
     expect(pickerGrid('表演背景')).toBeInTheDocument();
 
-    fireEvent.click(scrim());
+    clickOutside();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 

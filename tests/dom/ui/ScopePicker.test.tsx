@@ -6,7 +6,7 @@
 //
 // 两处按结构取节点，理由写在这里：
 //   - `.scope-picker__tag`：徽标文案与行内「当前」小签同字，只能靠类名分开；
-//   - `.pp-menu__scrim`：「点面板外」这个动作只有遮罩能表达。
+//   - 点面板外：票 87 起走 document pointerdown，不再铺全视口 scrim。
 // 视觉里的**定位**不靠布局引擎：触发钮量测用 mock 注入（issue 11 #1 起：贴边对齐——预览页左缘 /
 // 音频页右缘，空间不足时收窄宽度、开着时伸缩跟随，全走这组用例）；配色与真实渲染宽度 jsdom
 // 量不出来，仍是人工门票。
@@ -41,7 +41,7 @@ const trigger = () => screen.getByRole('button', { name: /^作用域工程：/ }
 const tag = () => document.querySelector('.scope-picker__tag') as HTMLElement;
 const panel = () => screen.getByRole('listbox', { name: '选择本页作用的工程' });
 const search = () => screen.getByRole('textbox', { name: '搜索工程' });
-const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
+const clickOutside = () => fireEvent.pointerDown(document.body);
 const rows = () => screen.getAllByRole('option');
 /** 面板内联左缘 / 宽度（数字）：定位断言用（深层的真实渲染宽度 jsdom 量不出） */
 const panelLeft = () => Number.parseFloat(panel().style.left);
@@ -139,7 +139,6 @@ describe('issue 22 · 作用域切换器', () => {
       fireEvent.click(trigger());
 
       expect(screen.queryByRole('listbox')).toBeNull();
-      expect(document.querySelector('.pp-menu__scrim')).toBeNull();
     });
 
     it('重新打开时清空上一次的搜索词（收起前的过滤不该带回列表）', () => {
@@ -262,11 +261,11 @@ describe('issue 22 · 作用域切换器', () => {
       expect(onPick).not.toHaveBeenCalled();
     });
 
-    it('点面板外（遮罩）关闭，不误触发选择', () => {
+    it('点面板外关闭，不误触发选择', () => {
       const { onPick } = renderPicker();
       open();
 
-      fireEvent.click(scrim());
+      clickOutside();
 
       expect(screen.queryByRole('listbox')).toBeNull();
       expect(onPick).not.toHaveBeenCalled();

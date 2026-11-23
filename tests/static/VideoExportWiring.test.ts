@@ -274,8 +274,11 @@ describe('07 · 容器口径跟运行时走（不在代码里断言"AAC 不可�
     expect(zh['preview.video.export.note.muted']).toBeUndefined();
     expect(zh['preview.video.export.note.probing']).toBeUndefined();
     expect(control).toMatch(/\{note && <p className="pvex__note">\{note\}<\/p>\}/);
-    // 探测结论是**面板打开时**问的，不是挂载就问
-    expect(control).toMatch(/onProbe\?\.\(\);/);
+    // 探测结论是**面板打开后 idle** 再问，不是挂载就问，也不在 PreviewPage 上同步 setProbing
+    expect(control).toMatch(/scheduleProbe/);
+    expect(control).toMatch(/requestIdleCallback/);
+    expect(control).toMatch(/probeVideoExportSupport/);
+    expect(readStripped('src/pages/preview/PreviewPage.tsx')).not.toMatch(/onProbe=\{videoExport\.probe\}/);
     expect(readStripped('src/pages/preview/useVideoExport.ts')).toMatch(/probeVideoExportSupport\(\{ tier: spec\.tier, muted: spec\.muted, preferred: spec\.container \}\)/);
   });
 
@@ -397,7 +400,7 @@ describe('07 · 代码评审回修（2026-10-10）：文案与文件名各只有
   });
 
   it('静音导出不占说明行：没有音轨，MP4 兼容性警告是假命题（探到 null ≠ 本机没有 AAC）', () => {
-    expect(control).toMatch(/outcomeNote\(support, probing, spec\.container, spec\.muted\)/);
+    expect(control).toMatch(/outcomeNote\(resolvedSupport, probing, spec\.container, spec\.muted\)/);
     expect(control).toMatch(/if \(muted\) return null;/);
   });
 

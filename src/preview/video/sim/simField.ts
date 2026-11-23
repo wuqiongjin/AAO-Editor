@@ -1857,8 +1857,18 @@ function paintLifeGauge(ctx: CanvasRenderingContext2D, rect: ReturnType<typeof l
 }
 
 /** 生命恒满。用舞台的像素比例和坐标相位准备一次，避免播放中反复裁剪。 */
+const LIFE_GAUGE_CACHE_LIMIT = 4;
+const lifeGaugeCache = new Map<string, SimLifeGauge>();
+
 export function prepareSimLifeGauge(metrics: SimFieldMetrics, density: number): SimLifeGauge | undefined {
   if (typeof document === 'undefined') return;
+  const key = `${Math.round(metrics.w)}x${Math.round(metrics.h)}|${density}`;
+  const hit = lifeGaugeCache.get(key);
+  if (hit) {
+    lifeGaugeCache.delete(key);
+    lifeGaugeCache.set(key, hit);
+    return hit;
+  }
   const rect = lifeGaugeRect(metrics.w / 1920);
   if (rect.w <= 1 || rect.h <= 1) return;
   const sx = Math.max(1, Math.round(metrics.w * density)) / metrics.w;
@@ -1872,7 +1882,14 @@ export function prepareSimLifeGauge(metrics: SimFieldMetrics, density: number): 
   if (!ctx) return;
   ctx.setTransform(sx, 0, 0, sy, -left, -top);
   paintLifeGauge(ctx, rect);
-  return { canvas, x: left / sx, y: top / sy, w: canvas.width / sx, h: canvas.height / sy };
+  const prepared = { canvas, x: left / sx, y: top / sy, w: canvas.width / sx, h: canvas.height / sy };
+  lifeGaugeCache.set(key, prepared);
+  while (lifeGaugeCache.size > LIFE_GAUGE_CACHE_LIMIT) {
+    const oldest = lifeGaugeCache.keys().next().value;
+    if (oldest == null || oldest === key) break;
+    lifeGaugeCache.delete(oldest);
+  }
+  return prepared;
 }
 
 function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number, prepared?: SimLifeGauge): void {
@@ -2183,9 +2200,9 @@ interface SimComboShadows {
   ap: ComboShadowTile | null;
 }
 
-// 每张标签源图只保留最近一次准备的尺寸。播放中的舞台持有自己的贴图，
-// 另一舞台或尺寸变化可准备新贴图，不会让现有舞台在出帧时重建。
-const comboShadowCache = new WeakMap<HTMLImageElement, { key: string; shadows: SimComboShadows }>();
+// 每张标签源图按尺寸留几档阴影。全屏往返会来回两个 `labelH`，只留最近一档就会次次 miss。
+const COMBO_SHADOW_CACHE_LIMIT = 4;
+const comboShadowCache = new WeakMap<HTMLImageElement, Map<string, SimComboShadows>>();
 
 function makeComboShadow(
   img: CanvasImageSource, w: number, h: number, blur: number, density: number,
@@ -2367,15 +2384,29 @@ export function prepareSimComboSprites(
   const ap = apTile(sprites.combo, label, labelW, labelH, 0.045);
   glowTile(sprites.combo, label, labelW, labelH, 0.08);
   if (typeof document === 'undefined') return;
-  const key = `${labelH}|${density}`;
-  const cached = comboShadowCache.get(sprites.combo);
-  if (cached?.key === key) return cached.shadows;
+  const key = `${Math.round(m.w)}x${Math.round(m.h)}|${density}`;
+  let cached = comboShadowCache.get(sprites.combo);
+  if (!cached) {
+    cached = new Map();
+    comboShadowCache.set(sprites.combo, cached);
+  }
+  const hit = cached.get(key);
+  if (hit) {
+    cached.delete(key);
+    cached.set(key, hit);
+    return hit;
+  }
   const blur = labelH * 0.35;
   const shadows = {
     normal: makeComboShadow(sprites.combo, labelW, labelH, blur, density),
     ap: ap && makeComboShadow(ap.canvas, labelW + ap.pad * 2, labelH + ap.pad * 2, blur, density),
   };
-  comboShadowCache.set(sprites.combo, { key, shadows });
+  cached.set(key, shadows);
+  while (cached.size > COMBO_SHADOW_CACHE_LIMIT) {
+    const oldest = cached.keys().next().value;
+    if (oldest == null || oldest === key) break;
+    cached.delete(oldest);
+  }
   return shadows;
 }
 

@@ -38,7 +38,7 @@ export default function PatternLibrarySortMenu({
   onChange,
   disabled = false,
 }: PatternLibrarySortMenuProps) {
-  const { open, pos, triggerRef, hide, toggle } = useAnchoredMenu();
+  const { open, pos, triggerRef, panelRef, hide, toggle } = useAnchoredMenu();
 
   return (
     <>
@@ -57,9 +57,8 @@ export default function PatternLibrarySortMenu({
       </button>
 
       {open && pos && createPortal(
-        <>
-          <span className="pld-menu__scrim" onClick={hide} />
           <div
+            ref={panelRef}
             className="pld-menu pld-menu--sort"
             role="menu"
             aria-label={t('patternLibrary.sort')}
@@ -86,8 +85,7 @@ export default function PatternLibrarySortMenu({
                 </button>
               );
             })}
-          </div>
-        </>,
+          </div>,
         document.body,
       )}
     </>

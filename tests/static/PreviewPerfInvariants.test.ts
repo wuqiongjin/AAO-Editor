@@ -15,8 +15,28 @@ describe('issue 80 · 实时预览性能护栏', () => {
   const field = readStripped('src/preview/video/sim/simField.ts');
 
   it('场地层走底图：备底图 + 渲染时把 `layers` 交给 `drawSimFrameAt`', () => {
-    expect(playback).toMatch(/layers\.fieldBitmap = prepareSimFieldBitmap\(input, density\)/);
+    expect(playback).toMatch(/prepareSimFieldBitmap\(input, density\)/);
+    expect(playback).toMatch(/layers\.fieldBitmap = /);
     expect(playback).toMatch(/drawSimFrameAt\(ctx, frame, .*layers\);/);
+  });
+
+  it('票 87：尺寸变化不按 metrics 对象身份同步烘底图，让出主线程后再换', () => {
+    expect(playback).not.toMatch(/frame\.metrics !== input\.metrics/);
+    expect(playback).toMatch(/yieldPlaybackFrame/);
+    expect(playback).toMatch(/setTimeout\(resolve, 16\)/);
+    expect(playback).toMatch(/queueSizeBake/);
+    expect(playback).toMatch(/canvas\.width < bw/);
+    expect(field).toMatch(/COMBO_SHADOW_CACHE_LIMIT/);
+    expect(field).toMatch(/LIFE_GAUGE_CACHE_LIMIT/);
+  });
+
+  it('票 87：预览设置浮层不再铺全视口 scrim', () => {
+    const panel = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
+    const switcher = readStripped('src/pages/workspace/ChartSwitcher.tsx');
+    expect(panel).not.toMatch(/pp-menu__scrim/);
+    expect(switcher).not.toMatch(/pp-menu__scrim/);
+    expect(panel).toMatch(/useDismissOnOutside/);
+    expect(switcher).toMatch(/useDismissOnOutside/);
   });
 
   it('底图烘焙把场地层一起烤（含相框封面）：`prepareSimFieldBitmap` → `drawFieldLayers`', () => {
