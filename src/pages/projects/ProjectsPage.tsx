@@ -194,7 +194,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       chartIds: src.charts.map(() => newChartId()),
       now,
     }, untitledProjectLabel(), taken);
-    await store.save(copy);
+    await store.save(copy, src.liveBgName?.trim() ? { liveBgCopyFrom: src.id } : undefined);
     trail.record({ module: 'project', action: 'save', result: 'ok', meta: { projectId: copy.id } }); notifyCatalogChanged();
     setNewSource(null);
     goDetailKeepAnimation(copy.id);

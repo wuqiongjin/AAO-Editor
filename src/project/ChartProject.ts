@@ -1,10 +1,12 @@
 // 谱面工程持久化（ADR-0005 §6 / ADR-0015 §1、§5）：
-// 谱面工程 = 工程信息 + 音频 + 封面 + 谱面时长 + 1..n 张谱面。
+// 谱面工程 = 工程信息 + 音频 + 封面 + 谱面时长 + 1..n 张谱面 + 可选自定义表演背景。
 // 后端按环境自动切换：Electron 走数据根文件，浏览器走 IndexedDB。
 // 未发布：schemaVersion 保持 1。旧 default（顶层 notes、无 charts）不读、不删；无 IndexedDB→文件迁移。
 // 文件布局（<数据根>/projects/<id>/）：
-//   project.json = { schemaVersion, 工程信息, durationSeconds, lastOpened, charts, audioName, coverName, audioPresent, coverPresent }
-//   audio.bin / cover.bin = 与 JSON 分离的字节（仅在 set 时重写）
+//   project.json = { schemaVersion, 工程信息, durationSeconds, lastOpened, charts, audioName, coverName,
+//                    audioPresent, coverPresent, liveBgPresent, liveBgName, liveBgMime, liveBgUseCustom, liveBgFit }
+//   audio.bin / cover.bin / liveBg.bin = 与 JSON 分离的字节（仅在 set 时重写）
+//   liveBg.bin 只在预览 / 导出读；get() / list() 不带像素（票 42 / ADR-0018 §4）
 // 记录形状、映射（工程 ↔ wire / stored）与唯一写入口在 ChartProjectRecord.ts（架构评审候选 2）。
 import type { ChartNote } from '../chart/types';
 import { getElectronAPI } from '../app/electronBridge';
@@ -20,6 +22,7 @@ import {
   type ElectronProjectBridge,
   type ProjectUploadRefs,
 } from './ChartProjectRecord';
+import { projectHasLiveBg, type LiveBgFit } from './liveBgImport';
 
 export type ChartDifficulty = 0 | 1 | 2 | 3 | 4;
 
@@ -80,6 +83,16 @@ export interface ChartProject {
   audioBlob?: Blob;
   coverName: string | null;
   coverBlob?: Blob;
+  /**
+   * 自定义表演背景（票 42 / ADR-0018 §4）：工程级 sidecar。
+   * `get()` / `list()` **不带** `liveBgBlob`；像素走 `getLiveBg`。
+   * `liveBgBlob` 只在刚上传、尚未落盘时作为写缓冲。
+   */
+  liveBgName?: string | null;
+  liveBgMime?: string | null;
+  liveBgUseCustom?: boolean;
+  liveBgFit?: LiveBgFit;
+  liveBgBlob?: Blob;
 }
 
 /**
@@ -94,6 +107,8 @@ export interface ChartProject {
 export interface ProjectBinarySources {
   audioStagedPath?: string;
   coverStagedPath?: string;
+  /** 复制工程：从这份工程 id 拷 `liveBg.bin` / IDB sidecar（字节不过 IPC） */
+  liveBgCopyFrom?: string;
 }
 
 export interface ChartProjectBackend {
@@ -102,6 +117,8 @@ export interface ChartProjectBackend {
   save(project: ChartProject, staged?: ProjectBinarySources): Promise<void>;
   list(): Promise<ChartProject[]>;
   delete(id: string): Promise<void>;
+  /** 自定义表演背景 sidecar（票 42）；get/list 不带。缺实现 = 没有这份图。 */
+  getLiveBg?(id: string): Promise<Blob | null>;
 }
 
 export function newChartId(): string {
@@ -142,8 +159,10 @@ async function binaryIntent(
 /* ------------------------------------------------------------------ */
 
 const DB_NAME = 'aao.chartproject';
-const DB_VERSION = 1;
+/** v2：独立 `liveBg` object store（票 42：像素不进工程记录，list 的 getAll 碰不到） */
+const DB_VERSION = 2;
 const STORE = 'projects';
+const LIVE_BG_STORE = 'liveBg';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -153,8 +172,24 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(LIVE_BG_STORE)) {
+        db.createObjectStore(LIVE_BG_STORE, { keyPath: 'id' });
+      }
     };
     req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGetLiveBg(db: IDBDatabase, id: string): Promise<Blob | null> {
+  if (!db.objectStoreNames.contains(LIVE_BG_STORE)) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(LIVE_BG_STORE, 'readonly');
+    const req = tx.objectStore(LIVE_BG_STORE).get(id);
+    req.onsuccess = () => {
+      const row = req.result as { blob?: Blob } | undefined;
+      resolve(row?.blob instanceof Blob ? row.blob : null);
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -191,9 +226,19 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
       throw new Error(`拒绝覆盖旧 schema 工程: ${JSON.stringify(project.id)}`);
     }
     const record = storedFromProject(project);
+    const copyFrom = staged.liveBgCopyFrom;
+    const copied = copyFrom ? await idbGetLiveBg(db, copyFrom) : null;
+    const nextBlob = project.liveBgBlob ?? copied ?? null;
+    const clearSidecar = !projectHasLiveBg(project) && !nextBlob;
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readwrite');
+      const names = db.objectStoreNames.contains(LIVE_BG_STORE) ? [STORE, LIVE_BG_STORE] : [STORE];
+      const tx = db.transaction(names, 'readwrite');
       tx.objectStore(STORE).put(record);
+      if (names.includes(LIVE_BG_STORE)) {
+        const live = tx.objectStore(LIVE_BG_STORE);
+        if (nextBlob) live.put({ id: project.id, blob: nextBlob });
+        else if (clearSidecar) live.delete(project.id);
+      }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -207,7 +252,7 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
       req.onsuccess = () => {
         const rows = (req.result as unknown[]).map(projectFromStored).filter((p): p is ChartProject => p != null);
         resolve(rows.map((p) => {
-          const { audioBlob: _audio, ...rest } = p;
+          const { audioBlob: _audio, liveBgBlob: _live, ...rest } = p;
           return rest;
         }));
       };
@@ -222,11 +267,18 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
       throw new Error(`拒绝删除旧 schema 工程: ${JSON.stringify(id)}`);
     }
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readwrite');
+      const names = db.objectStoreNames.contains(LIVE_BG_STORE) ? [STORE, LIVE_BG_STORE] : [STORE];
+      const tx = db.transaction(names, 'readwrite');
       tx.objectStore(STORE).delete(id);
+      if (names.includes(LIVE_BG_STORE)) tx.objectStore(LIVE_BG_STORE).delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  }
+
+  async getLiveBg(id: string): Promise<Blob | null> {
+    const db = await this.db();
+    return idbGetLiveBg(db, id);
   }
 
   private rawGet(db: IDBDatabase, id: string): Promise<unknown> {
@@ -247,6 +299,13 @@ function getElectronProjectBridge(): ElectronProjectBridge | null {
   return getElectronAPI()?.projectStore ?? null;
 }
 
+/** get/list 出口剥掉写缓冲：自定义背景像素只走 getLiveBg */
+function stripLiveBgBlob(project: ChartProject): ChartProject {
+  if (!('liveBgBlob' in project) || project.liveBgBlob == null) return project;
+  const { liveBgBlob: _drop, ...rest } = project;
+  return rest;
+}
+
 /**
  * 工程音频 / 封面的上传引用（票 11：发布时的三步二进制上传用）。
  * 没有桥（浏览器 / 静态演示版）回 null —— 发布链路在那边整体不可用，调用方按
@@ -257,10 +316,27 @@ export function getProjectUploadRefs(projectId: string): Promise<ProjectUploadRe
   return bridge ? bridge.uploadRefs(projectId) : Promise.resolve(null);
 }
 
+async function liveBgWriteIntent(
+  project: ChartProject,
+  stagedPath: string | undefined,
+  lastWritten: RememberedBinary,
+): Promise<{ intent: BinaryIntent; bytes?: Uint8Array; copyFrom?: string; next: RememberedBinary }> {
+  if (stagedPath != null && stagedPath !== '') {
+    return { intent: 'set', copyFrom: stagedPath, next: STAGED_ON_DISK };
+  }
+  if (project.liveBgBlob) {
+    if (project.liveBgBlob === lastWritten) return { intent: 'keep', next: lastWritten };
+    return { intent: 'set', bytes: new Uint8Array(await project.liveBgBlob.arrayBuffer()), next: project.liveBgBlob };
+  }
+  if (!projectHasLiveBg(project)) return { intent: 'cleared', next: null };
+  return { intent: 'keep', next: lastWritten === STAGED_ON_DISK ? STAGED_ON_DISK : lastWritten };
+}
+
 export class ElectronFileProjectBackend implements ChartProjectBackend {
   /** 按工程记住上次落盘的 Blob 身份；相同 ⇒ keep，避免防抖保存重传大文件（暂存写进来的见 STAGED_ON_DISK） */
   private lastWrittenAudio = new Map<string, RememberedBinary>();
   private lastWrittenCover = new Map<string, RememberedBinary>();
+  private lastWrittenLiveBg = new Map<string, RememberedBinary>();
   private bridge: ElectronProjectBridge;
 
   constructor(bridge: ElectronProjectBridge) {
@@ -274,6 +350,7 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     const project = projectFromRecord(id, wire.doc, wire.audio, wire.cover);
     this.lastWrittenAudio.set(id, project.audioBlob ?? null);
     this.lastWrittenCover.set(id, project.coverBlob ?? null);
+    this.lastWrittenLiveBg.set(id, wire.doc.liveBgPresent ? STAGED_ON_DISK : null);
     return project;
   }
 
@@ -281,22 +358,28 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     assertValidProjectId(project.id);
     const prevAudio = this.lastWrittenAudio.get(project.id) ?? null;
     const prevCover = this.lastWrittenCover.get(project.id) ?? null;
+    const prevLive = this.lastWrittenLiveBg.get(project.id) ?? null;
     const audio = await binaryIntent(project.audioBlob, staged.audioStagedPath, prevAudio);
     const cover = await binaryIntent(project.coverBlob, staged.coverStagedPath, prevCover);
+    const liveBg = await liveBgWriteIntent(project, staged.liveBgCopyFrom, prevLive);
     this.lastWrittenAudio.set(project.id, audio.next);
     this.lastWrittenCover.set(project.id, cover.next);
+    this.lastWrittenLiveBg.set(project.id, liveBg.next);
     try {
       await this.bridge.put({
         id: project.id,
-        doc: recordFromProject(project, audio.intent, cover.intent),
+        doc: recordFromProject(project, audio.intent, cover.intent, liveBg.intent),
         ...(audio.bytes != null ? { audio: audio.bytes } : {}),
         ...(audio.stagedPath != null ? { audioStagedPath: audio.stagedPath } : {}),
         ...(cover.bytes != null ? { cover: cover.bytes } : {}),
         ...(cover.stagedPath != null ? { coverStagedPath: cover.stagedPath } : {}),
+        ...(liveBg.bytes != null ? { liveBg: liveBg.bytes } : {}),
+        ...(liveBg.copyFrom != null ? { liveBgCopyFrom: liveBg.copyFrom } : {}),
       });
     } catch (err) {
       this.lastWrittenAudio.set(project.id, prevAudio);
       this.lastWrittenCover.set(project.id, prevCover);
+      this.lastWrittenLiveBg.set(project.id, prevLive);
       throw err;
     }
   }
@@ -313,6 +396,14 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     await this.bridge.delete(id);
     this.lastWrittenAudio.delete(id);
     this.lastWrittenCover.delete(id);
+    this.lastWrittenLiveBg.delete(id);
+  }
+
+  async getLiveBg(id: string): Promise<Blob | null> {
+    assertValidProjectId(id);
+    const bytes = await this.bridge.getLiveBg(id);
+    if (!bytes || bytes.byteLength === 0) return null;
+    return new Blob([new Uint8Array(bytes)]);
   }
 }
 
@@ -358,9 +449,13 @@ export class ChartProjectStore {
     const project = await this.backend.get(id);
     if (project) {
       this.lastOpenedFloor.set(id, Math.max(this.lastOpenedFloor.get(id) ?? 0, project.lastOpened));
-      return this.stabilizeCover(project);
+      return this.stabilizeCover(stripLiveBgBlob(project));
     }
     return project;
+  }
+
+  getLiveBg(id: string): Promise<Blob | null> {
+    return this.backend.getLiveBg?.(id) ?? Promise.resolve(null);
   }
 
   save(project: ChartProject, staged?: ProjectBinarySources): Promise<void> {
@@ -375,7 +470,7 @@ export class ChartProjectStore {
     if (this.listInFlight) return this.listInFlight;
     const pending = this.backend
       .list()
-      .then((listed) => listed.map((project) => this.stabilizeCover(project)));
+      .then((listed) => listed.map((project) => this.stabilizeCover(stripLiveBgBlob(project))));
     this.listInFlight = pending;
     return pending.finally(() => {
       if (this.listInFlight === pending) this.listInFlight = null;

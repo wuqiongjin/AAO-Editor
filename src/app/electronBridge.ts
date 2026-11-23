@@ -32,6 +32,8 @@ export interface ElectronProjectBridge {
   list(): Promise<ProjectListItem[]>;
   delete(id: string): Promise<unknown>;
   uploadRefs(id: string): Promise<ProjectUploadRefs | null>;
+  /** 自定义表演背景 sidecar（票 42）；get/list 不带像素 */
+  getLiveBg(id: string): Promise<Uint8Array | null>;
 }
 
 /* 谱面代码 / 二进制另存 */

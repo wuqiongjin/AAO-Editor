@@ -237,6 +237,11 @@ describe('票 11 · 上传接线（multipart + uploadRefs）', () => {
     expect(preloadSrc).toMatch(/uploadRefs:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\(\s*['"]project:uploadRefs['"],\s*id\)/);
   });
 
+  it('票 42 · project:getLiveBg 通道在主进程与 preload 各就各位', () => {
+    expect(mainSrc).toMatch(/ipcMain\.handle\(\s*['"]project:getLiveBg['"]/);
+    expect(preloadSrc).toMatch(/getLiveBg:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\(\s*['"]project:getLiveBg['"],\s*id\)/);
+  });
+
   it('上传引用只回「事实」：接口是 path / size / hash，没有字节字段', () => {
     const record = readStripped('src/project/ChartProjectRecord.ts');
     // 只裁接口体本身：跨到下一个接口会把 ProjectPutWire 的 Uint8Array 算进来

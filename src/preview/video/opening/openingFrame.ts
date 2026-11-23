@@ -75,6 +75,8 @@ export interface OpeningFieldImages {
    * （"导出与预览一致"），这一层不必依赖仿真场的类型。
    */
   stageFrame?: { cover: CanvasImageSource | null } | null;
+  /** 自定义表演背景取景（票 42）；有值时开场③段也不画相框 */
+  liveBgFit?: 'cover' | 'contain';
 }
 
 // ---------------- 文字 ----------------
@@ -378,10 +380,11 @@ export function drawOpeningFieldBackground(
 ): void {
   ctx.save();
   drawSimBackground(ctx, m, imgs.background, brightness, 1, {
-    stageFrame: imgs.stageFrame ?? null,
+    stageFrame: imgs.liveBgFit ? null : imgs.stageFrame ?? null,
     coverAlpha,
     coverIntro,
     coverIntroStyle,
+    liveFit: imgs.liveBgFit,
   });
   ctx.restore();
 }

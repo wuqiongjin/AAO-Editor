@@ -597,7 +597,8 @@
   box-shadow: inset 0 0 0 1px var(--focus-ring);
 }
 
-.pdp__pack-item img {
+.pdp__pack-item img,
+.pdp__pack-item canvas {
   display: block;
   width: 100%;
   aspect-ratio: 1160 / 610;
@@ -607,9 +608,111 @@
 }
 
 /* 背景主图本身就是 2:1 不透明大图：比例一致，铺满即无裁切 */
-.pdp__pack-grid--background .pdp__pack-item img {
+.pdp__pack-grid--background .pdp__pack-item img,
+.pdp__pack-grid--background .pdp__pack-item canvas {
   aspect-ratio: 2 / 1;
   object-fit: cover;
+}
+
+.pdp__pack-item--custom {
+  position: relative;
+  overflow: hidden;
+}
+
+.pdp__pack-item--custom.is-empty {
+  border-style: dashed;
+}
+
+.pdp__pack-item--custom.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pdp__live-plus {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  color: inherit;
+}
+
+.pdp__live-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--canvas-bg) 55%, transparent) 0,
+    color-mix(in srgb, var(--canvas-bg) 12%, transparent) 42%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.pdp__live-dock {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  pointer-events: none;
+}
+
+.pdp__pack-item--custom.has-file:hover .pdp__live-scrim,
+.pdp__pack-item--custom.has-file:focus-within .pdp__live-scrim {
+  opacity: 1;
+}
+
+.pdp__pack-item--custom.has-file:hover .pdp__live-dock,
+.pdp__pack-item--custom.has-file:focus-within .pdp__live-dock {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .pdp__pack-item--custom.has-file.is-active .pdp__live-scrim {
+    opacity: 1;
+  }
+  .pdp__pack-item--custom.has-file.is-active .pdp__live-dock {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+
+.pdp__live-dock-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  border: 1px solid var(--stage-border);
+  background: color-mix(in srgb, var(--canvas-bg) 78%, transparent);
+  color: var(--stage-text);
+  cursor: pointer;
+}
+
+.pdp__live-dock-btn:hover {
+  border-color: var(--stage-hover);
+  background: var(--stage-surface);
+}
+
+.pdp__live-dock-btn.is-danger {
+  color: var(--stage-danger-text);
+}
+
+.pdp__live-dock-btn.is-danger:hover {
+  background: color-mix(in srgb, var(--danger) 28%, var(--canvas-bg));
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--stage-border));
 }
 
 .pdp__pack-id {

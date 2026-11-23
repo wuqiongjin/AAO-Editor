@@ -86,6 +86,8 @@ export interface PreviewVideoStageProps {
    * 解码完再取第二遍，`assets` 两次换身份会把播放器和 BGM 一起重建。
    */
   coverPending?: boolean;
+  /** 自定义表演背景 sidecar 还在读（票 42）：先不取场地素材，避免先画内置包再闪到自定义 */
+  liveBgPending?: boolean;
   /** 作用域工程的音频（null = 无音频 → 引擎走合成时间线） */
   audio: SimPlaybackAudio | null;
   /** 键音素材包（`settings.audio.keySet`） */
@@ -122,6 +124,7 @@ export default function PreviewVideoStage({
   duration,
   cover = null,
   coverPending = false,
+  liveBgPending = false,
   audio,
   keySetId,
   seVolume,
@@ -194,7 +197,7 @@ export default function PreviewVideoStage({
     // 封面还在解码就先不取素材（票 84 + issue 80）：先按"空相框"取一遍、解码完再取第二遍，
     // 等于把场地图 / 带体 / 精灵 / HUD 解码两次，`assets` 还会两次换身份（第二次连播放器一起重建、
     // 重新解码 BGM）。等解码落定再取，全程只有一次。
-    if (coverPending) return;
+    if (coverPending || liveBgPending) return;
     let cancelled = false;
     void loadSimAssets({
       bandSrc: noteIcons.slideBand.src,
@@ -202,10 +205,12 @@ export default function PreviewVideoStage({
       packs: { field: scene?.fieldPackId, background: scene?.bgPackId },
       // 相框封面（票 84）：`assets` 换身份才会重建场地底图，所以取素材时就得带上
       cover,
+      customLiveBg: scene?.customLiveBg ?? null,
+      liveBgFit: scene?.customLiveBg ? scene.liveBgFit : undefined,
     })
       .then((next) => { if (!cancelled) setAssets(next); });
     return () => { cancelled = true; };
-  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId, cover, coverPending]);
+  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId, scene?.customLiveBg, scene?.liveBgFit, cover, coverPending, liveBgPending]);
 
   // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）。
   // 票 69：不再用同步 useMemo —— 挪到 effect 里分批 yieldToMainThread()，让骨架 /「正在读取场地素材…」

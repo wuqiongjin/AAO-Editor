@@ -1,4 +1,4 @@
-// 谱面工程文件后端（ADR-0015 §5）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
+// 谱面工程文件后端（ADR-0015 §5）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin, liveBg.bin}
 // schemaVersion 保持 1（未发布）。旧「一份 notes」目录（无 charts）不读、不删。
 const crypto = require('crypto');
 const fs = require('fs');
@@ -119,6 +119,43 @@ async function applyBinaryIntent(dataRoot, dir, fileName, intent, bytes, sourceP
     return fileExists(binPath);
 }
 
+async function copyLiveBgFrom(dataRoot, fromId, destPath) {
+    const source = path.join(projectDir(dataRoot, fromId), 'liveBg.bin');
+    try {
+        await fs.promises.access(source);
+    } catch {
+        return false;
+    }
+    const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+        await fs.promises.copyFile(source, tmpPath);
+        await renameOver(tmpPath, destPath);
+    } catch (err) {
+        await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+        throw err;
+    }
+    return true;
+}
+
+async function applyLiveBgIntent(dataRoot, dir, intent, bytes, copyFromId) {
+    const binPath = path.join(dir, 'liveBg.bin');
+    if (intent === 'cleared') {
+        await fs.promises.rm(binPath, { force: true });
+        return false;
+    }
+    if (intent === 'set') {
+        if (typeof copyFromId === 'string' && copyFromId !== '') {
+            return copyLiveBgFrom(dataRoot, copyFromId, binPath);
+        }
+        if (!(bytes instanceof Uint8Array)) {
+            throw new Error('project:put liveBg.bin intent=set 但缺少字节');
+        }
+        await writeFileAtomic(binPath, Buffer.from(bytes));
+        return true;
+    }
+    return fileExists(binPath);
+}
+
 async function getProject(dataRoot, rawId) {
     const dir = projectDir(dataRoot, rawId);
     const doc = await readProjectJson(dir);
@@ -128,8 +165,15 @@ async function getProject(dataRoot, rawId) {
     return { doc, audio, cover };
 }
 
+async function getLiveBg(dataRoot, rawId) {
+    const dir = projectDir(dataRoot, rawId);
+    const doc = await readProjectJson(dir);
+    if (!isCurrentDoc(doc)) return null;
+    return readBinIfPresent(dir, 'liveBg.bin', doc.liveBgPresent);
+}
+
 async function putProject(dataRoot, payload) {
-    const { id, doc, audio, cover, audioStagedPath, coverStagedPath } = payload || {};
+    const { id, doc, audio, cover, liveBg, audioStagedPath, coverStagedPath, liveBgCopyFrom } = payload || {};
     const dir = projectDir(dataRoot, id);
     const existing = await readProjectJson(dir);
     if (existing != null && !isCurrentDoc(existing)) {
@@ -139,9 +183,11 @@ async function putProject(dataRoot, payload) {
 
     const audioPresent = await applyBinaryIntent(dataRoot, dir, 'audio.bin', doc.audioIntent, audio, audioStagedPath);
     const coverPresent = await applyBinaryIntent(dataRoot, dir, 'cover.bin', doc.coverIntent, cover, coverStagedPath);
+    const liveBgIntent = doc.liveBgIntent ?? 'cleared';
+    const liveBgPresent = await applyLiveBgIntent(dataRoot, dir, liveBgIntent, liveBg, liveBgCopyFrom);
 
-    const { audioIntent: _a, coverIntent: _c, ...docRest } = doc;
-    const durableDoc = { ...docRest, audioPresent, coverPresent };
+    const { audioIntent: _a, coverIntent: _c, liveBgIntent: _l, ...docRest } = doc;
+    const durableDoc = { ...docRest, audioPresent, coverPresent, liveBgPresent };
     await writeFileAtomic(path.join(dir, 'project.json'), JSON.stringify(durableDoc));
     return true;
 }
@@ -231,13 +277,15 @@ function registerProjectStoreIpc(ipcMain, deps) {
         if (typeof payload?.doc !== 'string') throw new Error('project:put doc 必须是 JSON 文本');
         const doc = JSON.parse(payload.doc);
         if (!isCurrentDoc(doc)) throw new Error('project:put 工程文档 schema 无效');
-        if (![doc.audioIntent, doc.coverIntent].every((intent) => ['set', 'keep', 'cleared'].includes(intent))) {
+        const liveBgIntent = doc.liveBgIntent ?? 'cleared';
+        if (![doc.audioIntent, doc.coverIntent, liveBgIntent].every((intent) => ['set', 'keep', 'cleared'].includes(intent))) {
             throw new Error('project:put 素材 intent 无效');
         }
-        return putProject(currentDataRoot(), { ...payload, doc });
+        return putProject(currentDataRoot(), { ...payload, doc: { ...doc, liveBgIntent } });
     });
     ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
     ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
+    ipcMain.handle('project:getLiveBg', (_event, rawId) => getLiveBg(currentDataRoot(), rawId));
     // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1）。
     // 二进制不过 IPC：字节留在主进程，渲染侧只拿「事实」去凑 prepare 与 multipart。
     ipcMain.handle('project:uploadRefs', (_event, rawId) => uploadRefs(currentDataRoot(), rawId));
@@ -246,6 +294,7 @@ function registerProjectStoreIpc(ipcMain, deps) {
 module.exports = {
     SCHEMA_VERSION,
     getProject,
+    getLiveBg,
     putProject,
     listProjects,
     deleteProject,

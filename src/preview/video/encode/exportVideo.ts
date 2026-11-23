@@ -288,7 +288,8 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   req.onProgress?.({ phase: 'assets', frame: 0, totalFrames: 0 });
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(req.noteSkin));
   // 相框封面（票 84）：出图只有一次机会 ⇒ 先解码到位再进素材；只对自带背景包解码（别的包用不上）
-  const coverImage = isAppBackgroundPack(normalizeSimAssetPackId('background', req.scene.bgPackId))
+  const coverImage = !req.scene.customLiveBg
+    && isAppBackgroundPack(normalizeSimAssetPackId('background', req.scene.bgPackId))
     ? await loadCoverImage(req.cover ?? null)
     : null;
   const [assets, endingAssets, endingStageBg] = await Promise.all([
@@ -298,6 +299,8 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
       cover: coverImage,
+      customLiveBg: req.scene.customLiveBg ?? null,
+      liveBgFit: req.scene.customLiveBg ? req.scene.liveBgFit : undefined,
     }),
     // 结尾段的游戏 UI 素材（票 52）：缺件是常态（素材不在安装包里），逐件兜底、从不抛错
     req.ending ? loadEndingAssets() : Promise.resolve(EMPTY_ENDING_ASSETS),

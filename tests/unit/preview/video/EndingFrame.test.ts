@@ -766,4 +766,17 @@ describe('票 84 回修 · 结算固定背景只在黑幕盖满之后换上', ()
     expect(settle).not.toContain(lastBg);
     expect(settle).not.toContain(frameCover);
   });
+
+  it('票 42 · 结算换景清掉 liveBgFit，固定背景走幕布取景不是设计面 cover', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    const input = stageFrameInput();
+    input.stage.frame.assets.liveBgFit = 'cover';
+    drawEndingFrameAt(proxy, 1920, 1080, input, ENDING_SECONDS - 0.1);
+    const bgCall = calls.find(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === fixedBg);
+    expect(bgCall).toBeTruthy();
+    const args = bgCall![1] as number[];
+    // cover 铺设计面会是 (0, 0, 1920, 1078)；幕布矩形宽 1.32W、原点为负
+    expect(args.slice(1, 5)).not.toEqual([0, 0, 1920, 1078]);
+    expect(args[1]!).toBeLessThan(0);
+  });
 });

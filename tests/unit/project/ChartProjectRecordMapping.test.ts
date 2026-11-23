@@ -65,6 +65,10 @@ function richProject(patch: Partial<ChartProject> = {}): ChartProject {
     audioBlob: blobOf([1, 2, 3, 4]),
     coverName: 'cover.png',
     coverBlob: blobOf([9, 8, 7]),
+    liveBgName: 'live.png',
+    liveBgMime: 'image/png',
+    liveBgUseCustom: true,
+    liveBgFit: 'contain',
     ...patch,
   };
 }
@@ -84,6 +88,10 @@ async function snapshot(p: ChartProject) {
     charts: p.charts,
     audioName: p.audioName,
     coverName: p.coverName,
+    liveBgName: p.liveBgName ?? null,
+    liveBgMime: p.liveBgMime ?? null,
+    liveBgUseCustom: p.liveBgUseCustom ?? false,
+    liveBgFit: p.liveBgFit ?? 'cover',
     audioBytes: p.audioBlob ? Array.from((await bytesOf(p.audioBlob))!) : null,
     coverBytes: p.coverBlob ? Array.from((await bytesOf(p.coverBlob))!) : null,
   };
@@ -146,7 +154,7 @@ describe('06 · 一份映射：同一套断言跑两条存储表示', () => {
     const wire = JSON.parse(recordFromProject(p, 'keep', 'cleared')) as Record<string, unknown>;
     const stored = storedFromProject(p) as unknown as Record<string, unknown>;
 
-    const WIRE_META = new Set(['schemaVersion', 'audioIntent', 'coverIntent']);
+    const WIRE_META = new Set(['schemaVersion', 'audioIntent', 'coverIntent', 'liveBgIntent']);
     const STORED_META = new Set(['id', 'schemaVersion', 'audioBlob', 'coverBlob']);
     const wireFields = Object.keys(wire).filter((k) => !WIRE_META.has(k)).sort();
     const storedFields = Object.keys(stored).filter((k) => !STORED_META.has(k)).sort();
@@ -163,6 +171,21 @@ describe('06 · 一份映射：同一套断言跑两条存储表示', () => {
     expect('id' in wire).toBe(false);
     expect(stored.id).toBe('pSong1');
     expect(stored.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
+  });
+
+  it('票 42 · 老记录缺自定义表演背景字段：读回未启用 cover，不 bump schemaVersion', () => {
+    const legacy = storedFromProject(richProject()) as unknown as Record<string, unknown>;
+    delete legacy.liveBgName;
+    delete legacy.liveBgMime;
+    delete legacy.liveBgUseCustom;
+    delete legacy.liveBgFit;
+    const got = projectFromStored(legacy);
+    expect(got).not.toBeNull();
+    expect(got!.liveBgName).toBeNull();
+    expect(got!.liveBgMime).toBeNull();
+    expect(got!.liveBgUseCustom).toBe(false);
+    expect(got!.liveBgFit).toBe('cover');
+    expect((legacy as { schemaVersion?: unknown }).schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
   });
 
   it('票 79 · 老记录缺「曲目署名 / 谱师署名」：读回落空，不画也不炸（不 bump schemaVersion）', () => {

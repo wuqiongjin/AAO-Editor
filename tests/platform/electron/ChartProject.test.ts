@@ -97,8 +97,10 @@ describe('ElectronFileProjectBackend · 保存意图', () => {
     await b.save(makeProject());
     expect(t.puts[0].doc.audioIntent).toBe('cleared');
     expect(t.puts[0].doc.coverIntent).toBe('cleared');
+    expect(t.puts[0].doc.liveBgIntent).toBe('cleared');
     expect(t.puts[0].audio).toBeUndefined();
     expect(t.puts[0].cover).toBeUndefined();
+    expect(t.puts[0].liveBg).toBeUndefined();
   });
 
   it('put 失败回滚音频/封面缓存：下次保存重新补发字节', async () => {
@@ -306,6 +308,45 @@ describe('安全与门面', () => {
 
     expect(new ChartProjectStore()).toBeInstanceOf(ChartProjectStore);
     expect(new IndexedDbProjectBackend()).toBeDefined();
+  });
+
+  it('票 42 · 自定义背景 set / keep / cleared；复制走 copyFrom 不传像素', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    const pixels = blobOf([3, 3, 3]);
+    await b.save(makeProject({
+      liveBgName: 'live.png',
+      liveBgMime: 'image/png',
+      liveBgUseCustom: true,
+      liveBgFit: 'contain',
+      liveBgBlob: pixels,
+    }));
+    expect(t.puts[0].doc.liveBgIntent).toBe('set');
+    expect(Array.from(t.puts[0].liveBg!)).toEqual([3, 3, 3]);
+
+    const restored = await b.get('pSong1');
+    expect(restored!.liveBgBlob).toBeUndefined();
+    await b.save({ ...restored!, name: 'renamed' });
+    expect(t.puts[1].doc.liveBgIntent).toBe('keep');
+    expect(t.puts[1].liveBg).toBeUndefined();
+
+    const copy = makeProject({
+      id: 'pCopy1',
+      liveBgName: 'live.png',
+      liveBgMime: 'image/png',
+      liveBgUseCustom: true,
+      liveBgFit: 'contain',
+    });
+    await b.save(copy, { liveBgCopyFrom: 'pSong1' });
+    expect(t.puts[2].doc.liveBgIntent).toBe('set');
+    expect(t.puts[2].liveBgCopyFrom).toBe('pSong1');
+    expect(t.puts[2].liveBg).toBeUndefined();
+    const copied = await b.getLiveBg('pCopy1');
+    expect(Array.from(new Uint8Array(await copied!.arrayBuffer()))).toEqual([3, 3, 3]);
+
+    await b.save(makeProject({ id: 'pSong1' }));
+    expect(t.puts[t.puts.length - 1].doc.liveBgIntent).toBe('cleared');
+    await expect(b.getLiveBg('pSong1')).resolves.toBeNull();
   });
 
   it('源码不再含 IndexedDB→文件迁移', () => {

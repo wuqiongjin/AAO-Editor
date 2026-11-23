@@ -164,6 +164,13 @@ export interface SimScene {
    * 实时预览 / 视频导出 / 开场第③段走同一份 scene ⇒ 三处画面一致。
    */
   bgBrightness?: number;
+  /**
+   * 自定义表演背景（chart-preview 42 · ADR-0018 §4）：有值 = 用这张图铺设计面，
+   * 不走内置包 / AAO 相框。实时预览 / 视频导出 / 开场第③段走同一份 scene。
+   */
+  customLiveBg?: CanvasImageSource | null;
+  /** 自定义表演背景取景；仅 `customLiveBg` 有值时生效 */
+  liveBgFit?: 'cover' | 'contain';
 }
 
 /** 一个会过线的元素（单键 / 方向键 / 滑条可见结点）；已含镜向与精灵选款 */
@@ -296,6 +303,11 @@ export interface SimFrameAssets {
    * ⇒ 跟着亮度一起压暗，也不会盖住场地图与车道线。绘制函数不认包 ID。
    */
   stageFrame: SimStageFrame | null;
+  /**
+   * 自定义表演背景的取景（chart-preview 42 · ADR-0018 §4）：有值 = 背景图画进**设计面**
+   * `0,0,m.w,m.h`，`cover` / `contain`；不走幕布矩形、不画相框。缺省 = 内置包路径。
+   */
+  liveBgFit?: 'cover' | 'contain';
   /** 场地图（fieldskin `bg_line_rhythm.png`） */
   field: CanvasImageSource | null;
   /** 场地判定线（fieldskin `game_play_line.png`） */
@@ -735,13 +747,14 @@ export function prepareSimFieldBitmap(input: SimFrameInput, density: number): Im
 export function drawFieldLayers(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   m: SimFieldMetrics,
-  assets: Pick<SimFrameAssets, 'background' | 'stageFrame' | 'field' | 'playLine'>,
+  assets: Pick<SimFrameAssets, 'background' | 'stageFrame' | 'field' | 'playLine' | 'liveBgFit'>,
   brightness: number = 1,
   backgroundAlpha: number = 1,
   trackAlpha: number = 1,
 ): void {
   drawSimBackground(ctx, m, assets.background, brightness, backgroundAlpha, {
-    stageFrame: assets.stageFrame ?? null,
+    stageFrame: assets.liveBgFit ? null : assets.stageFrame ?? null,
+    liveFit: assets.liveBgFit,
   });
   // 轨道两层（场地图 + 判定线）一起退，背景留着 —— 结尾段"只剩舞台"就靠这个
   const track = clamp01(trackAlpha);
@@ -776,6 +789,11 @@ export interface SimBackgroundPaint {
   coverIntro?: number;
   /** 登场动效的力度覆盖（原型调参用；缺省 = `STAGE_COVER_INTRO_STYLE`） */
   coverIntroStyle?: Partial<StageCoverIntroStyle>;
+  /**
+   * 自定义表演背景：图画进设计面（`cover` 铺满裁切 / `contain` 完整显示）。
+   * 有值时忽略 `stageFrame`（与 AAO 舞台互斥，票 42）。
+   */
+  liveFit?: 'cover' | 'contain';
 }
 
 /**
@@ -825,15 +843,35 @@ function drawFrameCover(
   img: CanvasImageSource,
   r: SimRect,
 ): void {
+  drawFittedImage(ctx, img, r, 'cover');
+}
+
+/**
+ * 把图按 `cover` / `contain` 铺进矩形（居中；cover 裁切、contain 留边）。
+ * 自定义表演背景铺设计面走这里；相框封面只走 cover。
+ */
+function drawFittedImage(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  img: CanvasImageSource,
+  r: SimRect,
+  fit: 'cover' | 'contain',
+): void {
   const size = coverSourceSize(img);
   if (!size) {
     ctx.drawImage(img, r.x, r.y, r.w, r.h);
     return;
   }
-  const scale = Math.max(r.w / size.w, r.h / size.h);
-  const sw = Math.min(size.w, r.w / scale);
-  const sh = Math.min(size.h, r.h / scale);
-  ctx.drawImage(img, (size.w - sw) / 2, (size.h - sh) / 2, sw, sh, r.x, r.y, r.w, r.h);
+  if (fit === 'cover') {
+    const scale = Math.max(r.w / size.w, r.h / size.h);
+    const sw = Math.min(size.w, r.w / scale);
+    const sh = Math.min(size.h, r.h / scale);
+    ctx.drawImage(img, (size.w - sw) / 2, (size.h - sh) / 2, sw, sh, r.x, r.y, r.w, r.h);
+    return;
+  }
+  const scale = Math.min(r.w / size.w, r.h / size.h);
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  ctx.drawImage(img, r.x + (r.w - dw) / 2, r.y + (r.h - dh) / 2, dw, dh);
 }
 
 /**
@@ -931,21 +969,27 @@ export function drawSimBackground(
   if (alpha <= 0.002) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  const stage = paint.stageFrame ?? null;
-  const r = stage ? aaoStageBackgroundRect(m) : backgroundRect(m);
-  ctx.drawImage(img, r.x, r.y, r.w, r.h);
-  // 相框：自带背景包才有。目标矩形 = 相框区（与上面同一个取景坐标系）。
-  // `coverAlpha` 是**额外的**淡入（开场③段 = 0、④段 0→1），与背景图本身的不透明度相乘。
-  const coverA = stage?.cover ? clamp01(paint.coverAlpha ?? 1) : 0;
-  if (stage?.cover && coverA > 0.002) {
-    drawStageCover(
-      ctx,
-      stage.cover,
-      aaoFrameRect(m),
-      alpha * coverA,
-      paint.coverIntro ?? 1,
-      paint.coverIntroStyle,
-    );
+  const liveFit = paint.liveFit === 'contain' || paint.liveFit === 'cover' ? paint.liveFit : null;
+  // 自定义槽位：铺设计面，不走幕布 / AAO 取景，也不画相框（票 42：与 AAO 舞台无关）
+  if (liveFit) {
+    drawFittedImage(ctx, img, { x: 0, y: 0, w: m.w, h: m.h }, liveFit);
+  } else {
+    const stage = paint.stageFrame ?? null;
+    const r = stage ? aaoStageBackgroundRect(m) : backgroundRect(m);
+    ctx.drawImage(img, r.x, r.y, r.w, r.h);
+    // 相框：自带背景包才有。目标矩形 = 相框区（与上面同一个取景坐标系）。
+    // `coverAlpha` 是**额外的**淡入（开场③段 = 0、④段 0→1），与背景图本身的不透明度相乘。
+    const coverA = stage?.cover ? clamp01(paint.coverAlpha ?? 1) : 0;
+    if (stage?.cover && coverA > 0.002) {
+      drawStageCover(
+        ctx,
+        stage.cover,
+        aaoFrameRect(m),
+        alpha * coverA,
+        paint.coverIntro ?? 1,
+        paint.coverIntroStyle,
+      );
+    }
   }
   // 非有限值按"原图"（不是按 0：那会把整屏压黑）
   const level = Number.isFinite(brightness) ? Math.min(1, Math.max(0, brightness)) : 1;

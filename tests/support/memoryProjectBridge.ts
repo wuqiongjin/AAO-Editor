@@ -11,6 +11,7 @@ export type MemoryDiskRecord = {
   doc: Record<string, unknown>;
   audio: Uint8Array | null;
   cover: Uint8Array | null;
+  liveBg?: Uint8Array | null;
 };
 
 export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRecord]> = []) {
@@ -19,7 +20,7 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
   /** 「这份素材是从下载暂存拷进来的」：真实主进程会读文件，内存桥没有 fs，只记路径 */
   const staged = new Map<string, { audio?: string; cover?: string }>();
   /** 「盘上现在有没有这份 bin」：主进程 put 的第三步（fileExists）就是它 */
-  const present = new Map<string, { audio: boolean; cover: boolean }>();
+  const present = new Map<string, { audio: boolean; cover: boolean; liveBg: boolean }>();
 
   const get = vi.fn(async (id: string): Promise<ProjectGetWire | null> => {
     const row = disk.get(id);
@@ -29,6 +30,11 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
       audio: row.audio,
       cover: row.cover,
     } as unknown as ProjectGetWire;
+  });
+
+  const getLiveBg = vi.fn(async (id: string): Promise<Uint8Array | null> => {
+    const row = disk.get(id);
+    return row?.liveBg ?? null;
   });
 
   const put = vi.fn(async (wire: ProjectPutWire) => {
@@ -51,11 +57,19 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
         : payload.doc.coverIntent === 'keep'
           ? (prev?.cover ?? null)
           : null;
-    const { audioIntent: _a, coverIntent: _c, ...docRest } = payload.doc;
+    const liveBgIntent = payload.doc.liveBgIntent ?? 'cleared';
+    const copied = payload.liveBgCopyFrom ? disk.get(payload.liveBgCopyFrom)?.liveBg ?? null : null;
+    const liveBg =
+      liveBgIntent === 'set'
+        ? (payload.liveBg ?? copied ?? null)
+        : liveBgIntent === 'keep'
+          ? (prev?.liveBg ?? null)
+          : null;
+    const { audioIntent: _a, coverIntent: _c, liveBgIntent: _l, ...docRest } = payload.doc;
     // 暂存拷进来的也算「盘上有」：字节不在这条桥上（主进程从 downloads/ 拷文件），present 只认声明
     const hadStaged = (intent: string, stagedPath?: string) =>
       intent === 'set' && typeof stagedPath === 'string' && stagedPath !== '';
-    const before = present.get(payload.id) ?? { audio: false, cover: false };
+    const before = present.get(payload.id) ?? { audio: false, cover: false, liveBg: false };
     const next = {
       audio: payload.doc.audioIntent === 'set'
         ? (audio != null && audio.byteLength > 0) || hadStaged(payload.doc.audioIntent, payload.audioStagedPath)
@@ -63,12 +77,16 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
       cover: payload.doc.coverIntent === 'set'
         ? (cover != null && cover.byteLength > 0) || hadStaged(payload.doc.coverIntent, payload.coverStagedPath)
         : payload.doc.coverIntent === 'keep' ? before.cover : false,
+      liveBg: liveBgIntent === 'set'
+        ? (liveBg != null && liveBg.byteLength > 0)
+        : liveBgIntent === 'keep' ? before.liveBg : false,
     };
     present.set(payload.id, next);
     disk.set(payload.id, {
-      doc: { ...docRest, audioPresent: next.audio, coverPresent: next.cover },
+      doc: { ...docRest, audioPresent: next.audio, coverPresent: next.cover, liveBgPresent: next.liveBg },
       audio,
       cover,
+      liveBg,
     });
   });
 
@@ -84,6 +102,8 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
     disk.delete(id);
   });
 
-  const bridge: ElectronProjectBridge = { get, put, list, delete: deleteProject, uploadRefs: async () => null };
+  const bridge: ElectronProjectBridge = {
+    get, put, list, delete: deleteProject, uploadRefs: async () => null, getLiveBg,
+  };
   return { bridge, disk, puts, get, put };
 }

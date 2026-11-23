@@ -37,7 +37,14 @@ export function makeMemoryProjectBackend(
   projects: ChartProject[] = [],
   opts: { cloneBlobsOnRead?: boolean; deferList?: boolean } = {},
 ): MemoryProjectBackend {
-  const disk = new Map<string, ChartProject>(projects.map((p) => [p.id, p]));
+  const disk = new Map<string, ChartProject>(projects.map((p) => {
+    const { liveBgBlob, ...rest } = p;
+    return [p.id, rest];
+  }));
+  const liveBg = new Map<string, Blob>();
+  for (const p of projects) {
+    if (p.liveBgBlob) liveBg.set(p.id, p.liveBgBlob);
+  }
   const read = (p: ChartProject | undefined): ChartProject | null => {
     if (!p) return null;
     if (!opts.cloneBlobsOnRead) return p;
@@ -66,8 +73,18 @@ export function makeMemoryProjectBackend(
     releaseList: () => openGate(),
     get: async (id) => read(disk.get(id)),
     save: async (project, sources = {}) => {
-      disk.set(project.id, project);
-      if (sources.audioStagedPath || sources.coverStagedPath) staged.set(project.id, sources);
+      const { liveBgBlob, ...rest } = project;
+      disk.set(project.id, rest);
+      if (liveBgBlob) liveBg.set(project.id, liveBgBlob);
+      else if (sources.liveBgCopyFrom) {
+        const copied = liveBg.get(sources.liveBgCopyFrom);
+        if (copied) liveBg.set(project.id, copied);
+      } else if (!project.liveBgName) {
+        liveBg.delete(project.id);
+      }
+      if (sources.audioStagedPath || sources.coverStagedPath || sources.liveBgCopyFrom) {
+        staged.set(project.id, sources);
+      }
     },
     list: async () => {
       if (!gateOpen) await gate;
@@ -75,7 +92,9 @@ export function makeMemoryProjectBackend(
     },
     delete: async (id) => {
       disk.delete(id);
+      liveBg.delete(id);
     },
+    getLiveBg: async (id) => liveBg.get(id) ?? null,
   };
 }
 

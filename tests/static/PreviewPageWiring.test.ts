@@ -266,7 +266,8 @@ describe('84 · 相框封面不吃 issue 80 的冷路径', () => {
   it('页面把 `pending` 交给舞台当取素材门禁', () => {
     expect(page).toMatch(/cover=\{stageCover\.image\}/);
     expect(page).toMatch(/coverPending=\{stageCover\.pending\}/);
-    expect(stage).toMatch(/if \(coverPending\) return;/);
+    expect(page).toMatch(/liveBgPending=\{liveBg\.pending\}/);
+    expect(stage).toMatch(/if \(coverPending \|\| liveBgPending\) return;/);
   });
 
   it('播放器不跟 `assets` 重建（换包 / 封面晚到只重烤场地底图）', () => {

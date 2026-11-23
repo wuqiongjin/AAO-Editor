@@ -44,6 +44,10 @@ import {
 
 const okImage = (src: string) => ({ naturalWidth: 8, naturalHeight: 8, src } as unknown as HTMLImageElement);
 
+function imgSrc(img: CanvasImageSource | null): string | undefined {
+  return img && typeof img === 'object' && 'src' in img ? String((img as HTMLImageElement).src) : undefined;
+}
+
 /** 假图片加载：`allow` 里列出的 src 才算存在（其余 404 → 该服务器目录视为没归档） */
 function fakeLoader(allow: (src: string) => boolean, seen: string[] = []) {
   return {
@@ -281,7 +285,7 @@ describe('loadSimAssets · 包选择透传（chart-preview 41）', () => {
     expect(assets.missing).toBe(false);
     expect(assets.field?.src).toBe(urls.field);
     expect(assets.playLine?.src).toBe(urls.playLine);
-    expect(assets.background?.src).toBe(urls.background);
+    expect(imgSrc(assets.background)).toBe(urls.background);
   });
 
   it('选中包整服读不到 → 兜底回落默认包（轨道 skin00 / 背景自带包；不弹错、不进空态，ADR-0018 §1）', async () => {
@@ -294,7 +298,7 @@ describe('loadSimAssets · 包选择透传（chart-preview 41）', () => {
     });
     expect(assets.missing).toBe(false);
     expect(assets.field?.src).toBe(fallback.field);
-    expect(assets.background?.src).toBe(fallback.background);
+    expect(imgSrc(assets.background)).toBe(fallback.background);
   });
 
   it('选中包与默认包都读不到 → 空态（缺素材这个事实，不抛错）', async () => {
@@ -474,5 +478,25 @@ describe('loadSimAssets · 相框封面（票 84）', () => {
     // 自带包但没有封面：相框层**仍在**（取景要分叉），只是封面留空
     const noCover = await loadSimAssets({ servers: ['jp'], loadImage: fakeLoader(() => true).load });
     expect(noCover.stageFrame).toEqual({ cover: null });
+  });
+});
+
+describe('loadSimAssets · 自定义表演背景（票 42）', () => {
+  it('有 customLiveBg 时用它当背景、走 liveFit、不画相框、不请求包背景 URL', async () => {
+    const custom = { width: 800, height: 450 } as unknown as CanvasImageSource;
+    const seen: string[] = [];
+    const packBg = simAssetUrls('jp', { background: 'aao-stage' }).background;
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      packs: { background: 'aao-stage' },
+      cover: { width: 1, height: 1 } as CanvasImageSource,
+      customLiveBg: custom,
+      liveBgFit: 'contain',
+      loadImage: fakeLoader(() => true, seen).load,
+    });
+    expect(assets.background).toBe(custom);
+    expect(assets.liveBgFit).toBe('contain');
+    expect(assets.stageFrame).toBeNull();
+    expect(seen).not.toContain(packBg);
   });
 });

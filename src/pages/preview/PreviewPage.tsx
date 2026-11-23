@@ -44,6 +44,7 @@ import {
 } from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
+import { useLiveBg } from './useLiveBg';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
@@ -70,6 +71,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   /** 等待那一帧里连点 / 点回静态：只有最后一次点按的令牌有权落地 */
   const switchTokenRef = useRef(0);
   const { scopeId, currentId, project, options, loading, chartId, pickChart, dataVersion, checking } = usePreviewScope(active);
+  const liveBg = useLiveBg(project, active && (mode === 'video' || pendingMode === 'video'));
 
   // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
   const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
@@ -206,8 +208,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       fieldPackId: settings.preview.fieldPackId,
       // 背景亮度（票 43）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
       bgBrightness: settings.preview.bgBrightness,
+      customLiveBg: liveBg.customLiveBg,
+      liveBgFit: liveBg.customLiveBg ? liveBg.slot.fit : undefined,
     };
-  }, [project, chart, settings.display, settings.preview, beatDisplay]);
+  }, [project, chart, settings.display, settings.preview, beatDisplay, liveBg.customLiveBg, liveBg.slot.fit]);
 
   // 票 69 复验整改：保活在动态形态时若工作台改了谱再直切回来（不经过静态预览），
   // 在 checking 与 (dataVersion, chartId) 异步分片派生完成并推入 pb.setFrame 前遮住整个舞台，
@@ -491,10 +495,15 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 />
               ) : (
                 <div className="preview-controls">
-                  <PreviewDisplayPanel mode="video" cover={stageCover.image} />
+                  <PreviewDisplayPanel
+                    mode="video"
+                    cover={stageCover.image}
+                    liveBg={liveBg.slot}
+                    liveBgHandlers={liveBg.handlers}
+                  />
                   {/* 导出（07）：票 20 定案，动态形态工具栏的这一枚随视频导出落地；全屏在末位 */}
                   <VideoExportControl
-                    disabled={videoScene == null}
+                    disabled={videoScene == null || liveBg.pending}
                     spec={videoExport.spec}
                     opening={settings.export.opening}
                     onOpeningChange={(patch) => setExport({ opening: mergeOpening(settings.export.opening, patch) })}
@@ -555,6 +564,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 duration={project?.durationSeconds ?? 0}
                 cover={stageCover.image}
                 coverPending={stageCover.pending}
+                liveBgPending={liveBg.pending}
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}
                 seVolume={settings.audio.seVolume}

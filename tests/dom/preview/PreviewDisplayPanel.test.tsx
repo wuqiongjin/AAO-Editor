@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
-import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
+import PreviewDisplayPanel, { type LiveBgSlotState } from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
 import { listSimBackgroundPacks, listSimFieldPacks, simPackDisplayName } from '@/src/preview/video/sim/simAssetPacks';
 import { setActiveUiLanguage } from '@/src/i18n';
@@ -91,14 +91,24 @@ function setup(patch: Record<string, unknown> = {}) {
 }
 
 /** 动态（仿真场）形态：那一组才有音符速度档（票 24 的输入形态锁在这里） */
-function setupDynamic(patch: Record<string, unknown> = {}) {
+function setupDynamic(patch: Record<string, unknown> = {}, liveBg?: LiveBgSlotState) {
   seedZhSettings(patch);
+  const liveBgHandlers = {
+    onPickFile: vi.fn(),
+    onSelectCustom: vi.fn(),
+    onSelectPack: vi.fn(),
+    onClear: vi.fn(),
+    onFit: vi.fn(),
+  };
   render(
     <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
-      <ConfigProvider><PreviewDisplayPanel mode="dynamic" /></ConfigProvider>
+      <ConfigProvider>
+        <PreviewDisplayPanel mode="video" liveBg={liveBg} liveBgHandlers={liveBgHandlers} />
+      </ConfigProvider>
     </AppNavProvider>,
   );
   fireEvent.click(trigger());
+  return liveBgHandlers;
 }
 
 const trigger = () => screen.getByRole('button', { name: '设置' });
@@ -439,9 +449,12 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     // 背景 skin00：官方名五服同值日文 → 显示 i18n 中文名，不出原始日文（用户 2026-10-22 反馈）
     expect(within(pickerGrid('表演背景')).getByText('默认背景')).toBeInTheDocument();
     expect(within(pickerGrid('表演背景')).queryByText('デフォルト背景')).toBeNull();
-    // 第一格是应用自带包「AAO 舞台」（票 84）：缩略 = 本地素材原图，不在 bgskin 树里
+    // 自定义槽位是整网第一格；「AAO 舞台」是内置包第一格 = 整网第二格（票 42 / 票 84）
     expect(bgPacks[0]!.id).toBe('aao-stage');
+    const bgItems = pickerGrid('表演背景').querySelectorAll('.pdp__pack-item');
+    expect(bgItems[0]).toHaveClass('pdp__pack-item--custom');
     expect(within(pickerGrid('表演背景')).getByText('AAO 舞台')).toBeInTheDocument();
+    expect(bgItems[1]?.textContent).toContain('AAO 舞台');
     const appThumb = bgBtn('aao-stage').querySelector('img');
     expect(appThumb?.getAttribute('src')).toContain('/assets/preview/aao-stage-frame-bg.webp');
     // 官方包的缩略仍从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
@@ -527,6 +540,86 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     expect(within(panel()).queryByRole('button', { name: '更换轨道' })).toBeNull();
   });
 });
+
+describe('票 42 · 自定义表演背景槽位', () => {
+  const openBg = () => fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+  const filled: LiveBgSlotState = {
+    available: true,
+    hasImage: true,
+    useCustom: true,
+    fit: 'contain',
+    name: 'stage.png',
+    thumb: null,
+    image: null,
+  };
+
+  it('无工程时第一格不可用', () => {
+    setupDynamic();
+    openBg();
+    const empty = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
+    expect(empty).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('有工程空态点格打开文件选择，accept 只收静图', () => {
+    const handlers = setupDynamic({}, {
+      available: true, hasImage: false, useCustom: false, fit: 'cover', name: null, thumb: null, image: null,
+    });
+    openBg();
+    const cell = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
+    expect(cell).not.toHaveAttribute('aria-disabled', 'true');
+    const input = document.querySelector('input[type="file"][accept*="image/png"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array(8)], 'bg.png', { type: 'image/png' })] } });
+    expect(handlers.onPickFile).toHaveBeenCalledTimes(1);
+    expect(handlers.onPickFile.mock.calls[0][0].name).toBe('bg.png');
+  });
+
+  it('有图后点格切到自定义；悬停坞更换 / 清除；填充方式只在选中自定义时出现', () => {
+    const handlers = setupDynamic({}, filled);
+    expect(within(panel()).getByRole('combobox', { name: '填充方式' })).toHaveValue('contain');
+    fireEvent.change(within(panel()).getByRole('combobox', { name: '填充方式' }), { target: { value: 'cover' } });
+    expect(handlers.onFit).toHaveBeenCalledWith('cover');
+
+    openBg();
+    const cell = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
+    expect(cell).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(cell);
+    expect(handlers.onSelectCustom).toHaveBeenCalled();
+
+    const replace = within(cell).getByRole('button', { name: '更换图片' });
+    const clear = within(cell).getByRole('button', { name: '从工程删除' });
+    fireEvent.click(replace);
+    expect(handlers.onPickFile).not.toHaveBeenCalled();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array(4)], 'b.jpg', { type: 'image/jpeg' })] } });
+    expect(handlers.onPickFile).toHaveBeenCalledTimes(1);
+    fireEvent.click(clear);
+    expect(handlers.onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('点表演背景内置包停用自定义；点轨道包不碰自定义开关', () => {
+    const handlers = setupDynamic({}, filled);
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    fireEvent.click(within(liveBgGrid()).getByRole('button', { name: '默认背景' }));
+    expect(handlers.onSelectPack).toHaveBeenCalledTimes(1);
+    expect(handlers.onClear).not.toHaveBeenCalled();
+
+    fireEvent.click(within(panel()).getByRole('button', { name: '返回' }));
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换轨道' }));
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Maid' }));
+    expect(handlers.onSelectPack).toHaveBeenCalledTimes(1);
+  });
+
+  it('未选中自定义时设置视图没有填充方式', () => {
+    setupDynamic({ preview: { bgPackId: 'skin00' } }, { ...filled, useCustom: false });
+    expect(within(panel()).queryByRole('combobox', { name: '填充方式' })).toBeNull();
+    expect(within(panel()).getByTitle('默认背景')).toBeInTheDocument();
+  });
+});
+
+function liveBgGrid() {
+  return within(panel()).getByRole('group', { name: '表演背景' });
+}
 
 describe('chart-preview 43 · 背景亮度', () => {
   const brightnessSlider = () => within(panel()).getByRole('slider', { name: '背景亮度' });

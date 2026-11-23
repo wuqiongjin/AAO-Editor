@@ -43,6 +43,7 @@ function transport(root: string) {
     list: () => invoke('project:list') as ReturnType<ElectronProjectBridge['list']>,
     delete: (id) => invoke('project:delete', id),
     uploadRefs: (id) => invoke('project:uploadRefs', id) as ReturnType<ElectronProjectBridge['uploadRefs']>,
+    getLiveBg: (id) => invoke('project:getLiveBg', id) as ReturnType<ElectronProjectBridge['getLiveBg']>,
   };
   return { backend: new ElectronFileProjectBackend(bridge), put, invoke };
 }

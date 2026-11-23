@@ -1639,3 +1639,38 @@ describe('drawSimBackground · 相框封面（票 84）', () => {
     expect(args[7]!).toBeCloseTo(aaoFrameRect(m).w * 1.125, 6);
   });
 });
+
+// chart-preview 42 · ADR-0018 §4：自定义图铺设计面，与 AAO / 幕布互斥。
+describe('drawSimBackground · 自定义 liveFit（票 42）', () => {
+  const m = fieldMetrics(1334, 750);
+  const portrait = { width: 1080, height: 1920, tag: 'portrait' } as unknown as CanvasImageSource;
+  const cover = { width: 600, height: 600, tag: 'cover' } as unknown as CanvasImageSource;
+  const bg = { width: 2048, height: 1024, tag: 'bg' } as unknown as CanvasImageSource;
+
+  it('cover：铺满设计面 1334×750，不走幕布矩形', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, portrait, 1, 1, { liveFit: 'cover' });
+    const imgCalls = calls.filter(([k]) => k === 'drawImage');
+    expect(imgCalls).toHaveLength(1);
+    const args = imgCalls[0]![1] as number[];
+    expect(args.slice(5)).toEqual([0, 0, 1334, 750]);
+  });
+
+  it('contain：完整显示竖图，左右留边（目标宽 < 设计面宽）', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, portrait, 1, 1, { liveFit: 'contain' });
+    const args = calls.filter(([k]) => k === 'drawImage')[0]![1] as number[];
+    // drawImage(img, dx, dy, dw, dh) ⇒ args[0] 是图
+    expect(args[4]).toBeCloseTo(750, 5); // dh = 满高
+    expect(args[3]!).toBeLessThan(1334); // dw 留边
+    expect(args[2]).toBeCloseTo(0, 5);
+  });
+
+  it('liveFit 有值时不画相框（就算传了 stageFrame）', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimBackground(proxy, m, bg, 1, 1, { liveFit: 'cover', stageFrame: { cover } });
+    const imgs = calls.filter(([k]) => k === 'drawImage').map(([_, args]) => (args as unknown[])[0]);
+    expect(imgs).toEqual([bg]);
+    expect(imgs).not.toContain(cover);
+  });
+});

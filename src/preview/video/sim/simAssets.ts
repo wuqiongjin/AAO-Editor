@@ -224,7 +224,7 @@ export interface SimSprites {
 
 /** 已就绪的场地素材（缺素材 = `missing`，三图全 null） */
 export interface SimAssets {
-  background: HTMLImageElement | null;
+  background: CanvasImageSource | null;
   field: HTMLImageElement | null;
   playLine: HTMLImageElement | null;
   /**
@@ -234,6 +234,10 @@ export interface SimAssets {
    * 因此实时预览 / 视频导出 / 开场第③段三处天然一致。
    */
   stageFrame: SimStageFrame | null;
+  /**
+   * 自定义表演背景取景（票 42）：有值 = `background` 是用户图，铺设计面，不画相框。
+   */
+  liveBgFit?: 'cover' | 'contain';
   /** 带体体色 / 亮缘色（皮肤带体图中心取样；取不到 = 兜底绿） */
   bandColor: string;
   bandColorSp: string;
@@ -277,6 +281,12 @@ export interface SimAssetLoadOptions {
    * 只有背景是应用自带包时才随素材带出去（其余背景包画不了相框，带了也不用）。
    */
   cover?: CanvasImageSource | null;
+  /**
+   * 自定义表演背景（票 42）：已解码的图。有值时覆盖包背景、不画相框，
+   * `liveBgFit` 缺省 cover。
+   */
+  customLiveBg?: CanvasImageSource | null;
+  liveBgFit?: 'cover' | 'contain';
   /** 图片加载（测试注入替身；缺省 `new Image()`） */
   loadImage?: (src: string) => Promise<HTMLImageElement>;
   /** 取色（测试注入替身；缺省读 1×1 离屏画布） */
@@ -376,13 +386,16 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
     servers = SIM_ASSET_SERVERS,
     packs,
     cover = null,
+    customLiveBg = null,
+    liveBgFit,
     loadImage = loadImageElement,
     sampleColor = sampleCenterColor,
     createSampleCanvas,
   } = opts;
 
   const probe = (selection: Required<SimAssetPackSelection>) => probeSimServers({
-    servers, selection, bandSrc, bandSpSrc, cover, loadImage, sampleColor, createSampleCanvas,
+    servers, selection, bandSrc, bandSpSrc, cover, customLiveBg, liveBgFit,
+    loadImage, sampleColor, createSampleCanvas,
   });
   const selected: Required<SimAssetPackSelection> = {
     field: normalizeSimAssetPackId('field', packs?.field),
@@ -435,11 +448,13 @@ async function probeSimServers(opts: {
   bandSrc: string | null;
   bandSpSrc: string | null;
   cover: CanvasImageSource | null;
+  customLiveBg?: CanvasImageSource | null;
+  liveBgFit?: 'cover' | 'contain';
   loadImage: (src: string) => Promise<HTMLImageElement>;
   sampleColor: (img: HTMLImageElement) => string | null;
   createSampleCanvas?: () => HTMLCanvasElement | null;
 }): Promise<SimAssets | null> {
-  const { servers, selection, bandSrc, bandSpSrc, cover, loadImage, sampleColor, createSampleCanvas } = opts;
+  const { servers, selection, bandSrc, bandSpSrc, cover, customLiveBg, liveBgFit, loadImage, sampleColor, createSampleCanvas } = opts;
   for (const server of servers) {
     const urls = simAssetUrls(server, selection);
     let field: HTMLImageElement;
@@ -454,7 +469,7 @@ async function probeSimServers(opts: {
       background, playLine, bandImg, bandSpImg, digits, combo, particles, judge,
       scoreFill, pauseBtn, starFlow, autoLive, scoreBar, lifeBar,
     ] = await Promise.all([
-      loadImage(urls.background).catch(() => null),
+      customLiveBg ? Promise.resolve(null) : loadImage(urls.background).catch(() => null),
       loadImage(urls.playLine).catch(() => null),
       bandSrc ? loadImage(bandSrc).catch(() => null) : Promise.resolve(null),
       bandSpSrc ? loadImage(bandSpSrc).catch(() => null) : Promise.resolve(null),
@@ -474,17 +489,18 @@ async function probeSimServers(opts: {
     ]);
     const sprites = digits && combo && particles ? { digits, combo, particles } : null;
     const hud: SimHudAssets = { scoreFill, pauseBtn, starFlow, autoLive, scoreBar, lifeBar };
-    warmupSimSprites(sprites, [background, field, playLine]);
+    warmupSimSprites(sprites, [customLiveBg ?? background, field, playLine]);
     // 65：普通 / SP 带体各读一次，标量材质、17 点剖面、纵向曲线、体色同源（无第二次回读）；
     // LUT 在这里展开好，帧循环只读数组。
     const bandSample = readSimBandImage(bandImg, createSampleCanvas);
     const bandSpSample = readSimBandImage(bandSpImg, createSampleCanvas);
     return {
-      background,
+      background: customLiveBg ?? background,
       field,
       playLine,
-      // 相框层只在自带背景包上存在（ADR-0018 §7）：别的包带了也画不到，索性不往下传
-      stageFrame: isAppBackgroundPack(selection.background) ? { cover } : null,
+      // 相框层只在自带背景包上存在（ADR-0018 §7）；自定义图与 AAO 互斥（票 42）
+      stageFrame: customLiveBg ? null : (isAppBackgroundPack(selection.background) ? { cover } : null),
+      liveBgFit: customLiveBg ? (liveBgFit === 'contain' ? 'contain' : 'cover') : undefined,
       bandColor: (bandImg ? sampleColor(bandImg) : null) ?? SIM_BAND_COLORS.band,
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
       bandMaterial: bandSample?.material ?? { ...SIM_BAND_MATERIAL },

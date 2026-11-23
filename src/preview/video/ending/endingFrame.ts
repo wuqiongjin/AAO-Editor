@@ -774,7 +774,12 @@ function drawStage(
       ? stage.frame
       : {
           ...stage.frame,
-          assets: { ...stage.frame.assets, background: input.stageBackground, stageFrame: null },
+          assets: {
+            ...stage.frame.assets,
+            background: input.stageBackground,
+            stageFrame: null,
+            liveBgFit: undefined,
+          },
         };
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, stage.x, stage.y);
