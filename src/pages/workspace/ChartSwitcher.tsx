@@ -22,6 +22,7 @@ import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
 import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
+import { useDismissOnOutside } from '../../ui/useDismissOnOutside';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
 import {
   ChartStatusIcon,
@@ -41,6 +42,7 @@ export default memo(function ChartSwitcher() {
   const [openMenu, setOpenMenu] = useState(false);
   const [chartInfo, setChartInfo] = useState<{ chart: ProjectChart | null } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
@@ -89,6 +91,19 @@ export default memo(function ChartSwitcher() {
     await mutate((p) => duplicateChartInProject(p, chartId, { chartId: copyId, now: Date.now() }, untitledProjectLabel()), copyId);
   }, [project, chartId, mutate]);
 
+  const closeMenu = useCallback(() => setOpenMenu(false), []);
+  useDismissOnOutside(openMenu, closeMenu, [btnRef, panelRef]);
+  useEffect(() => {
+    if (!openMenu) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      closeMenu();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [openMenu, closeMenu]);
+
   if (!project) return null;
   const cur = pickCurrentChart(project, chartId);
   const uploaded = chartStatus(cur) === 'uploaded';
@@ -126,8 +141,7 @@ export default memo(function ChartSwitcher() {
       </button>
       {openMenu && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={() => setOpenMenu(false)} />
-          <div className="pp-menu__panel is-portaled chart-switcher__panel" style={{ top: pos.top, left: pos.left }}>
+          <div ref={panelRef} className="pp-menu__panel is-portaled chart-switcher__panel" style={{ top: pos.top, left: pos.left }}>
             <div className="chart-switcher__label">{t('workspace.switcher.listLabel', { count: project.charts.length })}</div>
             {project.charts.map((c) => (
               <button

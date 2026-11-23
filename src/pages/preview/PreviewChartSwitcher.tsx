@@ -14,6 +14,7 @@ import { chartStatus } from '../../project/workspaceProject';
 import { ChartStatusIcon, untitledProjectLabel } from '../../project/ui/projectUi';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { t } from '../../i18n';
+import { useDismissOnOutside } from '../../ui/useDismissOnOutside';
 import '../projects/ProjectsPage.css';
 
 export default function PreviewChartSwitcher({ project, chartId, onPick }: {
@@ -25,6 +26,7 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   const close = useCallback(() => setOpen(false), []);
@@ -89,6 +91,8 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, close]);
 
+  useDismissOnOutside(open, close, [btnRef, panelRef]);
+
   // 记录未到位（换作用域时旧记录已被丢掉）：占位触发钮与真身**同盒子**（同 class、同字体、
   // 同内边距、同样有那一枚难度徽标），只把内容换成中性骨架——不这么做工具栏会矮一截，
   // 下面的舞台跟着上下跳（2026-09-30 用户验收报的抖动）。
@@ -127,8 +131,8 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
 
       {open && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={close} />
           <div
+            ref={panelRef}
             className="pp-menu__panel is-portaled preview-chart__panel"
             style={{ top: pos.top, left: pos.left }}
             role="listbox"

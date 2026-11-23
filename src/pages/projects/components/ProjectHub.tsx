@@ -144,7 +144,7 @@ export function ProjectStartView({
       if (list.length === 0) return;
       // 弹窗（新建 / 编辑工程 / 谱面信息 / 删除确认 —— 都走通用壳 .dialog__scrim）与卡片菜单
       // 都挂 scrim，开着就不响应
-      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
+      if (document.querySelector('.dialog__scrim, .is-portaled')) return;
       // 焦点在输入框时放行原生行为（与 useShortcutDispatch 同口径）
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;

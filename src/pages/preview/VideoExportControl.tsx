@@ -29,6 +29,7 @@ import {
   OPENING_SECONDS,
   VIDEO_EXPORT_TIERS,
   isAacCodec,
+  probeVideoExportSupport,
   tierOf,
   type EndingStamp,
   type OpeningItemId,
@@ -235,9 +236,10 @@ export interface VideoExportControlProps {
   notice: VideoExportNotice | null;
   /** 清除结果文案 */
   onDismissNotice?: () => void;
-  /** 本机实际会用的编码组合（null = 还没探）；面板打开时调 `onProbe` 探一次 */
+  /** 本机实际会用的编码组合（null = 还没探 / 由面板自己探） */
   support?: VideoExportSupport | null;
   probing?: boolean;
+  /** 测试注入：若传入则面板打开时 idle 后再调，避免 PreviewPage 同步 setState */
   onProbe?: () => void;
 }
 
@@ -255,18 +257,74 @@ export default function VideoExportControl({
   cancelling = false,
   notice,
   onDismissNotice,
-  support = null,
+  support,
   probing = false,
   onProbe,
 }: VideoExportControlProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [localSupport, setLocalSupport] = useState<VideoExportSupport | null>(null);
+  const [probedKey, setProbedKey] = useState<string | null>(null);
   const btnRef = useRef<HTMLSpanElement>(null);
   /** 面板 portal 到 body ⇒ 它**不在** `btnRef` 里，判"点外面"必须把它也算进来 */
   const panelRef = useRef<HTMLDivElement>(null);
 
   const tier = tierOf(spec.tier);
   const busy = progress != null;
+  const specKey = `${spec.tier}|${spec.muted}|${spec.container}`;
+  const parentOwnsSupport = support !== undefined;
+  const resolvedSupport = parentOwnsSupport ? support : (probedKey === specKey ? localSupport : null);
+
+  // 票 87：探测排进 idle，不在 PreviewPage 上同步 setProbing；规格没变就复用上次结论。
+  useEffect(() => {
+    if (!open || parentOwnsSupport) return;
+    if (probedKey === specKey) return;
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let rafId = 0;
+    let cancelled = false;
+    const scheduleProbe = () => {
+      const run = () => {
+        if (cancelled) return;
+        if (onProbe) {
+          setProbedKey(specKey);
+          onProbe();
+          return;
+        }
+        void probeVideoExportSupport({
+          tier: spec.tier,
+          muted: spec.muted,
+          preferred: spec.container,
+        }).then((result) => {
+          if (cancelled) return;
+          setProbedKey(specKey);
+          setLocalSupport(result);
+        }).catch(() => {
+          if (cancelled) return;
+          setProbedKey(specKey);
+          setLocalSupport(null);
+        });
+      };
+      const idle = globalThis as {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+        cancelIdleCallback?: (id: number) => void;
+      };
+      if (typeof idle.requestIdleCallback === 'function') {
+        idleId = idle.requestIdleCallback(run, { timeout: 400 });
+      } else {
+        timeoutId = window.setTimeout(run, 0);
+      }
+    };
+    // 先让面板那一帧画完，探测不要跟挂载挤在同一次 longtask 里。
+    rafId = requestAnimationFrame(() => scheduleProbe());
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      const idle = globalThis as { cancelIdleCallback?: (id: number) => void };
+      if (idleId != null) idle.cancelIdleCallback?.(idleId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [open, parentOwnsSupport, probedKey, specKey, onProbe, spec.tier, spec.muted, spec.container]);
 
   /** 量触发钮定面板位；等值守卫免得平白制造一次重渲 */
   const computePos = useCallback(() => {
@@ -334,7 +392,7 @@ export default function VideoExportControl({
       label: t(`preview.video.export.format.${id}` as MessageKey),
     })),
   ];
-  const note = outcomeNote(support, probing, spec.container, spec.muted);
+  const note = outcomeNote(resolvedSupport, probing, spec.container, spec.muted);
 
   return (
     <div className="pvex">
@@ -350,10 +408,7 @@ export default function VideoExportControl({
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => {
-            if (!open) {
-              computePos();
-              onProbe?.(); // 面板一开就问一遍本机编码能力（下面那行结论要说的就是它）
-            }
+            if (!open) computePos();
             setOpen(!open);
           }}
         />

@@ -321,6 +321,7 @@
   inset: 0;
   opacity: 0;
   visibility: hidden;
+  content-visibility: hidden;
   pointer-events: none;
   min-width: 0;
   min-height: 0;
@@ -330,6 +331,7 @@
 .app-page.is-active {
   opacity: 1;
   visibility: visible;
+  content-visibility: visible;
   pointer-events: auto;
 }
 

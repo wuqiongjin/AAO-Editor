@@ -14,6 +14,14 @@ import { AudioEngine } from '../../../audio/AudioEngine';
 import type { ChartNote } from '../../../chart/types';
 import { drawSimFrameAt, prepareSimComboSprites, prepareSimFieldBitmap, prepareSimLifeGauge, type SimFrameInput, type SimFrameLayers } from './simField';
 
+/**
+ * 票 87：尺寸烘培让出约一帧。`scheduler.yield()` / `setTimeout(0)` 在播放中会排进同一帧
+ * 立刻续上，ResizeObserver 与 `transferToImageBitmap` / 画布涨尺寸仍会叠成一次 longtask。
+ */
+function yieldPlaybackFrame(): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, 16); });
+}
+
 // 倍速的区间 / 常用档 / 步长 / 归一化随控件抽到 `src/playback/playbackRateState`（chart-preview 58，
 // 引擎的 PLAYBACK_RATE_RANGE 仍是唯一真相源）。这里按旧名原样再导出，保住预览域 barrel 与
 // 既有消费方 / 锁测的导入路径（对象引用不变，SimPlayback.test.ts 的 toBe 不受影响）。
@@ -94,6 +102,10 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   const layers: SimFrameLayers = { bandRenderer: opts.bandRenderer };
   let density = initialDensity;
   let fieldBitmapDensity = 0;
+  /** 票 87：同一套素材 / 亮度 / 密度下按场地尺寸留最近两档底图，全屏往返不必重烤 */
+  const fieldBitmaps = new Map<string, ImageBitmap>();
+  let fieldBakeGen = 0;
+  let pendingSizeInput: SimFrameInput | null = null;
   const engine = new AudioEngine();
   let frame: SimFrameInput | null = null;
   let rafId: number | null = null;
@@ -139,13 +151,31 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     engine.setChart(notes, beatDisplay, input.bpmEvents);
   }
 
-  function prepareFrame(input: SimFrameInput): SimFrameInput {
-    if (!frame || frame.metrics !== input.metrics || frame.assets !== input.assets ||
-      frame.scene.bgBrightness !== input.scene.bgBrightness || fieldBitmapDensity !== density) {
-      layers.fieldBitmap?.close();
-      layers.fieldBitmap = prepareSimFieldBitmap(input, density);
-      fieldBitmapDensity = density;
+  function fieldSizeKey(input: SimFrameInput): string {
+    return `${Math.round(input.metrics.w)}x${Math.round(input.metrics.h)}`;
+  }
+
+  function closeFieldBitmaps(): void {
+    for (const bitmap of fieldBitmaps.values()) bitmap.close();
+    fieldBitmaps.clear();
+    layers.fieldBitmap = undefined;
+  }
+
+  function rememberFieldBitmap(key: string, bitmap: ImageBitmap): void {
+    const previous = fieldBitmaps.get(key);
+    if (previous && previous !== bitmap) previous.close();
+    fieldBitmaps.delete(key);
+    fieldBitmaps.set(key, bitmap);
+    while (fieldBitmaps.size > 2) {
+      const oldest = fieldBitmaps.keys().next().value;
+      if (oldest == null || oldest === key) break;
+      const evicted = fieldBitmaps.get(oldest);
+      fieldBitmaps.delete(oldest);
+      if (evicted && evicted !== layers.fieldBitmap) evicted.close();
     }
+  }
+
+  function installHud(input: SimFrameInput): SimFrameInput {
     layers.lifeGauge = input.scene.showGameUi === false ? undefined : prepareSimLifeGauge(input.metrics, density);
     layers.comboShadows = undefined;
     try {
@@ -158,6 +188,102 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     }
   }
 
+  function bakeFieldSync(input: SimFrameInput): void {
+    const key = fieldSizeKey(input);
+    const cached = fieldBitmaps.get(key);
+    if (cached) {
+      fieldBitmaps.delete(key);
+      fieldBitmaps.set(key, cached);
+      layers.fieldBitmap = cached;
+      fieldBitmapDensity = density;
+      return;
+    }
+    const bitmap = prepareSimFieldBitmap(input, density);
+    fieldBitmapDensity = density;
+    if (bitmap) {
+      rememberFieldBitmap(key, bitmap);
+      layers.fieldBitmap = bitmap;
+    } else {
+      layers.fieldBitmap = undefined;
+    }
+  }
+
+  function cancelSizeBake(): void {
+    pendingSizeInput = null;
+    fieldBakeGen += 1;
+  }
+
+  function queueSizeBake(input: SimFrameInput): void {
+    pendingSizeInput = input;
+    const gen = ++fieldBakeGen;
+    void (async () => {
+      // ResizeObserver 当帧先让出约两帧，播放循环能先用旧底图出画。
+      await yieldPlaybackFrame();
+      await yieldPlaybackFrame();
+      if (disposed || gen !== fieldBakeGen) return;
+      const pending = pendingSizeInput;
+      if (!pending) return;
+      const key = fieldSizeKey(pending);
+      let bitmap = fieldBitmaps.get(key);
+      if (!bitmap) {
+        bitmap = prepareSimFieldBitmap(pending, density);
+        if (bitmap) rememberFieldBitmap(key, bitmap);
+      }
+      await yieldPlaybackFrame();
+      if (disposed || gen !== fieldBakeGen) return;
+      const life = pending.scene.showGameUi === false ? undefined : prepareSimLifeGauge(pending.metrics, density);
+      let hud: SimFrameInput = pending;
+      let combo = undefined as typeof layers.comboShadows;
+      try {
+        combo = prepareSimComboSprites(pending.metrics, pending.assets.sprites, density);
+      } catch (e) {
+        console.warn('[preview] combo 准备失败（按缺精灵渲染）:', e);
+        hud = { ...pending, assets: { ...pending.assets, sprites: null } };
+      }
+      await yieldPlaybackFrame();
+      if (disposed || gen !== fieldBakeGen) return;
+      pendingSizeInput = null;
+      layers.fieldBitmap = bitmap;
+      layers.lifeGauge = life;
+      layers.comboShadows = combo;
+      fieldBitmapDensity = density;
+      frame = hud;
+      syncChart(hud);
+      render();
+    })();
+  }
+
+  function prepareFrame(input: SimFrameInput): SimFrameInput {
+    const previous = frame;
+    const materialChanged = previous == null
+      || previous.assets !== input.assets
+      || previous.scene.bgBrightness !== input.scene.bgBrightness
+      || fieldBitmapDensity !== density
+      || layers.fieldBitmap == null;
+    if (materialChanged || previous == null) {
+      cancelSizeBake();
+      if (previous != null) closeFieldBitmaps();
+      bakeFieldSync(input);
+      return installHud(input);
+    }
+    const sizeChanged = fieldSizeKey(previous) !== fieldSizeKey(input);
+    if (!sizeChanged) {
+      cancelSizeBake();
+      return installHud(input);
+    }
+    const cached = fieldBitmaps.get(fieldSizeKey(input));
+    if (cached) {
+      cancelSizeBake();
+      fieldBitmaps.delete(fieldSizeKey(input));
+      fieldBitmaps.set(fieldSizeKey(input), cached);
+      layers.fieldBitmap = cached;
+      return installHud(input);
+    }
+    // 票 87：全屏 / 窗口尺寸变了先继续用旧底图（CSS 拉伸），烘新图放到让出后的任务。
+    queueSizeBake(input);
+    return installHud({ ...input, metrics: previous.metrics });
+  }
+
   function render(): void {
     if (disposed || !frame) return;
     const ctx = canvas.getContext('2d');
@@ -165,11 +291,13 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     const { metrics } = frame;
     const bw = Math.max(1, Math.round(metrics.w * density));
     const bh = Math.max(1, Math.round(metrics.h * density));
-    if (canvas.width !== bw) canvas.width = bw;
-    if (canvas.height !== bh) canvas.height = bh;
+    // 票 87：backing store 只涨不缩，退出全屏不再把 GPU 缓冲拆掉重建。
+    if (canvas.width < bw) canvas.width = bw;
+    if (canvas.height < bh) canvas.height = bh;
     // transform 取「位图实际尺寸 / 场地尺寸」（照静态预览面板的同一口径）：
-    // 精确写 density 会在取整后留下一点永不消失的重采样
-    ctx.setTransform(bw / metrics.w, 0, 0, bh / metrics.h, 0, 0);
+    // 精确写 density 会在取整后留下一点永不消失的重采样。画布可能比场地大（只涨不缩），
+    // 用实际 backing store 铺满，CSS 再把整张图画进舞台。
+    ctx.setTransform(canvas.width / metrics.w, 0, 0, canvas.height / metrics.h, 0, 0);
     drawSimFrameAt(ctx, frame, Math.min(duration, engine.getVisualSeconds()), layers);
   }
 
@@ -272,11 +400,11 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     render,
     dispose(): void {
       disposed = true;
+      cancelSizeBake();
       stopRaf();
       engine.dispose();
       frame = null;
-      layers.fieldBitmap?.close();
-      layers.fieldBitmap = undefined;
+      closeFieldBitmaps();
       layers.lifeGauge = undefined;
       layers.comboShadows = undefined;
     },

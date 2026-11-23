@@ -315,7 +315,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       const key = e.key;
       if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
       if (list.length === 0) return;
-      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
+      if (document.querySelector('.dialog__scrim, .is-portaled')) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;

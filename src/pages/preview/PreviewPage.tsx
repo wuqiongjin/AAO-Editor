@@ -516,9 +516,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     cancelling={videoExport.cancelling}
                     notice={videoExport.notice}
                     onDismissNotice={videoExport.dismissNotice}
-                    support={videoExport.support}
-                    probing={videoExport.probing}
-                    onProbe={videoExport.probe}
                   />
                   <PreviewEnterFullscreenButton onEnter={toggleFullscreen} />
                 </div>
