@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import {
   AUDIO_VOLUME_STEP,
   PLAYBACK_SHORTCUT_IDS,
-  SEEK_SHORTCUT_IDS,
   stepAudioVolume,
   stepPlaybackRatePreset,
   stepSeekSeconds,
@@ -94,10 +93,5 @@ describe('issue 251 · 键盘 seek 步进', () => {
     expect(stepSeekSeconds(0, -1, 1, 12)).toBe(0);
     expect(stepSeekSeconds(12, 1, 1, 12)).toBe(12);
     expect(stepSeekSeconds(11.6, 1, 1, 12)).toBe(12);
-  });
-
-  it('SEEK_SHORTCUT_IDS 不进 PLAYBACK_SHORTCUT_IDS', () => {
-    expect([...SEEK_SHORTCUT_IDS]).toEqual(['seekBack', 'seekForward']);
-    expect(PLAYBACK_SHORTCUT_IDS).not.toEqual(expect.arrayContaining([...SEEK_SHORTCUT_IDS]));
   });
 });

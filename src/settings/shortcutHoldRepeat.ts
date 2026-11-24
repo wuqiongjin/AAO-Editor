@@ -15,11 +15,9 @@ export interface HoldRepeatSession {
 
 export function createHoldRepeatSession(opts: {
   dispatch: (fn: FunctionId) => void;
-  delayMs?: number;
-  intervalMs?: number;
 }): HoldRepeatSession {
-  const delayMs = opts.delayMs ?? HOLD_REPEAT_DELAY_MS;
-  const intervalMs = opts.intervalMs ?? HOLD_REPEAT_INTERVAL_MS;
+  const delayMs = HOLD_REPEAT_DELAY_MS;
+  const intervalMs = HOLD_REPEAT_INTERVAL_MS;
   let held: FunctionId | null = null;
   let delayId: ReturnType<typeof setTimeout> | undefined;
   let intervalId: ReturnType<typeof setInterval> | undefined;

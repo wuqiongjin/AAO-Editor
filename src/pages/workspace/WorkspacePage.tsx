@@ -597,10 +597,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'volumeUp': handleVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
       // issue 251：键盘 seek 只动播放时钟；读引擎当前秒，不订阅 80ms HUD。
       case 'seekBack':
-        if (engine) seek(stepSeekSeconds(engine.getSeconds(), -1, settings.seekStepBackSeconds, ctxDuration));
+        seek(stepSeekSeconds(engine.getSeconds(), -1, settings.seekStepBackSeconds, ctxDuration));
         break;
       case 'seekForward':
-        if (engine) seek(stepSeekSeconds(engine.getSeconds(), 1, settings.seekStepForwardSeconds, ctxDuration));
+        seek(stepSeekSeconds(engine.getSeconds(), 1, settings.seekStepForwardSeconds, ctxDuration));
         break;
     }
   }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,

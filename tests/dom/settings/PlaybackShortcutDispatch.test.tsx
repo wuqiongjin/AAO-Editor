@@ -13,6 +13,10 @@ import {
 } from '@/src/settings/ShortcutConfig';
 import { useShortcutDispatch } from '@/src/settings/useShortcutDispatch';
 import {
+  HOLD_REPEAT_DELAY_MS,
+  HOLD_REPEAT_INTERVAL_MS,
+} from '@/src/settings/shortcutHoldRepeat';
+import {
   PLAYBACK_SHORTCUT_IDS,
   SEEK_SHORTCUT_IDS,
   stepAudioVolume,
@@ -190,15 +194,61 @@ describe('issue 251 · 工作台键盘 seek 分发', () => {
       setup();
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       expect(readout('秒')).toBe('6');
-      act(() => { vi.advanceTimersByTime(399); });
+      act(() => { vi.advanceTimersByTime(HOLD_REPEAT_DELAY_MS - 1); });
       expect(readout('秒')).toBe('6');
       act(() => { vi.advanceTimersByTime(1); });
       expect(readout('秒')).toBe('7');
-      act(() => { vi.advanceTimersByTime(250); });
+      act(() => { vi.advanceTimersByTime(HOLD_REPEAT_INTERVAL_MS); });
       expect(readout('秒')).toBe('8');
       fireEvent.keyUp(window, { key: 'ArrowRight' });
-      act(() => { vi.advanceTimersByTime(1000); });
+      act(() => { vi.advanceTimersByTime(HOLD_REPEAT_DELAY_MS + HOLD_REPEAT_INTERVAL_MS * 4); });
       expect(readout('秒')).toBe('8');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('按住后窗口失焦立刻停', () => {
+    vi.useFakeTimers();
+    try {
+      setup();
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(readout('秒')).toBe('6');
+      act(() => { window.dispatchEvent(new Event('blur')); });
+      act(() => { vi.advanceTimersByTime(HOLD_REPEAT_DELAY_MS + HOLD_REPEAT_INTERVAL_MS * 4); });
+      expect(readout('秒')).toBe('6');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('按住后焦点进输入框立刻停', () => {
+    vi.useFakeTimers();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    try {
+      setup();
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(readout('秒')).toBe('6');
+      fireEvent.focusIn(input);
+      act(() => { vi.advanceTimersByTime(HOLD_REPEAT_DELAY_MS + HOLD_REPEAT_INTERVAL_MS * 4); });
+      expect(readout('秒')).toBe('6');
+    } finally {
+      input.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it('按住后切页（active:false）立刻停', () => {
+    vi.useFakeTimers();
+    try {
+      const onPlay = vi.fn();
+      const { rerender } = render(<DispatchHarness onPlay={onPlay} active />);
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(readout('秒')).toBe('6');
+      rerender(<DispatchHarness onPlay={onPlay} active={false} />);
+      act(() => { vi.advanceTimersByTime(HOLD_REPEAT_DELAY_MS + HOLD_REPEAT_INTERVAL_MS * 4); });
+      expect(readout('秒')).toBe('6');
     } finally {
       vi.useRealTimers();
     }
