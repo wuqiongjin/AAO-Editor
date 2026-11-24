@@ -526,7 +526,7 @@ export class GestureSession {
     const hit = findItemAt(e.x, e.y, this.hitDeps()) ?? findBpmLineAt(e.x, e.y, this.hitDeps());
     if (!hit) return this.result();
     return this.result([
-      ...actionOnTargetsOps('delete', w.notes, resolveActionTargets(hit, w.selectedItems)),
+      ...actionOnTargetsOps('delete', w.notes, resolveActionTargets(hit, w.selectedItems, w.notes)),
       { t: 'setSlideBuffer', point: null },
       { t: 'closeBpmEditor' },
     ]);

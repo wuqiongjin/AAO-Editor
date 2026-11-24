@@ -16,7 +16,7 @@ import type { HitTestDeps } from '../../rendering/hitTest/hitTest';
 import { findBpmLineAt, findItemAt } from '../../rendering/hitTest/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
-import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
+import { hitCoveredByWholeNote, sameSelectionItem, selectionCoversHit, type MatrixTool } from './ToolActionMatrix';
 import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../rendering/gutterLabels';
 import { LANE_WIDTH, type GeometryPoint } from '../geometry/ChartGeometry';
 import { PLAYBACK_MARKER_HIT_TOLERANCE_PX } from '../../rendering/playbackMarker';
@@ -242,7 +242,7 @@ export function resolvePressIntent(input: {
     if (input.armedTool === 'curve' && !input.shiftKey) {
         if (input.onMarker) return marquee;
         const hit = findItemAt(input.cx, input.cy, input.deps);
-        if (hit && input.selectedItems.some(it => sameSelectionItem(it, hit))) return marquee;
+        if (hit && selectionCoversHit(hit, input.selectedItems)) return marquee;
         const start = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy);
         return start ? { kind: 'pen', start } : marquee;
     }
@@ -259,9 +259,7 @@ export function resolvePressIntent(input: {
     // 与框选整条滑条（选区为多条 slideNode+slideRegion）的整体平移表现不一致。
     // 故命中项属于选区里某条整条音符时也按组拖处理，source 取整片选区 → planDragMove 的
     // {kind:'whole'} 刚体平移；拖段因此不进捏形分支，与框选态一致。
-    const coveredByWholeNote = hit.kind !== 'note' && input.selectedItems.some(
-        it => it.kind === 'note' && it.noteIndex === hit.noteIndex,
-    );
+    const coveredByWholeNote = hitCoveredByWholeNote(hit, input.selectedItems);
     const inSelection = input.selectedItems.some(it => sameSelectionItem(it, hit));
     const group = coveredByWholeNote || (inSelection && input.selectedItems.length >= 2);
     const source = group ? input.selectedItems : [hit];

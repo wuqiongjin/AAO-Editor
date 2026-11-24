@@ -700,7 +700,7 @@ describe('GestureSession · 右键双模态（issue 158）', () => {
     });
     expect(hit).toBeTruthy();
     expect(r.ops).toEqual([
-      ...actionOnTargetsOps('delete', notes, resolveActionTargets(hit, [])),
+      ...actionOnTargetsOps('delete', notes, resolveActionTargets(hit, [], notes)),
       { t: 'setSlideBuffer', point: null },
       { t: 'closeBpmEditor' },
     ]);

@@ -3,13 +3,14 @@
 // 画布（FinalVirtualCanvas）负责几何→命中/落点/框内条目的换算，本模块只吃换算好的输入、
 // 输出副作用指令（op）序列；一次手势 = 一个 setNotes = 一个可回退快照（§8）。
 // 指针行（点选/加选/框选建选区）不在此表——它只操作选区、语义未变，留在画布选择路径。
-import type { ChartNote, SelectionItem } from '../types';
+import type { ChartNote, SelectionItem, SlideNote } from '../types';
 import {
   applyPlacement, handleSlideToSlideCombination, keyTargetsFromItems,
   batchApplyKeyType, pasteChartNotes,
 } from './NoteReplacementRules';
-import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
+import { deleteSelection, isSlide, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
+import { projectedSlideSpans } from './SlideSegments';
 import { buildPatternPastePayload, type PatternPasteRequest } from '../../patterns/paste';
 import { curveBoxOps, curveToolClickOps, type CurveConfig, type CurveDraft } from './CurveTool';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
@@ -63,6 +64,67 @@ const samePos = (a: SlidePoint, b: SlidePoint) =>
 export const sameSelectionItem = (a: SelectionItem, b: SelectionItem): boolean =>
   a.kind === b.kind && a.noteIndex === b.noteIndex &&
   (a.kind === 'note' ? true : a.connIndex === (b as Exclude<SelectionItem, { kind: 'note' }>).connIndex);
+
+/**
+ * issue 229 / 251：命中的滑条子件是否被选区里一条 `{kind:'note'}` 整条覆盖。
+ * Ctrl+左键选整条滑条时选区是单条 `note`，光标命中却是 `slideNode`/`slideRegion`。
+ */
+export const hitCoveredByWholeNote = (
+  hit: SelectionItem,
+  selectedItems: readonly SelectionItem[],
+): boolean =>
+  hit.kind !== 'note' && selectedItems.some(
+    it => it.kind === 'note' && it.noteIndex === hit.noteIndex,
+  );
+
+/** issue 88 / 251：命中 ∈ 选区，或命中子件被整条 `{kind:'note'}` 覆盖 */
+export const selectionCoversHit = (
+  hit: SelectionItem | null,
+  selectedItems: readonly SelectionItem[],
+): boolean => {
+  if (!hit) return false;
+  return selectedItems.some(it => sameSelectionItem(it, hit)) || hitCoveredByWholeNote(hit, selectedItems);
+};
+
+/**
+ * 把选区里的整条滑条 `{kind:'note'}` 展开成可见结点 + 逻辑段
+ * （与 `computeItemsInBox` 整框该条的条目同构）。框选产物本身已是子件，原样穿过。
+ * `keyTargetsFromItems` 会跳过整条滑条，不展开则键型空操作。
+ */
+export function expandWholeSlideItems(
+  notes: readonly ChartNote[],
+  items: readonly SelectionItem[],
+): SelectionItem[] {
+  const out: SelectionItem[] = [];
+  const expanded = new Set<number>();
+  for (const it of items) {
+    if (it.kind === 'note') {
+      const n = notes[it.noteIndex];
+      if (n && isSlide(n)) {
+        if (!expanded.has(it.noteIndex)) {
+          expanded.add(it.noteIndex);
+          out.push(...slidePartsAsBoxItems(n, it.noteIndex));
+        }
+        continue;
+      }
+    }
+    out.push(it);
+  }
+  return out;
+}
+
+/** 与 `computeItemsInBox` 整框一条滑条同序：先可见结点、再投影逻辑段。 */
+function slidePartsAsBoxItems(note: SlideNote, noteIndex: number): SelectionItem[] {
+  const nodes: SelectionItem[] = [];
+  note.connections.forEach((conn, ci) => {
+    if (conn.hidden) return;
+    nodes.push({ kind: 'slideNode', noteIndex, connIndex: ci });
+  });
+  const regions = projectedSlideSpans(note.connections).regions.map((sp): SelectionItem => (
+    { kind: 'slideRegion', noteIndex, connIndex: sp.connIndex }
+  ));
+  return [...nodes, ...regions];
+}
 
 /**
  * §2 指针行·单击：音符 = 选中该目标（替换选区；Shift 加选/去选；Ctrl 选整条滑条，
@@ -160,7 +222,7 @@ export interface ClickInput {
   chartEndBeat: number;
   /** 子拍细分（subBeat 的单位分母）；粘贴的末端校验需要它折算真实拍位 */
   beatDisplay: number;
-  /** 当前选区（issue 88）：命中项 ∈ 选区 → 动作作用于整片；否则只作用被点那一个 */
+  /** 当前选区（issue 88 / 251）：命中 ∈ 选区或被子件所属的整条 `{kind:'note'}` 覆盖 → 整片；否则只作用被点那一个 */
   selectedItems: SelectionItem[];
   /** issue 09 S2：曲线草稿与当前配置（curve 行专用；slideBuffer 与 curveDraft 互不干扰） */
   curveDraft?: CurveDraft | null;
@@ -177,21 +239,22 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   // **issue 88 追加例外**：命中项 ∈ 选区时，这一击被选区消费 → 作用于整片，且**不清**选区
   // （清不清交给动作自身：删除清 / 镜像→选区=产物 / 键型保留 / 组合清）。
   const clearSel: MatrixOp = { t: 'setSelection', items: [] };
-  /** issue 88：命中项 ∈ 选区（`sameSelectionItem` 口径，含滑条结点/区域） */
-  const hitInSelection = hit !== null && selectedItems.some(it => sameSelectionItem(it, hit));
+  /** issue 88 / 251：命中 ∈ 选区，或子件被 Ctrl+左键的整条 `{kind:'note'}` 覆盖 */
+  const hitInSelection = selectionCoversHit(hit, selectedItems);
+  const actionItems = hitInSelection ? expandWholeSlideItems(notes, selectedItems) : selectedItems;
   // issue 56 Q14=A：点击**已有** BPM 线 = 无效果（BPM 的通路 = 完整框选 / 右键删除 / 沟槽数字就地编辑）。
   // 例外（issue 59 定案）：**删除** = 删除该线；**音符代码** = 打开该 BPM 的代码（走下方 noteCode 行，同结果）。
   // 作用域只到**非放置类**工具：键型 / Slide / 粘贴是栅格位放置，BPM 线不拦放置
   //（否则 lane 0 上恰好有 BPM 的拍就永远放不下音符）。
   if (hit && hitIsBpm(notes, hit)) {
-    if (tool === 'delete') return actionOnTargetsOps('delete', notes, resolveActionTargets(hit, selectedItems));
+    if (tool === 'delete') return actionOnTargetsOps('delete', notes, resolveActionTargets(hit, selectedItems, notes));
     if (tool === 'bpm' || tool === 'mirror') return [clearSel];
   }
   if (isKeyTool(tool)) {
     // issue 88：命中 ∈ 选区 → **与「先切键型工具、再框选」完全同源** —— 直接复用框选矩阵的键型行
     //（`batchApplyKeyType` → ADR-0001 替换规则，含滑条结点拆条 / 端点标记覆盖 / 方向键 length+1 到 3 回 1；
     // 选区按结果 remap 保留）。空 op = 无事发生（不清选区），同样与框选口径一致。
-    if (hitInSelection) return boxSelectOps(tool, notes, selectedItems);
+    if (hitInSelection) return boxSelectOps(tool, notes, actionItems);
     // 键型放置：音符/空白两列同格 = 栅格位放置（ADR-0001 由 applyPlacement 处置）
     if (!pos) return [clearSel];
     const r = applyPlacement(notes, { beat: pos.beat, lane: pos.lane, subBeat: 0, tool });
@@ -207,7 +270,7 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     // 直接复用框选矩阵 slide 行的同一入口 `combineOps`（§4 组合，**同拍横向合法**，与框选组合一致）。
     // 来源 <2 时 `combineOps` 返回空 → 回落到下面的两击直放（可组合就组合，否则当普通单击）。
     if (hitInSelection) {
-      const ops = combineOps(notes, selectedItems);
+      const ops = combineOps(notes, actionItems);
       if (ops.length > 0) return ops;
     }
     // 非法位置点击 = 取消待连接锚点（issue 57 bug2 语义保留）+ 清选区
@@ -262,7 +325,7 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     // 旧口径只有"落点非法才清"，于是"点轨道内空白"成了双轨 —— 按用户口径，点了画布
     // 注意力就已转移，与动作是否生效、落点是否合法都无关。
     if (!hit) return [clearSel];
-    if (hitInSelection) return boxSelectOps(tool, notes, selectedItems);
+    if (hitInSelection) return boxSelectOps(tool, notes, actionItems);
     return actionOnTargetsOps(tool, notes, [hit]);
   }
   return [];
@@ -328,8 +391,10 @@ export function boxSelectOps(
  * 是否额外清理悬垂 UI 态（Slide 锚点 / BPM 就地编辑框）——那是 UI 态，不进矩阵。
  */
 /**
- * issue 88：单击的**目标集合** —— 该工具的"待作用对象"。
- * 命中项 ∈ 当前选区 → 作用于**整片选区**（用户 2026-09-11 拍板）；否则只作用于被点那一个（issue 83 现状）。
+ * issue 88 / 251：单击的**目标集合** —— 该工具的"待作用对象"。
+ * 命中项 ∈ 当前选区（含被整条 `{kind:'note'}` 覆盖的子件）→ 作用于**整片选区**；
+ * 否则只作用于被点那一个（issue 83 现状）。`notes` 用于把整条滑条展开成结点+段
+ * （`keyTargetsFromItems` 会跳过 `{kind:'note'}` 滑条）。
  *
  * 这是 §2 原则 6「非指针态单击 = 清选区」的**新例外**：这一击被选区消费 → 不清，
  * 清不清由动作自身决定（删除清 / 镜像→ 选区 = 镜像产物 / 键型保留 / 组合清）。
@@ -337,9 +402,11 @@ export function boxSelectOps(
 export function resolveActionTargets(
   hit: SelectionItem | null,
   selectedItems: readonly SelectionItem[],
+  notes: readonly ChartNote[],
 ): SelectionItem[] {
   if (!hit) return [];
-  return selectedItems.some(it => sameSelectionItem(it, hit)) ? [...selectedItems] : [hit];
+  if (!selectionCoversHit(hit, selectedItems)) return [hit];
+  return expandWholeSlideItems(notes, selectedItems);
 }
 
 /** 动作族作用于一组目标条目（删除 → 清选区；镜像 → 选区 = 镜像产物） */

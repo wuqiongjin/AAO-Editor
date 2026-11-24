@@ -281,9 +281,10 @@ describe('§2 delete/mirror 单击', () => {
 // 这是 §2 原则 6「非指针态单击 = 清选区」的新例外：这一击被选区消费 → 不清（清不清由动作自身决定）。
 describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
   it('resolveActionTargets：命中 ∈ 选区取整片；否则只取命中；无命中取空', () => {
-    expect(resolveActionTargets(noteSel(1)[0], noteSel(0, 1, 2))).toEqual(noteSel(0, 1, 2));
-    expect(resolveActionTargets(noteSel(2)[0], noteSel(0, 1))).toEqual(noteSel(2));
-    expect(resolveActionTargets(null, noteSel(0))).toEqual([]);
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(resolveActionTargets(noteSel(1)[0], noteSel(0, 1, 2), notes)).toEqual(noteSel(0, 1, 2));
+    expect(resolveActionTargets(noteSel(2)[0], noteSel(0, 1), notes)).toEqual(noteSel(2));
+    expect(resolveActionTargets(null, noteSel(0), notes)).toEqual([]);
   });
 
   it('delete：命中 ∈ 选区 → 整片删除 + 清选区', () => {
@@ -314,7 +315,7 @@ describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
   it('右键删除（画布侧同源调用）：命中 ∈ 选区 → 整片删除', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
     const hit: SelectionItem = { kind: 'note', noteIndex: 1 };
-    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hit, noteSel(0, 1))))
+    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hit, noteSel(0, 1), notes)))
       .toEqual([
         { t: 'setNotes', notes: [single(3, 3)] },
         { t: 'setSelection', items: [] },
@@ -407,6 +408,136 @@ describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
       pos: sp(4, 3), clipboard: [single(0, 0)],
     }));
     expect((ops[0] as { notes: ChartNote[] }).notes).toHaveLength(2);
+  });
+});
+
+// ══════════════════ issue 251：Ctrl+左键整条选中后再点端点 = 框选整条后再点端点 ══════════════════
+// 229 只补了拖动；单击路径的 issue 88 仍用 sameSelectionItem，{kind:'note'} 盖不住 slideNode。
+const boxWholeSlide = (noteIndex: number, visibleNodes: number): SelectionItem[] => [
+  ...Array.from({ length: visibleNodes }, (_, i): SelectionItem => (
+    { kind: 'slideNode', noteIndex, connIndex: i }
+  )),
+  ...Array.from({ length: Math.max(0, visibleNodes - 1) }, (_, i): SelectionItem => (
+    { kind: 'slideRegion', noteIndex, connIndex: i }
+  )),
+];
+
+describe('issue 251 Ctrl+左键整条选中后再点端点 → 整片执行', () => {
+  const notes: ChartNote[] = [slide(2, 1, 4, 4)];
+  const hitStart: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 0 };
+  const hitEnd: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 1 };
+  const boxSel = boxWholeSlide(0, 2);
+  const ctrlSel = noteSel(0);
+  const posStart = sp(2, 1);
+
+  it.each(['skill', 'flick', 'delete', 'mirror'] as MatrixTool[])(
+    '%s：框选整条后再点端点 ≡ Ctrl+左键后再点同一端点',
+    (tool) => {
+      const viaBox = clickOps(input({ tool, notes, hit: hitStart, selectedItems: boxSel, pos: posStart }));
+      const viaCtrl = clickOps(input({ tool, notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+      expect(viaCtrl, `${tool}：Ctrl+左键路径必须与框选同源`).toEqual(viaBox);
+      expect(viaCtrl.length, `${tool}：应真的产出 op`).toBeGreaterThan(0);
+    },
+  );
+
+  it('skill：两端点都改 skill（修前只改被点的那一端；只补 membership 不展开则空操作）', () => {
+    const ops = clickOps(input({ tool: 'skill', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+    const out = (ops[0] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections[0]?.skill).toBe(true);
+    expect(out.connections[1]?.skill).toBe(true);
+  });
+
+  it('flick：点起点仍只给尾端点加 flick（头端点不携带 flick）', () => {
+    const ops = clickOps(input({ tool: 'flick', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+    const out = (ops[0] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections[0]?.flick).toBeUndefined();
+    expect(out.connections[1]?.flick).toBe(true);
+  });
+
+  it('delete：整条滑条消失（修前只拆掉被点的那一端）', () => {
+    const ops = clickOps(input({ tool: 'delete', notes, hit: hitEnd, selectedItems: ctrlSel, pos: sp(4, 4) }));
+    expect((ops[0] as { notes: ChartNote[] }).notes).toEqual([]);
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
+  });
+
+  it('mirror：两端 lane 都翻（1→5、4→2）', () => {
+    const ops = clickOps(input({ tool: 'mirror', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+    const out = (ops[1] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections.map(c => c.lane)).toEqual([5, 2]);
+  });
+
+  it('curve：刷整条每一段，与框选后再点端点同源', () => {
+    const viaBox = clickOps(input({
+      tool: 'curve', notes, hit: hitStart, selectedItems: boxSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    const viaCtrl = clickOps(input({
+      tool: 'curve', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    expect(viaCtrl).toEqual(viaBox);
+    expect(viaCtrl.some(o => o.t === 'setNotes')).toBe(true);
+  });
+
+  it('右键点删：命中被 {kind:note} 覆盖 → 整条删除', () => {
+    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hitStart, ctrlSel, notes)))
+      .toEqual([
+        { t: 'setNotes', notes: [] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('守卫：未整条选中、只选该端点 → 仍只改那一端', () => {
+    const onlyStart: SelectionItem[] = [hitStart];
+    const ops = clickOps(input({ tool: 'skill', notes, hit: hitStart, selectedItems: onlyStart, pos: posStart }));
+    const out = (ops[0] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections[0]?.skill).toBe(true);
+    expect(out.connections[1]?.skill).toBeUndefined();
+  });
+
+  it('守卫：单键 {kind:note} 不被整条规则误伤（点自己仍换型）', () => {
+    const singles: ChartNote[] = [single(1, 1), single(2, 2)];
+    const ops = clickOps(input({
+      tool: 'flick', notes: singles, hit: noteSel(0)[0], selectedItems: noteSel(0), pos: sp(1, 1),
+    }));
+    expect((ops[0] as { notes: ChartNote[] }).notes[0]).toMatchObject({ type: 'Single', flick: true });
+    expect((ops[0] as { notes: ChartNote[] }).notes[1]).toEqual(singles[1]);
+  });
+
+  it('curve：点段与点端点一样刷整条（Ctrl+左键 ≡ 框选）', () => {
+    const hitRegion: SelectionItem = { kind: 'slideRegion', noteIndex: 0, connIndex: 0 };
+    const viaBox = clickOps(input({
+      tool: 'curve', notes, hit: hitRegion, selectedItems: boxSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    const viaCtrl = clickOps(input({
+      tool: 'curve', notes, hit: hitRegion, selectedItems: ctrlSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    expect(viaCtrl).toEqual(viaBox);
+    expect(viaCtrl.some(o => o.t === 'setNotes')).toBe(true);
+  });
+
+  it('mirror：含 hidden 的段经逻辑段一起翻（可见 1→5、4→2；hidden 0→6）', () => {
+    const curved: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 2, lane: 1 },
+        { beat: 3, lane: 0, hidden: true },
+        { beat: 4, lane: 4 },
+      ],
+    }];
+    const boxSelHidden: SelectionItem[] = [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+      { kind: 'slideNode', noteIndex: 0, connIndex: 2 },
+      { kind: 'slideRegion', noteIndex: 0, connIndex: 0 },
+    ];
+    const hit: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 0 };
+    const viaBox = clickOps(input({ tool: 'mirror', notes: curved, hit, selectedItems: boxSelHidden, pos: posStart }));
+    const viaCtrl = clickOps(input({ tool: 'mirror', notes: curved, hit, selectedItems: noteSel(0), pos: posStart }));
+    expect(viaCtrl).toEqual(viaBox);
+    const out = (viaCtrl[1] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections.map(c => c.lane)).toEqual([5, 6, 2]);
   });
 });
 
