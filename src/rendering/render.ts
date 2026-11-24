@@ -48,6 +48,11 @@ export {
   NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
 };
 
+/** 音符精灵缩放：视口 scale × 节奏图示大小。实绘与幽灵必须同口径（ADR-0002 §4 / issue 251）。 */
+function noteSpriteScale(rc: Pick<RenderCtx, 'viewport' | 'display'>): number {
+  return rc.viewport.scale * (rc.display?.noteSize ?? 1);
+}
+
 /** 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）。一次构建 Set/Map，密集音符下避免每音符 O(选择数) 扫描 */
 interface SelectionSets {
   notes: Set<number>;
@@ -873,7 +878,8 @@ function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: S
     ...icon,
     canvasX: cx, canvasY: cy,
     canvasSize: size, canvasWidth: w, canvasHeight: h,
-    scale: rc.viewport.scale,
+    // issue 251：与实绘同口径（viewport.scale × noteSize）；此前只乘视口 scale，节奏图示大小对幽灵图标无效
+    scale: noteSpriteScale(rc),
   });
 }
 
@@ -1200,13 +1206,13 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
         canvasX: cpt.x, canvasY: cpt.y,
         drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
         drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
-      }, icons.flickTopDecorator, rc.viewport.scale);
+      }, icons.flickTopDecorator, noteSpriteScale(rc));
     }
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）；侧别交给 dirSideOf（镜像会互换）
     const len = note.length;
-    renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale, rc.viewport.scale);
+    renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, noteSpriteScale(rc), rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }
