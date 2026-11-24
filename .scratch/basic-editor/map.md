@@ -246,6 +246,7 @@
 - **251 键盘 seek 前进 / 后退**（[251](./issues/251-键盘seek前进后退.md)，`Type: grilling`，resolved / 2026-11-25 页面验收通过；tmp.diff 原编号 235，与曲线模板 235 撞号后顺延）—— **定了什么** = 新增 `seekBack` / `seekForward`（出厂 ← / →），工作台与动态预览都能用；只动播放时钟、合同跟现有拖条一致。按住自管节拍（keydown 立刻一跳，约 300ms 后每 50ms；2026-11-25 从 400/250 收紧），频率不开放。**后退步长 / 前进步长** 两套独立秒数、默认都是 1、范围 0.1–10；快捷键页两行齿轮开同一弹窗两格，与快捷键重置解耦。不做滚轮 seek、不挪播放条、不进设置页 / 显示面板 / 播放条。修订 ADR-0002「seek 不配键」。痛点来自动态预览摸条路程，解在快捷键系统。
 - **252 画布幽灵预览不跟随节奏图示大小**（[252](./issues/252-画布幽灵预览不跟随节奏图示大小.md)，`Type: bug`，resolved / 2026-11-24，待页面验收）—— 幽灵图标改走 `noteSpriteScale`（`viewport.scale × noteSize`），与实绘同口径；滑条段原本已跟随。
 - **253 第 0 拍 BPM 就地编辑画面移动**（[253](./issues/253-第0拍BPM就地编辑画面移动.md)，`Type: bug`，resolved / 2026-11-24，待页面验收）—— `focus({ preventScroll: true })` + 输入盒纵向钳进画布，避免 sticky 画布的滚动宿主被焦点带动。
+- **254 Ctrl+左键整条选中后再点端点编辑只生效该端点**（[254](./issues/254-整条滑条选中态端点编辑只生效子件.md)，`Type: bug`，resolved / 2026-11-24 已实现）—— **根因** = 229 只补了拖动；issue 88 的 `hitInSelection` 仍用 `sameSelectionItem`，Ctrl+左键 `{kind:'note'}` 与光标 `slideNode`/`slideRegion` 永不相等 ⇒ 退化单改端点。**改成什么** = 点端点编辑与框选整条后再点该端点同源（整片生效）；选区结构不动；键型须把 `{kind:'note'}` 展开成结点+逻辑段，否则 `keyTargetsFromItems` 会空操作。
 
 
 ## Not yet specified

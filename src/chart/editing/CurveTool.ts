@@ -18,7 +18,8 @@ import {
 import {
   clickOps,
   combineOps,
-  sameSelectionItem,
+  expandWholeSlideItems,
+  selectionCoversHit,
   type ExecInput,
   type MatrixOp,
   type SlidePoint,
@@ -417,11 +418,12 @@ export function curveToolClickOps(
   clearSel: MatrixOp,
 ): MatrixOp[] {
   const { notes, hit, pos, selectedItems, beatDisplay } = input;
-  const hitInSelection = hit !== null && selectedItems.some(it => sameSelectionItem(it, hit));
+  const hitInSelection = selectionCoversHit(hit, selectedItems);
   if (hitInSelection) {
+    const actionItems = expandWholeSlideItems(notes, selectedItems);
     const ops = input.curveConfig
-      ? curveBoxOps(notes, selectedItems, input.curveConfig, beatDisplay)
-      : combineOps(notes, selectedItems);
+      ? curveBoxOps(notes, actionItems, input.curveConfig, beatDisplay)
+      : combineOps(notes, actionItems);
     if (ops.length > 0) return ops;
   }
   if (hit && hit.kind === 'slideRegion' && input.curveConfig) {
