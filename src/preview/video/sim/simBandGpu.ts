@@ -184,12 +184,19 @@ function drawGlBands(
   const h = Math.max(1, Math.round(metrics.h * sy));
   const { canvas, gl } = scratch;
   if (gl.isContextLost()) throw new Error('Band WebGL context lost');
-  if (scratch.width !== w || scratch.height !== h) {
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-    if (gl.drawingBufferWidth !== w || gl.drawingBufferHeight !== h) {
+  // 票 87：绘制缓冲只涨不缩，退出全屏只改 viewport，避免把 GPU 资源拆掉重建。
+  const needBuffer = canvas.width < w || canvas.height < h;
+  const needView = scratch.width !== w || scratch.height !== h;
+  if (needBuffer) {
+    const nextW = Math.max(canvas.width, w);
+    const nextH = Math.max(canvas.height, h);
+    if (canvas.width !== nextW) canvas.width = nextW;
+    if (canvas.height !== nextH) canvas.height = nextH;
+    if (gl.drawingBufferWidth < w || gl.drawingBufferHeight < h) {
       throw new Error('Unable to resize band drawing buffer');
     }
+  }
+  if (needView) {
     scratch.width = w;
     scratch.height = h;
     gl.viewport(0, 0, w, h);

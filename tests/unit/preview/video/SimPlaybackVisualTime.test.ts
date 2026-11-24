@@ -43,6 +43,7 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
   vi.stubGlobal('cancelAnimationFrame', () => { callback = null; });
   vi.mocked(drawSimFrameAt).mockClear();
+  vi.mocked(prepareSimFieldBitmap).mockReset();
 });
 afterEach(() => { playback?.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -237,5 +238,57 @@ describe('仿真场视觉取时 · 音频主时钟约束', () => {
     expect(pump(1999, 1.99)).toBeLessThanOrEqual(2);
     expect(pump(2010, 2.01)).toBe(2);
     expect(callback).toBeNull();
+  });
+});
+
+describe('票 87 · 场地尺寸变化不挡播放', () => {
+  it('放大场地当帧不烘底图、不改 backing store；让出主线程后再换；缩回复用缓存且画布只涨不缩', async () => {
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ setTransform() {} }),
+    };
+    const images = Array.from({ length: 2 }, () => ({ close: vi.fn() }));
+    vi.mocked(prepareSimFieldBitmap)
+      .mockReturnValueOnce(images[0] as unknown as ImageBitmap)
+      .mockReturnValueOnce(images[1] as unknown as ImageBitmap);
+
+    playback = createSimPlayback({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      audio: null,
+      keySetId: '',
+      seVolume: 0,
+      duration: 3600,
+      density: 1,
+    });
+    playback.setFrame(frame);
+    expect(vi.mocked(prepareSimFieldBitmap)).toHaveBeenCalledTimes(1);
+    expect(canvas.width).toBe(100);
+    expect(canvas.height).toBe(100);
+
+    playback.setFrame({ ...frame, metrics: { w: 200, h: 180 } });
+    expect(vi.mocked(prepareSimFieldBitmap)).toHaveBeenCalledTimes(1);
+    expect(canvas.width).toBe(100);
+    expect(canvas.height).toBe(100);
+    expect(images[0]!.close).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(prepareSimFieldBitmap)).toHaveBeenCalledTimes(2);
+    }, { timeout: 2000 });
+    await vi.waitFor(() => {
+      expect(canvas.width).toBe(200);
+      expect(canvas.height).toBe(180);
+    }, { timeout: 2000 });
+    expect(images[0]!.close).not.toHaveBeenCalled();
+
+    playback.setFrame(frame);
+    expect(vi.mocked(prepareSimFieldBitmap)).toHaveBeenCalledTimes(2);
+    expect(canvas.width).toBe(200);
+    expect(canvas.height).toBe(180);
+    expect(images[0]!.close).not.toHaveBeenCalled();
+    expect(images[1]!.close).not.toHaveBeenCalled();
+    playback.dispose();
+    expect(images[0]!.close).toHaveBeenCalledOnce();
+    expect(images[1]!.close).toHaveBeenCalledOnce();
   });
 });

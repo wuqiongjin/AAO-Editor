@@ -11,12 +11,14 @@ describe('AppShell · issue 210 非激活页面脱离 Compositor 合成树', () 
     const pageBody = cssRuleBody(css, '.app-page');
     expect(pageBody).toBeDefined();
     expect(pageBody).toMatch(/visibility:\s*hidden/);
+    expect(pageBody).toMatch(/content-visibility:\s*hidden/);
   });
 
   it('.app-page.is-active 激活态恢复 visibility: visible', () => {
     const activeBody = cssRuleBody(css, '.app-page.is-active');
     expect(activeBody).toBeDefined();
     expect(activeBody).toMatch(/visibility:\s*visible/);
+    expect(activeBody).toMatch(/content-visibility:\s*visible/);
   });
 
   it('.app-page 过渡包含 opacity 与 visibility 双属性协同（130ms 淡出后脱离合成树）', () => {

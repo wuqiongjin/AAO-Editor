@@ -48,7 +48,7 @@
   outline-offset: 1px;
 }
 
-/* 浮层面板：半透明毛玻璃 elevated 背景 + 320px 内容宽 */
+/* 浮层面板：elevated 实底 + 320px 内容宽（票 87：播放中不加 backdrop-filter） */
 .wdp__panel {
   width: 320px;
   box-sizing: border-box;
@@ -56,9 +56,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px;
-  background-color: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background-color: var(--bg-elevated);
 }
 
 .wdp__group {

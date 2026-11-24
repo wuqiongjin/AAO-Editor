@@ -26,7 +26,7 @@ export default function PatternLibraryMenu({
   canExport, exportDisabledHint, onExport, onImport,
   selectionMode = false, canSelect = false, onToggleSelectionMode,
 }: PatternLibraryMenuProps) {
-  const { open, pos, triggerRef, hide, toggle } = useAnchoredMenu();
+  const { open, pos, triggerRef, panelRef, hide, toggle } = useAnchoredMenu();
 
   return (
     <>
@@ -44,9 +44,7 @@ export default function PatternLibraryMenu({
       </button>
 
       {open && pos && createPortal(
-        <>
-          <span className="pld-menu__scrim" onClick={hide} />
-          <div className="pld-menu" role="menu" aria-label={t('patternLibrary.libraryActions')} style={pos}>
+          <div ref={panelRef} className="pld-menu" role="menu" aria-label={t('patternLibrary.libraryActions')} style={pos}>
             {onToggleSelectionMode && (
               <button
                 type="button"
@@ -79,8 +77,7 @@ export default function PatternLibraryMenu({
               <FileUp size={13} aria-hidden />
               {t('patternLibrary.importLibrary')}
             </button>
-          </div>
-        </>,
+          </div>,
         document.body,
       )}
     </>

@@ -17,7 +17,7 @@ export default function PatternCardMenu({ isPinned, onTogglePin, onExport, onDel
   onExport: () => void;
   onDelete: () => void;
 }) {
-  const { open, pos, triggerRef, hide, toggle } = useAnchoredMenu();
+  const { open, pos, triggerRef, panelRef, hide, toggle } = useAnchoredMenu();
 
   return (
     <>
@@ -35,9 +35,7 @@ export default function PatternCardMenu({ isPinned, onTogglePin, onExport, onDel
       </button>
 
       {open && pos && createPortal(
-        <>
-          <span className="pld-menu__scrim" onClick={hide} />
-          <div className="pld-menu" role="menu" aria-label={t('patternLibrary.actions')} style={pos}>
+          <div ref={panelRef} className="pld-menu" role="menu" aria-label={t('patternLibrary.actions')} style={pos}>
             <button
               type="button"
               role="menuitem"
@@ -65,8 +63,7 @@ export default function PatternCardMenu({ isPinned, onTogglePin, onExport, onDel
               <Trash2 size={13} aria-hidden />
               {t('patternLibrary.delete')}
             </button>
-          </div>
-        </>,
+          </div>,
         document.body,
       )}
     </>
