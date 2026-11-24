@@ -337,7 +337,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
   if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0 && !hover && !preview) return [];
   // A5：描边随 noteSize 缩放（与音符本体同一 spriteScale），永远贴合外边缘
   const ns = rc.display?.noteSize ?? 1;
-  const s = rc.viewport.scale * ns;
+  const s = noteSpriteScale(rc);
   // issue 74：右键按住（未松手）时，光标下对象的 hover 也要用删除红 ——
   // 右键 = 删除该对象，按住期间就该用与"删除工具"同款的 danger 反馈作预览。
   // 与"删除持工具态"是同一形态的两种触发源，故合并成一个开关。
@@ -578,7 +578,7 @@ function traceOutline(ctx: CanvasRenderingContext2D, o: SelectionOutline, outset
 export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   const outlines = collectSelectionOutlines(c, rc, visibleNotes);
   if (outlines.length === 0) return;
-  const s = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const s = noteSpriteScale(rc);
   const lw = Math.max(1, SELECTION_OUTLINE.lineWidth * s);
   // hover / 危险描边更粗一档（与删除红区分；用户 2026-09-09 反馈）
   const hoverLw = Math.max(lw, SELECTION_OUTLINE.hoverLineWidth * s);
@@ -698,8 +698,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 }
 
 function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  const ns = rc.display?.noteSize ?? 1;
-  const spriteScale = rc.viewport.scale * ns;
+  const spriteScale = noteSpriteScale(rc);
   const icons = rc.noteIcons;
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Slide" || note.type === "Long") {
@@ -793,7 +792,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const ends = visibleEnds(connections);
   if (ends.first < 0) return;
   // issue 39 #1：slide 结点（起止/中间）图标随节奏图示大小缩放；连接带是线条，不随。
-  const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const spriteScale = noteSpriteScale(rc);
   const icons = rc.noteIcons;
 
   connections.forEach((conn, i) => {
@@ -859,7 +858,7 @@ export function renderSlideBuffer(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   const { beat, lane, subBeat } = rc.slideBuffer;
   const { x, y } = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat, subBeat || 0));
   const icon = slideNodeIconConfig(rc, { lane }, true, true);
-  const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const spriteScale = noteSpriteScale(rc);
   rc.spriteIcon.render(ctx, {
     ...icon,
     canvasX: x, canvasY: y,
@@ -1834,8 +1833,7 @@ export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
  * - 在 renderNotes 内调用 → 与音符同一瓦片/同一缩放基准，缩放下线随音符一起缩放（修回归）。
  */
 export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  const ns = rc.display?.noteSize ?? 1;
-  const base = ns * rc.viewport.scale; // 图标基础缩放（canvas px / 设计尺寸）
+  const base = noteSpriteScale(rc); // 图标基础缩放（canvas px / 设计尺寸）
   // 方向滑键连接线端点 = 可见墨迹边缘（issue 40）：精灵框内含横向透明留白，若按精灵框边缘定位，
   // 线头会与可见墨迹之间留空隙。这里用规范化后的 inkLeft/inkRight（源像素缩进）换算成
   // 「墨迹边缘距图标中心」的 canvas px，线头天然贴合真实墨迹边缘；普通音符（含 slide 起止结点）仍用正中心。
