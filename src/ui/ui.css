@@ -1126,3 +1126,97 @@
   from { transform: translateX(-100%); }
   to { transform: translateX(100%); }
 }
+
+/* ---- SegmentedControl（src/ui/SegmentedControl.tsx）----
+   滑块跟选：首帧不过渡（避免从 0 滑进来），之后 transform + width 180ms。
+   `.settings-row > div` 会把直系 div 竖排，`.settings-row > .seg` 必须再扳回横排。 */
+.seg {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  vertical-align: middle;
+}
+
+.seg__thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  border-radius: 6px;
+  background: var(--accent-btn);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent-btn) 28%, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.seg.is-ready .seg__thumb {
+  transition:
+    transform 180ms var(--ease),
+    width 180ms var(--ease);
+}
+
+.seg__opt {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.seg--sm .seg__opt {
+  min-height: 24px;
+  font-size: var(--text-2xs);
+}
+
+.seg--md .seg__opt {
+  min-height: 28px;
+  font-size: var(--text-2xs);
+}
+
+.seg__opt:hover:not(:disabled):not(.is-active) {
+  color: var(--text);
+}
+
+.seg__opt.is-active,
+.seg__opt.is-active:hover {
+  color: var(--accent-btn-text);
+}
+
+.seg__opt:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.seg.is-disabled {
+  opacity: 0.55;
+}
+
+.seg.is-disabled,
+.seg__opt:disabled {
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg.is-ready .seg__thumb {
+    transition: none;
+  }
+}

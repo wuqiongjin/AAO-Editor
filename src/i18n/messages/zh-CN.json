@@ -576,7 +576,7 @@
   "preview.display.liveBg.clear": "从工程删除",
   "preview.display.liveBg.unavailable": "先选择一个工程",
   "preview.display.liveBg.fit": "填充方式",
-  "preview.display.liveBg.fit.cover": "铺满",
+  "preview.display.liveBg.fit.cover": "铺满裁剪",
   "preview.display.liveBg.fit.contain": "完整显示",
   "preview.display.liveBg.sizeError": "图片过大（上限 20MB），请压缩后重试",
   "preview.display.liveBg.typeError": "仅支持 PNG / JPEG / WebP 格式图片",

@@ -548,6 +548,23 @@
   font-weight: 650;
 }
 
+/* 填充方式只出现在背景选择器：标签 + SegmentedControl */
+.pdp__picker-fit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 2px 0;
+  border-top: 1px solid var(--border);
+}
+
+.pdp__fit-caption {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .pdp__pack-grid {
   display: grid;
   gap: 4px;

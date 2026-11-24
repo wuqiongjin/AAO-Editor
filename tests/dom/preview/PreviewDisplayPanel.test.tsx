@@ -576,15 +576,18 @@ describe('票 42 · 自定义表演背景槽位', () => {
 
   it('有图后点格切到自定义；悬停坞更换 / 清除；填充方式只在选中自定义时出现', () => {
     const handlers = setupDynamic({}, filled);
-    expect(within(panel()).getByRole('combobox', { name: '填充方式' })).toHaveValue('contain');
-    fireEvent.change(within(panel()).getByRole('combobox', { name: '填充方式' }), { target: { value: 'cover' } });
-    expect(handlers.onFit).toHaveBeenCalledWith('cover');
+    expect(within(panel()).queryByRole('radiogroup', { name: '填充方式' })).toBeNull();
 
     openBg();
     const cell = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
     expect(cell).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(cell);
     expect(handlers.onSelectCustom).toHaveBeenCalled();
+
+    const fit = within(panel()).getByRole('radiogroup', { name: '填充方式' });
+    expect(within(fit).getByRole('radio', { name: '完整显示' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(fit).getByRole('radio', { name: '铺满裁剪' }));
+    expect(handlers.onFit).toHaveBeenCalledWith('cover');
 
     const replace = within(cell).getByRole('button', { name: '更换图片' });
     const clear = within(cell).getByRole('button', { name: '从工程删除' });
@@ -612,8 +615,10 @@ describe('票 42 · 自定义表演背景槽位', () => {
 
   it('未选中自定义时设置视图没有填充方式', () => {
     setupDynamic({ preview: { bgPackId: 'skin00' } }, { ...filled, useCustom: false });
-    expect(within(panel()).queryByRole('combobox', { name: '填充方式' })).toBeNull();
+    expect(within(panel()).queryByRole('radiogroup', { name: '填充方式' })).toBeNull();
     expect(within(panel()).getByTitle('默认背景')).toBeInTheDocument();
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    expect(within(panel()).queryByRole('radiogroup', { name: '填充方式' })).toBeNull();
   });
 });
 

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Plus, RotateCcw, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
+import SegmentedControl from '../../ui/SegmentedControl';
 import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
@@ -184,6 +185,31 @@ function Select<T extends string | number>({
     >
       {options.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
     </select>
+  );
+}
+
+/** 自定义表演背景的铺满裁剪 / 完整显示：只出现在背景选择器（选中自定义时）。 */
+function LiveBgFitPicker({
+  fit, onFit,
+}: {
+  fit: LiveBgFit;
+  onFit?: (next: LiveBgFit) => void;
+}) {
+  const label = t('preview.display.liveBg.fit');
+  return (
+    <div className="pdp__picker-fit">
+      <div className="pdp__fit-caption" id="pdp-live-fit-label">{label}</div>
+      <SegmentedControl<LiveBgFit>
+        size="sm"
+        labelledBy="pdp-live-fit-label"
+        value={fit}
+        options={[
+          { value: 'cover', label: t('preview.display.liveBg.fit.cover') },
+          { value: 'contain', label: t('preview.display.liveBg.fit.contain') },
+        ]}
+        onChange={(next) => onFit?.(next)}
+      />
+    </div>
   );
 }
 
@@ -955,6 +981,9 @@ export default function PreviewDisplayPanel({
                   liveBgHandlers={liveBgHandlers}
                   onUpload={() => liveBgFileRef.current?.click()}
                 />
+                {picker === 'background' && liveBg?.useCustom && liveBg.hasImage ? (
+                  <LiveBgFitPicker fit={liveBg.fit} onFit={liveBgHandlers?.onFit} />
+                ) : null}
               </div>
             ) : (
               <>
@@ -1121,19 +1150,6 @@ export default function PreviewDisplayPanel({
                         onOpen={() => openPicker('background')}
                         liveBg={liveBg}
                       />
-                      {liveBg?.useCustom && liveBg.hasImage ? (
-                        <Row label={t('preview.display.liveBg.fit')}>
-                          <Select<LiveBgFit>
-                            label={t('preview.display.liveBg.fit')}
-                            value={liveBg.fit}
-                            options={[
-                              { value: 'cover', label: t('preview.display.liveBg.fit.cover') },
-                              { value: 'contain', label: t('preview.display.liveBg.fit.contain') },
-                            ]}
-                            onChange={(fit) => liveBgHandlers?.onFit(fit)}
-                          />
-                        </Row>
-                      ) : null}
                       <SimPackRow
                         kind="field"
                         label={t(PACK_LABEL_KEYS.field.label)}
