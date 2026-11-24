@@ -242,6 +242,7 @@
 - **248 缩小视图滚轮滚动加速**（[248](./issues/248-缩小视图滚轮滚动加速.md)，`Type: feature`，resolved / 2026-11-21 已实现并锁测，待页面验收）—— 缩小时按 `clamp(1/生效缩放, 1, 4)` 放大每格滚轮位移，Ctrl 缩放与 `invertWheel` 语义不变，未缩小仍走原生滚动；用户同批确认「持续缩放加速」不做。
 
 - **249 谱面滚动条与 Playbar 往返拖动卡顿**（[249](./issues/249-谱面滚动条往返拖动卡顿.md)，`Type: bug`，resolved / 2026-11-24 已实现并实测）—— 废弃首轮 Portal 拆层恢复顶层 `<canvas>`，滚动条与 PlayBar 拖拽统一走冷区几何预览 + 合并裁切 + 停稳异步分片补建 + PlayBar rAF 合流，200% `Retribution` 播放无掉帧回退且 300% 滚动条/PlayBar 往返 0 长任务。
+- **250 冷启动与高倍缩放谱面播放掉帧**（[250](./issues/250-冷启动高倍缩放谱面播放掉帧.md)，`Type: chore`，resolved / 2026-11-24 已实现并实测）—— `renderNotesSteps` 把后台瓦片 `putImageData` 贴回切片为 2 ms/步并消除 `renderBandStrip` 冗余拷贝，连续外部缩放与 `Ctrl+滚轮` 共用 `armZoomGesture` 节流并消除 3+ 次续期漏洞；Electron 200% 切工程起播与 3 轮冷启动 0–500 ms 尖峰归零，300% PlayBar 拖动 0 长任务。
 
 ## Not yet specified
 

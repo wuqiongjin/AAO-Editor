@@ -672,21 +672,30 @@ export function isHalfBeatAligned(beat: number, subBeat: number, beatDisplay: nu
  * issue 56 a)：本函数**不画任何选中/hover 描边**——一律由 renderSelectionOverlay 在叠加层绘制，
  * 瓦片与直渲两条路径共用同一实现（issue 35 F1：选择变化 0 瓦片重建）。
  */
-export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  // issue 39 #1：节奏图示大小（音符占轨道比例，默认 1）。乘进视图 scale → 图标本体与
-  // 组合挂件（方向滑键的装饰器 offset 同乘 scale）整体等比缩放，相对间距不变（修回归）。
-  const ns = rc.display?.noteSize ?? 1;
-  const spriteScale = rc.viewport.scale * ns;
-  // 音符皮肤图标集（issue 29）：按 settings.visual.noteSkin 解析的 per-lane 官方精灵
-  const icons = rc.noteIcons;
+function renderPreNoteLayers(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   // 同时点击线（issue 39 #3）：画在音符层内、音符主体之前 → 与音符同一瓦片/同一缩放基准，
   // 缩放下线随音符一起比例缩放（修回归）；slide 起止端点也参与双押线。
   if (rc.display?.simultaneousClickLines) {
     renderSimultaneousClickLines(ctx, c, rc, visibleNotes);
   }
+}
+
+function isDrawableSlide(note: ChartNote): note is SlideNote {
+  return (note.type === 'Slide' || note.type === 'Long') && visibleEnds(note.connections).first >= 0;
+}
+
+export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  renderPreNoteLayers(ctx, c, rc, visibleNotes);
   // issue 160：滑条两轮 — 先全谱段（后放置者在上），再全谱可见结点 + flick 挂件。
   // 不再一条 renderSlideBody 原子画完，否则后放滑条的段会盖住先放端点。
   renderNoteBands(ctx, c, rc, visibleNotes);
+  renderNotesBody(ctx, c, rc, visibleNotes);
+}
+
+function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const ns = rc.display?.noteSize ?? 1;
+  const spriteScale = rc.viewport.scale * ns;
+  const icons = rc.noteIcons;
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Slide" || note.type === "Long") {
       renderSlideBody(ctx, c, rc, note);
@@ -748,11 +757,27 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 
 /** 与 renderNotes 同一带体遍历；瓦片预取先收集光栅输入，完成后按原顺序绘制。 */
 export function renderNoteBands(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const slideAlpha = rc.display?.slideOpacity ?? 1;
   visibleNotes.forEach(({ note }) => {
-    if (note.type !== 'Slide' && note.type !== 'Long') return;
-    if (visibleEnds(note.connections).first < 0) return;
-    renderSpanBands(ctx, c, rc, note.connections, rc.display?.slideOpacity ?? 1);
+    if (isDrawableSlide(note)) renderSpanBands(ctx, c, rc, note.connections, slideAlpha);
   });
+}
+
+/** 分步版 `renderNotes`：每画完一条滑条连接带让出一次，供后台瓦片光栅按帧预算切片执行。 */
+export function* renderNotesSteps(
+  ctx: CanvasRenderingContext2D,
+  c: Coords,
+  rc: RenderCtx,
+  visibleNotes: { note: ChartNote; index: number }[],
+): Generator<void, void> {
+  renderPreNoteLayers(ctx, c, rc, visibleNotes);
+  const slideAlpha = rc.display?.slideOpacity ?? 1;
+  for (const { note } of visibleNotes) {
+    if (!isDrawableSlide(note)) continue;
+    renderSpanBands(ctx, c, rc, note.connections, slideAlpha);
+    yield;
+  }
+  renderNotesBody(ctx, c, rc, visibleNotes);
 }
 
 /** 渲染一条滑条/长条的可见结点 + flick 挂件（段由 renderNotes 全谱先画，issue 160） */
@@ -1119,9 +1144,13 @@ export function renderBandStrip(
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");
   if (!octx) return false;
-  octx.clearRect(0, 0, raster.bw, raster.bh);
-  const img = octx.createImageData(raster.bw, raster.bh);
-  img.data.set(raster.data);
+  const clamped = raster.data;
+  const img = typeof ImageData === "function" &&
+    clamped.buffer instanceof ArrayBuffer &&
+    clamped.byteOffset === 0 &&
+    clamped.byteLength === raster.bw * raster.bh * 4
+    ? new ImageData(clamped as Uint8ClampedArray<ArrayBuffer>, raster.bw, raster.bh)
+    : (() => { const d = octx.createImageData(raster.bw, raster.bh); d.data.set(clamped); return d; })();
   octx.putImageData(img, 0, 0);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0); // 贴回按设备像素 1:1，横截面已在正确分辨率烘焙

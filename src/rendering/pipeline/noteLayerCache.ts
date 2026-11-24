@@ -20,7 +20,7 @@
 //
 // 候选 3（缓存有主）：本缓存是**实例**（`createNoteLayerCache`），不再是模块级可变单例 ——
 // 工作台画布与离屏导出 / 未来预览各持一份，互不顶掉（见 `../RenderTarget`）。
-import { renderNoteBands, renderNotes, renderSelectionOverlay } from '../render';
+import { renderNoteBands, renderNotes, renderNotesSteps, renderSelectionOverlay } from '../render';
 import { makeCoords } from '../coords';
 import { bufferSizeFor } from '../rasterScale';
 import type { RenderCtx } from '../types';
@@ -558,13 +558,25 @@ export function createNoteLayerCache(options: {
       notifyScrollTileReady(id);
       return;
     }
+    const budgetMs = Math.min(2, frameInterval * 0.25);
     void rasterizeBands(inputs, {
-      budgetMs: Math.min(2, frameInterval * 0.25),
+      budgetMs,
       isCancelled: () => job.cancelled,
-    }).then(rasters => {
+    }).then(async rasters => {
       if (job.cancelled || !rasters) return;
       let next = 0;
-      prepared.draw(() => rasters[next++] ?? null);
+      const drawJob = prepared.drawSteps(() => rasters[next++] ?? null);
+      let deadline = performance.now() + budgetMs;
+      for (;;) {
+        if (job.cancelled) return;
+        const step = drawJob.next();
+        if (step.done) break;
+        if (performance.now() >= deadline) {
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+          deadline = performance.now() + budgetMs;
+        }
+      }
+      if (job.cancelled) return;
       commitTile(id, prepared.tile);
     }).catch(error => {
       console.error('Failed to prepare chart tile', error);
@@ -735,6 +747,7 @@ export function createNoteLayerCache(options: {
     tile: Tile;
     collect: () => BandRasterInput[];
     draw: (rasterizeBand?: RenderCtx['rasterizeBand']) => void;
+    drawSteps: (rasterizeBand?: RenderCtx['rasterizeBand']) => Generator<void, void>;
   } {
     const p0 = tileId * TILE_PX, p1 = p0 + TILE_PX;
     const cssH = TILE_PX * es;
@@ -746,7 +759,7 @@ export function createNoteLayerCache(options: {
     const vis = rc.geometry.visibleNotes(rc.notes, vp, rc.beatDisplay, bounds);
     if (vis.length === 0) {
       const empty: Tile = { canvas: null, refScale: es, surfaceW: rc.surface.w, bytes: 0, empty: true };
-      return { tile: empty, collect: () => [], draw: () => {} };
+      return { tile: empty, collect: () => [], draw: () => {}, drawSteps: function* () {} };
     }
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
@@ -786,6 +799,7 @@ export function createNoteLayerCache(options: {
         return inputs;
       },
       draw(rasterizeBand) { renderNotes(tctx, c, { ...fakeRc, rasterizeBand }, vis); },
+      drawSteps(rasterizeBand) { return renderNotesSteps(tctx, c, { ...fakeRc, rasterizeBand }, vis); },
     };
   }
 

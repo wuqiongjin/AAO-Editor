@@ -23,4 +23,13 @@ describe('画布缩放 · 生效值回写的守卫', () => {
     expect(wheel, '应存在 Ctrl+滚轮缩放分支').toBeTruthy();
     expect(wheel![0]).toMatch(/Math\.abs\(\s*effNewScale\s*-\s*viewport\.scale\s*\)\s*<\s*1e-9/);
   });
+
+  it('issue 250 · 外部连续缩放与 Ctrl+滚轮共用 armZoomGesture 节流窗口（避免连点胶囊重建风暴）', () => {
+    expect(src).toMatch(/const armZoomGesture = useCallback\(/);
+    const wheel = src.match(/const handleWheel = useCallback\([\s\S]{0,1000}/);
+    expect(wheel?.[0]).toContain('armZoomGesture(');
+    const layoutBlock = src.match(/useLayoutEffect\(\(\)\s*=>\s*\{\s*if\s*\(Math\.abs\(scale\s*-\s*prevScalePropRef\.current\)[\s\S]{0,1000}renderCanvas\(\)/);
+    expect(layoutBlock?.[0]).toContain('armZoomGesture(');
+    expect(layoutBlock?.[0]).not.toMatch(/now\s*>=\s*zoomGestureUntilRef\.current/);
+  });
 });

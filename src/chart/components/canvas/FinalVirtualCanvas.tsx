@@ -259,6 +259,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const [renderTick, setRenderTick] = useState(0);
     const zoomGestureUntilRef = useRef(0);
     const zoomSettleTimerRef = useRef<number | undefined>(undefined);
+    const prevScalePropRef = useRef(scale);
+    const lastScaleChangeAtRef = useRef(-Infinity);
+    const armZoomGesture = useCallback((now: number = performance.now()) => {
+        zoomGestureUntilRef.current = now + 240;
+        if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
+        zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
+    }, []);
     const playbackActiveRef = useRef(false);
     const scrollYRef = useRef(0);
     const renderCanvasRef = useRef<() => void>(() => {});
@@ -786,11 +793,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const sy = off > 0 ? viewport.scrollY + off * (1 / effNewScale - 1 / viewport.scale) : viewport.scrollY;
             setViewport(prev => ({ ...prev, scrollY: sy, scale: effNewScale }));
             // 回写工具栏缩放数字（issue 10 回归修复）：ui.scale 与 viewport.scale 保持同一生效值
+            prevScalePropRef.current = effNewScale;
+            lastScaleChangeAtRef.current = performance.now();
             setScale(effNewScale);
             // 缩放手势窗口（issue 10）：手势中瓦片只按比例 blit；停止 250ms 后 settle 一次高清重渲
-            zoomGestureUntilRef.current = performance.now() + 240;
-            if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
-            zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
+            armZoomGesture(lastScaleChangeAtRef.current);
             return;
         }
 
@@ -978,6 +985,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // （useLayoutEffect 内的 setState 会在 paint 前引发同步重渲染），本次不绘制；重渲染后 renderCanvas
     // 闭包已带正确 scale，再按正确轨道宽原子绘制。保证 surface 变化帧轨道宽即正确、无陈旧帧。
     useLayoutEffect(() => {
+        if (Math.abs(scale - prevScalePropRef.current) > 1e-9) {
+            const now = performance.now();
+            if (now - lastScaleChangeAtRef.current < 300) {
+                armZoomGesture(now);
+            }
+            prevScalePropRef.current = scale;
+            lastScaleChangeAtRef.current = now;
+        }
         const es = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
         if (Math.abs(viewport.scale - es) > 1e-9) {
             setViewport((prev) =>
@@ -986,7 +1001,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             return; // 待重渲染后再绘制
         }
         renderCanvas();
-    }, [renderCanvas, viewport.scale, geometry, scale]);
+    }, [renderCanvas, viewport.scale, geometry, scale, armZoomGesture]);
 
     // 回到工作台强制补一帧（issue 29 用户反馈2）：五页保活挂载（AppShell），离开工作台期间的背景皮肤的
     // 换图/开关/透明度变化不经过任何画布交互路径，可能停在旧帧直到用户滚动。经 ref 取最新 renderCanvas，
