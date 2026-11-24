@@ -105,7 +105,7 @@ interface FinalVirtualCanvasProps {
  */
 export interface FinalVirtualCanvasHandle {
   /** 应用目标 scrollY（画布跟随）：值由 PlaybackScrollModel 计算，画布内部钳制到可滚范围。 */
-  setScrollY: (scrollY: number) => void;
+  setScrollY: (scrollY: number, source?: 'scrollbar' | 'playbar') => void;
   /** issue 101：播放 RAF 启动/停止时同步打标，避免首帧仍走无预算的静止重建。 */
   setPlaybackActive?: (active: boolean) => void;
   /** issue 213：由外部 rAF 循环或测试注入当前屏幕帧间隔（ms），驱动瓦片调度器按 60Hz/120Hz/144Hz 自适应 */
@@ -264,6 +264,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const renderCanvasRef = useRef<() => void>(() => {});
     // 渲染目标（候选 3）：本画布的 surface / dpr / 两层离屏缓存的所有者；surface 或画质变化只 configure，不重建
     const targetRef = useRef<RenderTarget | null>(null);
+    const manualScrollRef = useRef(false);
     useEffect(() => () => { targetRef.current?.noteLayer.reset(); }, []);
     // issue 213：当前物理屏幕帧间隔（默认 16.67ms / 60Hz），由挂载期 rAF 探测与播放循环权威注入
     const frameIntervalRef = useRef<number>(DEFAULT_FRAME_INTERVAL_MS);
@@ -668,7 +669,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const dpr = resolveCanvasDpr(display.imageQuality);
         let target = targetRef.current;
         if (!target || target.canvas !== canvas) {
-            target = createRenderTarget({ canvas, surface: surf, dpr, frameInterval: frameIntervalRef.current });
+            target?.noteLayer.reset();
+            target = createRenderTarget({
+                canvas, surface: surf, dpr, frameInterval: frameIntervalRef.current,
+                onScrollTileReady: () => renderCanvasRef.current(),
+            });
             targetRef.current = target;
         } else {
             target.configure({ surface: surf, dpr, frameInterval: frameIntervalRef.current });
@@ -711,6 +716,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
             playing: isPlayingRef.current || playbackActiveRef.current, // issue 101 / issue 232：播放滚动帧套瓦片重建预算（ref 覆盖 React 首帧竞态）
+            manualScroll: manualScrollRef.current,
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             // issue 51/53 第二轮：轨道颜色主题 + 线形分层开关 + 文字大小系数（进静态层渲染参数）
@@ -719,6 +725,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // 背景皮肤（issue 29 Q4）：进静态层绘制
             background,
         };
+        manualScrollRef.current = false;
         target.renderFrame(view);
     }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, pastePayloadAt, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
@@ -820,10 +827,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
     useImperativeHandle(ref, () => ({
-        setScrollY: (scrollY: number) => {
+        setScrollY: (scrollY: number, source?: 'scrollbar' | 'playbar') => {
             const scaledBounds = getScaledVirtualBounds(viewport.scale);
             const offsetVirtual = offsetVirtualY(judgeLineOffsetY, viewport.scale);
             const newScrollY = Math.max(scaledBounds.minY + offsetVirtual, Math.min(scaledBounds.maxY - surf.h / viewport.scale + offsetVirtual, scrollY));
+            manualScrollRef.current = source === 'scrollbar' || source === 'playbar';
             scrollYRef.current = newScrollY;
             if (playbackActiveRef.current) {
                 // issue 198：播放帧同步通知手势内核实时视口，避免框选起点/落点基于陈旧 React viewport 计算出负数

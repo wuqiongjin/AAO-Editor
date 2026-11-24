@@ -145,7 +145,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onChartDurationChange: setSessionChartDuration,
     judgeLineOffsetRatio,
   });
-  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker: sessionJumpToMarker, stopPlayback, resetToStart } = viewSession;
+  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, setScrubbing, jumpToMarker: sessionJumpToMarker, stopPlayback, resetToStart } = viewSession;
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -717,6 +717,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           onTogglePlay={handleTogglePlay}
           onVolumeChange={handleVolumeChange}
           onSeek={seek}
+          onScrubChange={setScrubbing}
         />
       </div>
 

@@ -948,7 +948,23 @@ export function renderSpanBands(
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
     if (sp.end - sp.start > 1) {
-      renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
+      if (rc.previewSlideBands) {
+        const style = bandStripStyle(band);
+        ctx.save();
+        ctx.globalAlpha = (alpha ?? 1) * style.profile.reduce((sum, value) => sum + value, 0) / style.profile.length;
+        ctx.fillStyle = style.color;
+        for (const run of splitBandAtFolds(pts)) {
+          const polygon = bandPolygonAt(run, half);
+          ctx.beginPath();
+          ctx.moveTo(polygon[0]![0], polygon[0]![1]);
+          for (const [x, y] of polygon.slice(1)) ctx.lineTo(x, y);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      } else {
+        renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
+      }
     } else {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }

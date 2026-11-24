@@ -24,7 +24,8 @@ describe('basic-editor 166 · 首次置底登记回声（RC-2）', () => {
 
   it('置底写 scrollTop 后登记回声（否则它自己引发的 scroll 被当手滚 → 反算出非零秒）', () => {
     expect(initialScrollBody).toMatch(/scrollContainer\.scrollTop\s*=/);
-    expect(initialScrollBody).toContain('registerScrollEcho');
+    expect(initialScrollBody).toContain('onProgrammaticScroll(scrollContainer.scrollTop)');
+    expect(session).toMatch(/onProgrammaticScroll[\s\S]{0,80}registerScrollEcho\(/);
   });
 });
 

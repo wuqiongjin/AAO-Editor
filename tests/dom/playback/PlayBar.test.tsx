@@ -11,8 +11,8 @@
 // 拖拽 seek 在 jsdom 里没有布局：`getBoundingClientRect` 按用例手工钉住，
 // 验证的是「指针位置 → 目标秒」的换算与"抬手后不再跟随"的状态机。
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import PlayBar, { type PlayBarProps } from '@/src/playback/PlayBar';
 import { t } from '@/src/i18n';
 
@@ -45,6 +45,8 @@ const pinTrackBox = (track: HTMLElement) => {
 };
 
 describe('播放条（PlayBar）· 工作台口径', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
   it('播放状态：图标随状态切换；点击走 onTogglePlay；title 带快捷键提示', () => {
     const { props, rerender } = renderBar();
     expect(playBtn().title).toBe(t('play.toggle', { key: 'Space' })); // 快捷键提示来自 shortcutKey
@@ -77,23 +79,40 @@ describe('播放条（PlayBar）· 工作台口径', () => {
     expect(screen.getByText('00:05.456')).toBeTruthy();
   });
 
-  it('拖拽 seek：按下即定位、拖动跟手、抬手后不再跟随', () => {
-    const { props } = renderBar({ duration: 60 });
+  it('拖拽 seek：按下即定位、拖动按帧合流、抬手冲洗待定定位并结束拖拽', () => {
+    vi.useFakeTimers();
+    const onScrubChange = vi.fn();
+    const { props } = renderBar({ duration: 60, onScrubChange });
     const track = seekSlider();
     pinTrackBox(track);
 
     fireEvent.pointerDown(track, { clientX: 200 });
+    expect(onScrubChange).toHaveBeenCalledExactlyOnceWith(true);
     expect(props.onSeek).toHaveBeenLastCalledWith(30); // 正中 = 一半
 
+    // 同一帧内的多次 pointerMove 只合流成一次 onSeek（取最新位置）
+    fireEvent.pointerMove(track, { clientX: 250 });
     fireEvent.pointerMove(track, { clientX: 300 });
+    expect(props.onSeek).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(16); });
+    expect(props.onSeek).toHaveBeenCalledTimes(2);
     expect(props.onSeek).toHaveBeenLastCalledWith(60); // 拖到右缘
 
-    fireEvent.pointerUp(track, { clientX: 300 });
+    // 未等下一帧即松手：先冲洗最新位置，再退出拖拽态
+    fireEvent.pointerMove(track, { clientX: 150 });
+    expect(props.onSeek).toHaveBeenCalledTimes(2);
+    fireEvent.pointerUp(track, { clientX: 150 });
+    expect(props.onSeek).toHaveBeenCalledTimes(3);
+    expect(props.onSeek).toHaveBeenLastCalledWith(15);
+    expect(onScrubChange).toHaveBeenLastCalledWith(false);
+
     fireEvent.pointerMove(track, { clientX: 100 });
-    expect(props.onSeek).toHaveBeenCalledTimes(2); // 抬手后不再跟随
+    act(() => { vi.advanceTimersByTime(16); });
+    expect(props.onSeek).toHaveBeenCalledTimes(3); // 抬手后不再跟随
   });
 
   it('拖拽 seek：越出左右缘就地钳到 [0, duration]', () => {
+    vi.useFakeTimers();
     const { props } = renderBar({ duration: 60 });
     const track = seekSlider();
     pinTrackBox(track);
@@ -101,6 +120,7 @@ describe('播放条（PlayBar）· 工作台口径', () => {
     fireEvent.pointerDown(track, { clientX: -9999 });
     expect(props.onSeek).toHaveBeenLastCalledWith(0);
     fireEvent.pointerMove(track, { clientX: 9999 });
+    act(() => { vi.advanceTimersByTime(16); });
     expect(props.onSeek).toHaveBeenLastCalledWith(60);
   });
 

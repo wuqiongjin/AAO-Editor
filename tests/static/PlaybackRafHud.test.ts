@@ -10,7 +10,7 @@ const rafBody = coord.slice(
   coord.indexOf('const togglePlay'),
 );
 
-const implStart = canvas.lastIndexOf('setScrollY: (scrollY: number) => {');
+const implStart = canvas.lastIndexOf('setScrollY: (scrollY: number');
 const setScrollYBody = canvas.slice(
   implStart,
   canvas.indexOf('setPlaybackActive:', implStart),
