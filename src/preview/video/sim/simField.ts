@@ -596,6 +596,12 @@ function upperBound(sorted: readonly number[], target: number): number {
 
 // ---------------------------------------------------------------- 一帧绘制
 
+function currentCtxScale(ctx: CanvasRenderingContext2D): number {
+  if (typeof ctx.getTransform !== 'function') return 1;
+  const t = ctx.getTransform();
+  return t ? (Math.hypot(t.a, t.b) || 1) : 1;
+}
+
 /**
  * 画出 `seconds` 这一秒的仿真场（**同一份实现**服务实时回放与离线逐帧导出）。
  * `ctx` 需已按目标密度设好 transform：本函数一律用场地 CSS 像素坐标。
@@ -607,6 +613,7 @@ export function drawSimFrameAt(
   layers?: SimFrameLayers,
 ): void {
   const { chart, metrics } = input;
+  const ctxScale = currentCtxScale(ctx);
   // 2026-11-08 验收：默认关 AUTO；分数条 / 生命条只用一枚总开关（缺省全开）
   const autoMode = input.scene.autoMode ?? false;
   const showGameUi = input.scene.showGameUi ?? true;
@@ -621,10 +628,23 @@ export function drawSimFrameAt(
     ctx.save();
     ctx.globalAlpha = noteAlpha;
   }
-  if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds);
-  drawElements(ctx, input, seconds);
+  const prevQuality = ctx.imageSmoothingQuality;
+  const prevEnabled = ctx.imageSmoothingEnabled;
+  if (!prevEnabled) ctx.imageSmoothingEnabled = true;
+  if (prevQuality !== 'high') ctx.imageSmoothingQuality = 'high';
+  try {
+    if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds, ctxScale);
+    drawElements(ctx, input, seconds, ctxScale);
+  } finally {
+    if (prevQuality !== undefined && ctx.imageSmoothingQuality !== prevQuality) {
+      ctx.imageSmoothingQuality = prevQuality;
+    }
+    if (prevEnabled !== undefined && ctx.imageSmoothingEnabled !== prevEnabled) {
+      ctx.imageSmoothingEnabled = prevEnabled;
+    }
+  }
   if (noteAlpha < 1) ctx.restore();
-  drawEffects(ctx, input, seconds);
+  drawEffects(ctx, input, seconds, ctxScale);
   // 顶栏 HUD（71/72）画在判定字 / combo 之前：它是背景上的常驻层，不压字也不压数。
   // 结尾段把舞台按谱面末帧重画一次，那里只要场地，传 `hud: false` 收掉整层；
   // 用户关掉「分数条与生命条显示」时走同一道门。
@@ -1073,12 +1093,16 @@ function drawBands(
  * Bestdori 就是一根（`lane .. lane + width`，两端点轨之间横向拉伸），不是逐 gap 一根；
  * 粗细走 `simDualLineThickness`（约 0.118 系数，修前 0.3 约 2.5 倍粗）。
  */
-function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number, ctxScale = 1): void {
   const { chart, metrics: m, noteIcons, spriteIcon, scene } = input;
   const sprite = noteIcons.simultaneousLine;
   if (!sprite) return;
   const T = chart.approachS;
-  for (const group of chart.simultaneous) {
+  const groups = chart.simultaneous;
+  const lo = timeBound(groups, seconds, true);
+  const hi = timeBound(groups, seconds + T, false);
+  for (let i = lo; i < hi; i++) {
+    const group = groups[i]!;
     const a = visibleApproach(seconds, group.time, T);
     if (a === null) continue;
     if (group.lanes.length < 2) continue;
@@ -1094,21 +1118,22 @@ function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInp
       canvasSize: 0,
       canvasWidth: width,
       canvasHeight: simDualLineThickness(m, a, scene.noteSize),
+      ctxScale,
       // 端点由相邻音符盖住：线画在音符**之前**（照编辑器画布的顺序）
     });
   }
 }
 
 /** 音符层：单键 / 方向键整组 / 滑条可见结点（+ flick 顶部箭头第二层） */
-function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number, ctxScale = 1): void {
   const { chart, metrics: m, scene, noteIcons, spriteIcon } = input;
   const T = chart.approachS;
   const elements = chart.elements;
   // 可见窗口 = Δ = seconds − time ∈ [−T, 0] ⇒ **元素时刻落在 [seconds, seconds + T]**（音符是将来才过线的，
   // chart-preview 18 问题 5：早先写成 [seconds − T, seconds] 取反，结果除"正好压线"外一个音符都不画）。
   // 在**已按 time 升序**的元素表上二分出上下界，别在长谱上每帧扫全表。
-  const lo = elementBound(elements, seconds, true);
-  const hi = elementBound(elements, seconds + T, false);
+  const lo = timeBound(elements, seconds, true);
+  const hi = timeBound(elements, seconds + T, false);
   const dec = noteIcons.flickTopDecorator;
   for (let i = lo; i < hi; i++) {
     const el = chart.elements[i]!;
@@ -1132,6 +1157,7 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
           canvasWidth: body.w,
           canvasHeight: body.h,
           scale: 1,
+          ctxScale,
         });
       }
       const chevron = group.chevron;
@@ -1147,6 +1173,7 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
           canvasWidth: chevron.drawW,
           canvasHeight: chevron.drawH,
           scale,
+          ctxScale,
         });
       }
       continue;
@@ -1163,6 +1190,7 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
       canvasWidth: box.w,
       canvasHeight: box.h,
       scale: 1,
+      ctxScale,
     });
     if (el.flickDecorator && dec) {
       const flickCfg = noteIcons.flickFor(el.lane);
@@ -1171,21 +1199,21 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
         canvasY: pt.y,
         drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
         drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
-      }, dec, scale);
+      }, dec, scale, ctxScale);
     }
   }
 }
 
 /**
- * 元素表上的二分（元素按 `time` 升序，故直接按元素读时刻，不为二分另存一份时刻数组）。
+ * 时刻升序表的二分边界（元素表与同时点击线表均按 `time` 升序）。
  * `inclusive` = 取"首个 ≥ t"（窗口下界）还是"首个 > t"（窗口上界）。
  */
-function elementBound(elements: readonly SimElement[], time: number, inclusive: boolean): number {
+function timeBound(items: readonly { readonly time: number }[], time: number, inclusive: boolean): number {
   let lo = 0;
-  let hi = elements.length;
+  let hi = items.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    const hit = inclusive ? elements[mid]!.time < time : elements[mid]!.time <= time;
+    const hit = inclusive ? items[mid]!.time < time : items[mid]!.time <= time;
     if (hit) lo = mid + 1;
     else hi = mid;
   }
@@ -1208,19 +1236,36 @@ function elementBound(elements: readonly SimElement[], time: number, inclusive: 
  *
  * 滑条结点（`slide`）在 Bestdori 里就是 **tap**（命中样式与配色都照 tap）。
  */
-function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number, ctxScale = 1): void {
   const { chart, metrics: m, assets, scene } = input;
   const elements = chart.elements;
   const sprites = assets.sprites;
   const window = sprites ? SIM_SPRITE_EFFECT_DURATION : SIM_EFFECT_DURATION;
   // 起点 = 寿命窗口的下界；之后按 time 升序扫，遇到还没命中的就收手
-  const lo = elementBound(elements, seconds - window, true);
+  const lo = timeBound(elements, seconds - window, true);
+  const hi = timeBound(elements, seconds, false);
   ctx.save();
-  for (let i = lo; i < chart.elements.length; i++) {
-    const el = chart.elements[i]!;
+  // 票 88：同帧同轨的多次轨道闪按纯白 source-over 传输公式合并，每轨至多画 1 个楔形渐变（原高密帧 ~50 次降为 ≤7 次）。
+  const laneFlashes = new Map<number, number[]>();
+  for (let i = lo; i < hi; i++) {
+    const el = elements[i]!;
     const since = seconds - el.time;
-    if (since < 0) break; // 之后的都还没命中
-    drawLaneFlash(ctx, m, el.lane, since);
+    if (since < SIM_LANE_FLASH_DURATION) {
+      const a = SIM_LANE_FLASH_ALPHA * (1 - since / SIM_LANE_FLASH_DURATION);
+      if (a > 0) {
+        let arr = laneFlashes.get(el.lane);
+        if (!arr) { arr = []; laneFlashes.set(el.lane, arr); }
+        arr.push(a);
+      }
+    }
+  }
+  for (const [lane, alphas] of laneFlashes) {
+    drawMergedLaneFlash(ctx, m, lane, alphas);
+  }
+  for (let i = lo; i < hi; i++) {
+    const el = elements[i]!;
+    const since = seconds - el.time;
+    if (since < 0) break;
     if (sprites) {
       if (since <= SIM_SPRITE_EFFECT_DURATION) {
         drawSpriteEffect(ctx, sprites, m, el, since, scene.noteSize);
@@ -1230,7 +1275,7 @@ function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, second
     }
   }
   ctx.restore();
-  if (sprites) drawHoldEffects(ctx, input, seconds);
+  if (sprites) drawHoldEffects(ctx, input, seconds, ctxScale);
 }
 
 /** 图块 / 生成圆的一次绘制：`center` = 以命中点为中心，`bottom` = 底边贴命中点（照 Bestdori 的 $e / He） */
@@ -1394,7 +1439,7 @@ function drawSpriteEffect(
  * 款式只跟**刚经过的可见结点**走，hidden 采样点不切换；两环不随款式变。
  * 旋转角 = `t · 2π`（两环一个正转一个反转）。
  */
-function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number, ctxScale = 1): void {
   const { chart, metrics: m, scene, assets, noteIcons, spriteIcon } = input;
   const sprites = assets.sprites;
   if (!sprites) return;
@@ -1428,6 +1473,7 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
       canvasWidth: box.w,
       canvasHeight: box.h,
       scale: 1,
+      ctxScale,
     });
     ctx.restore();
 
@@ -1512,12 +1558,12 @@ function drawProceduralEffect(ctx: CanvasRenderingContext2D, m: SimFieldMetrics,
  * 轨道闪（照 Bestdori）：**满高三角楔** —— 底边贴判定线、上端随轨道斜向消失点收成一点，
  * 白 0.5 → 0 的线性渐变，命中后 0.2s 内 α = 1 − p。
  * 局部坐标：原点在画布顶中心，`x' = x + shear·y`（`laneFlashShear` 给出 shear）。
+ *
+ * 票 88：同帧同轨 K 次重叠的纯白渐变在 Porter-Duff source-over 下等价于单次拟合曲线
+ * `A(u) = 1 - Π(1 - u * a_k)`（u ∈ [0, 1] 为自顶向底比例）；K=1 时精确 2 站、K>=2 时 9 站分段线性（8-bit 误差 < 1/255）。
  */
-function drawLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: number, since: number): void {
-  if (since >= SIM_LANE_FLASH_DURATION) return;
-  const p = since / SIM_LANE_FLASH_DURATION;
-  const alpha = 1 - p;
-  if (alpha <= 0) return;
+function drawMergedLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: number, alphas: readonly number[]): void {
+  if (alphas.length === 0) return;
   ctx.save();
   ctx.transform(1, 0, laneFlashShear(m, lane), 1, m.centerX, 0);
   ctx.beginPath();
@@ -1526,8 +1572,20 @@ function drawLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: 
   ctx.lineTo(m.laneWidth, m.laneHeight);
   ctx.closePath();
   const grad = ctx.createLinearGradient(0, m.laneHeight, 0, 0);
-  grad.addColorStop(0, `rgba(255,255,255,${SIM_LANE_FLASH_ALPHA * alpha})`);
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  if (alphas.length === 1) {
+    grad.addColorStop(0, `rgba(255,255,255,${alphas[0]!})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+  } else {
+    const stops = 8;
+    for (let i = 0; i < stops; i++) {
+      const offset = i / stops;
+      const u = 1 - offset;
+      let survive = 1;
+      for (let k = 0; k < alphas.length; k++) survive *= 1 - u * alphas[k]!;
+      grad.addColorStop(offset, `rgba(255,255,255,${1 - survive})`);
+    }
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+  }
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
@@ -1630,6 +1688,7 @@ function drawScoreBox(
   inc: number,
   ages: number[],
   alpha: number,
+  ctxScale: number = 1,
 ): void {
   const { x, y, w, h, ky, band } = scoreGeom(s);
 
@@ -1675,7 +1734,7 @@ function drawScoreBox(
   // 5) 7 位定宽分数（占位字：前导零灰、有效位洋红）
   drawDigits(ctx, x, y, w, h, s, score);
   // 6) `+增量`：窗口内每次命中各一条 `+inc`（不合并）；位移 / 亮度 / 渐隐按 SIM_HUD.plus* 可调
-  drawPlus(ctx, x, w, s, inc, ages, alpha);
+  drawPlus(ctx, x, w, s, inc, ages, alpha, ctxScale);
 }
 
 /** 灰带上的 C / B / A / S / SS + ▽：官方图集没有这套字母 / 刻度，Canvas 自绘 */
@@ -1742,6 +1801,78 @@ function drawDigits(
   ctx.restore();
 }
 
+interface PlusGlyphTile {
+  canvas: HTMLCanvasElement;
+  originX: number;
+  originY: number;
+  cssW: number;
+  cssH: number;
+}
+
+const PLUS_TILE_CACHE_LIMIT = 4;
+const plusTileCache = new Map<string, PlusGlyphTile>();
+
+function putLruEntry<T>(
+  map: Map<string, T>,
+  key: string,
+  value: T,
+  limit: number,
+  dispose: (evicted: T) => void,
+): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > limit) {
+    const oldest = map.keys().next().value;
+    if (oldest == null || oldest === key) break;
+    const evicted = map.get(oldest);
+    map.delete(oldest);
+    if (evicted !== undefined) dispose(evicted);
+  }
+}
+
+function preparePlusTile(inc: number, fontPx: number, lineWidth: number, ctxScale: number): PlusGlyphTile | null {
+  if (typeof document === 'undefined') return null;
+  const scale = Number.isFinite(ctxScale) && ctxScale > 0 ? ctxScale : 1;
+  // fontPx 决定贴片的 CSS 尺寸与字形包围盒，scale 决定物理位图倍率，两者必须分别入键防止跨尺度碰撞。
+  const key = `${inc}|${Math.round(fontPx * 100)}|${Math.round(scale * 1000)}`;
+  const hit = plusTileCache.get(key);
+  if (hit) {
+    plusTileCache.delete(key);
+    plusTileCache.set(key, hit);
+    return hit;
+  }
+  const text = `+${inc}`;
+  const canvas = document.createElement('canvas');
+  const g = canvas.getContext('2d');
+  if (!g || typeof g.strokeText !== 'function' || typeof g.measureText !== 'function') return null;
+  g.font = `800 ${fontPx}px ${HEADER_SANS}`;
+  const metrics = g.measureText(text);
+  const textW = Number.isFinite(metrics?.width) ? metrics.width : fontPx * text.length * 0.65;
+  const padX = Math.ceil(lineWidth + 3);
+  const padY = Math.ceil(fontPx * 0.85 + lineWidth + 3);
+  const cssW = Math.max(2, Math.ceil(textW) + padX * 2);
+  const cssH = Math.max(2, padY * 2);
+  const pw = Math.max(1, Math.round(cssW * scale));
+  const ph = Math.max(1, Math.round(cssH * scale));
+  canvas.width = pw;
+  canvas.height = ph;
+  g.setTransform(pw / cssW, 0, 0, ph / cssH, 0, 0);
+  g.font = `800 ${fontPx}px ${HEADER_SANS}`;
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  g.lineJoin = 'round';
+  g.lineWidth = lineWidth;
+  g.strokeStyle = 'rgba(20,24,32,.5)';
+  g.strokeText(text, padX, padY);
+  g.fillStyle = SIM_HUD.plusColor;
+  g.fillText(text, padX, padY);
+  const tile: PlusGlyphTile = { canvas, originX: padX, originY: padY, cssW, cssH };
+  putLruEntry(plusTileCache, key, tile, PLUS_TILE_CACHE_LIMIT, (evicted) => {
+    evicted.canvas.width = evicted.canvas.height = 1;
+  });
+  return tile;
+}
+
 /**
  * `+增量`（票 72 Q22；2026-11-09 验收回退合并）：窗口内**每次命中各画一条 `+${inc}`**，
  * 不设条数上限、不把多次命中并成一个数字。
@@ -1752,15 +1883,37 @@ function drawDigits(
  */
 function drawPlus(
   ctx: CanvasRenderingContext2D,
-  x: number, w: number, s: number, inc: number, ages: number[], alpha: number,
+  x: number, w: number, s: number, inc: number, ages: number[], alpha: number, ctxScale = 1,
 ): void {
   if (inc <= 0 || ages.length === 0) return;
+  const fontPx = SIM_HUD.plusFont * s;
+  const lineWidth = Math.max(2, fontPx * 0.14);
+  const tile = preparePlusTile(inc, fontPx, lineWidth, ctxScale);
   ctx.save();
-  ctx.font = `800 ${SIM_HUD.plusFont * s}px ${HEADER_SANS}`;
+  if (tile) {
+    for (let i = 0; i < ages.length; i++) {
+      const motion = plusMotionAt(ages[i]!, {
+        dur: SIM_HUD.plusDur,
+        dashFrac: SIM_HUD.plusDashFrac,
+        fadeFrac: SIM_HUD.plusFadeFrac,
+        dx: SIM_HUD.plusDX,
+        driftDX: SIM_HUD.plusDriftDX,
+        baseAlpha: SIM_HUD.plusBaseAlpha,
+      });
+      const px = x + w * (SIM_HUD.plusX + motion.travel + i * SIM_HUD.plusSpreadX);
+      const py = SIM_HUD.plusY * s - (motion.p * SIM_HUD.plusRise + i * SIM_HUD.plusSpreadY) * s;
+      ctx.globalAlpha = motion.alpha * alpha;
+      ctx.drawImage(tile.canvas, px - tile.originX, py - tile.originY, tile.cssW, tile.cssH);
+    }
+    ctx.restore();
+    return;
+  }
+  ctx.font = `800 ${fontPx}px ${HEADER_SANS}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = Math.max(2, SIM_HUD.plusFont * s * 0.14);
+  ctx.lineWidth = lineWidth;
+  const text = `+${inc}`;
   for (let i = 0; i < ages.length; i++) {
     const motion = plusMotionAt(ages[i]!, {
       dur: SIM_HUD.plusDur,
@@ -1773,7 +1926,6 @@ function drawPlus(
     const px = x + w * (SIM_HUD.plusX + motion.travel + i * SIM_HUD.plusSpreadX);
     const py = SIM_HUD.plusY * s - (motion.p * SIM_HUD.plusRise + i * SIM_HUD.plusSpreadY) * s;
     ctx.globalAlpha = motion.alpha * alpha;
-    const text = `+${inc}`;
     ctx.strokeStyle = 'rgba(20,24,32,.5)';
     ctx.strokeText(text, px, py);
     ctx.fillStyle = SIM_HUD.plusColor;
@@ -1857,7 +2009,7 @@ function paintLifeGauge(ctx: CanvasRenderingContext2D, rect: ReturnType<typeof l
 }
 
 /** 生命恒满。用舞台的像素比例和坐标相位准备一次，避免播放中反复裁剪。 */
-const LIFE_GAUGE_CACHE_LIMIT = 4;
+const LIFE_GAUGE_CACHE_LIMIT = 2;
 const lifeGaugeCache = new Map<string, SimLifeGauge>();
 
 export function prepareSimLifeGauge(metrics: SimFieldMetrics, density: number): SimLifeGauge | undefined {
@@ -1887,7 +2039,9 @@ export function prepareSimLifeGauge(metrics: SimFieldMetrics, density: number): 
   while (lifeGaugeCache.size > LIFE_GAUGE_CACHE_LIMIT) {
     const oldest = lifeGaugeCache.keys().next().value;
     if (oldest == null || oldest === key) break;
+    const evicted = lifeGaugeCache.get(oldest);
     lifeGaugeCache.delete(oldest);
+    if (evicted) evicted.canvas.width = evicted.canvas.height = 1;
   }
   return prepared;
 }
@@ -2041,13 +2195,13 @@ function drawTopBar(
   const inc = scoreIncrement(chart.hitTimes.length);
   const ages = plusAgesAt(chart, seconds, SIM_HUD.plusDur);
   if (layerAlpha >= 0.999) {
-    drawTopBarParts(ctx, m, hud, s, flowSeconds, score, inc, ages, 1, lifeGauge, autoMode);
+    drawTopBarParts(ctx, m, hud, s, flowSeconds, score, inc, ages, 1, lifeGauge, autoMode, currentCtxScale(ctx));
     return;
   }
   const layer = topBarLayerAt(ctx, s);
   if (!layer) {
     // 兜底：没有离屏画布可用 ⇒ 仍是旧的逐元件半透明（观感一致，只留接缝白线的老问题）
-    drawTopBarParts(ctx, m, hud, s, flowSeconds, score, inc, ages, layerAlpha, lifeGauge, autoMode);
+    drawTopBarParts(ctx, m, hud, s, flowSeconds, score, inc, ages, layerAlpha, lifeGauge, autoMode, currentCtxScale(ctx));
     return;
   }
   const g = layer.ctx;
@@ -2056,7 +2210,7 @@ function drawTopBar(
   g.globalCompositeOperation = 'source-over';
   g.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
   g.setTransform(layer.sx, 0, 0, layer.sy, -layer.ox, -layer.oy);
-  drawTopBarParts(g, m, hud, s, flowSeconds, score, inc, ages, 1, lifeGauge, autoMode);
+  drawTopBarParts(g, m, hud, s, flowSeconds, score, inc, ages, 1, lifeGauge, autoMode, layer.sx);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = layerAlpha;
@@ -2077,11 +2231,12 @@ function drawTopBarParts(
   alpha: number,
   lifeGauge: SimLifeGauge | undefined,
   autoMode: boolean,
+  ctxScale: number,
 ): void {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textBaseline = 'middle';
-  drawScoreBox(ctx, hud, s, flowSeconds, score, inc, ages, alpha);
+  drawScoreBox(ctx, hud, s, flowSeconds, score, inc, ages, alpha, ctxScale);
   drawLife(ctx, hud, s, lifeGauge);
   drawPause(ctx, hud, s);
   drawAutoLive(ctx, m, hud, autoMode);
@@ -2200,9 +2355,16 @@ interface SimComboShadows {
   ap: ComboShadowTile | null;
 }
 
-// 每张标签源图按尺寸留几档阴影。全屏往返会来回两个 `labelH`，只留最近一档就会次次 miss。
-const COMBO_SHADOW_CACHE_LIMIT = 4;
+// 每张标签源图按尺寸留两档阴影（窗口 + 全屏），既避免往返 miss 也限制 GPU 离屏占用。
+const COMBO_SHADOW_CACHE_LIMIT = 2;
+const COMBO_TILE_CACHE_LIMIT = 24;
 const comboShadowCache = new WeakMap<HTMLImageElement, Map<string, SimComboShadows>>();
+
+function putBoundedTile(map: Map<string, HTMLCanvasElement>, key: string, canvas: HTMLCanvasElement): void {
+  putLruEntry(map, key, canvas, COMBO_TILE_CACHE_LIMIT, (evicted) => {
+    evicted.width = evicted.height = 1;
+  });
+}
 
 function makeComboShadow(
   img: CanvasImageSource, w: number, h: number, blur: number, density: number,
@@ -2285,7 +2447,11 @@ function apTile(
   }
   const pad = Math.max(2, Math.round(th * strokeRatio));
   const hit = map.get(key);
-  if (hit) return { canvas: hit, pad };
+  if (hit) {
+    map.delete(key);
+    map.set(key, hit);
+    return { canvas: hit, pad };
+  }
 
   const white = document.createElement('canvas');
   white.width = tw;
@@ -2315,7 +2481,8 @@ function apTile(
   // 白芯压回中间
   g.globalCompositeOperation = 'source-over';
   g.drawImage(white, pad, pad);
-  map.set(key, out);
+  white.width = white.height = 1;
+  putBoundedTile(map, key, out);
   return { canvas: out, pad };
 }
 
@@ -2342,7 +2509,11 @@ function glowTile(
   }
   const pad = Math.max(4, Math.round(th * 0.42));
   const hit = map.get(key);
-  if (hit) return { canvas: hit, pad };
+  if (hit) {
+    map.delete(key);
+    map.set(key, hit);
+    return { canvas: hit, pad };
+  }
 
   const out = document.createElement('canvas');
   out.width = tw + pad * 2;
@@ -2360,7 +2531,7 @@ function glowTile(
   grad.addColorStop(1, AP_STROKE.bottom);
   g.fillStyle = grad;
   g.fillRect(0, 0, out.width, out.height);
-  map.set(key, out);
+  putBoundedTile(map, key, out);
   return { canvas: out, pad };
 }
 
@@ -2405,7 +2576,10 @@ export function prepareSimComboSprites(
   while (cached.size > COMBO_SHADOW_CACHE_LIMIT) {
     const oldest = cached.keys().next().value;
     if (oldest == null || oldest === key) break;
+    const evicted = cached.get(oldest);
     cached.delete(oldest);
+    if (evicted?.normal) evicted.normal.canvas.width = evicted.normal.canvas.height = 1;
+    if (evicted?.ap) evicted.ap.canvas.width = evicted.ap.canvas.height = 1;
   }
   return shadows;
 }

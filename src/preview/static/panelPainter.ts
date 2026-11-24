@@ -70,6 +70,8 @@ export interface PanelPainter {
     y: number,
     hover?: HoverPos | null,
   ): void;
+  /** 票 88：隐藏或销毁时释放离屏缓存与暂存画布显存，下次 `blitInto` 按需恢复。 */
+  release?(): void;
 }
 
 const EMPTY_NOTES: ChartNote[] = [];
@@ -149,5 +151,11 @@ export function createPanelPainter(params: PanelPainterParams): PanelPainter {
     dest.drawImage(scratch, 0, 0, bufferW, bufferH, x, y, panelW, panelH);
   }
 
-  return { panelW, panelH, es, bufferW, bufferH, blitInto };
+  function release(): void {
+    target.staticLayer.reset();
+    scratch.width = 1;
+    scratch.height = 1;
+  }
+
+  return { panelW, panelH, es, bufferW, bufferH, blitInto, release };
 }

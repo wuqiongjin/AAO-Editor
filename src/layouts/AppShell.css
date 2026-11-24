@@ -322,6 +322,7 @@
   opacity: 0;
   visibility: hidden;
   content-visibility: hidden;
+  contain: size layout style;
   pointer-events: none;
   min-width: 0;
   min-height: 0;

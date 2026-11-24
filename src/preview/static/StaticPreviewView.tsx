@@ -151,7 +151,11 @@ export default function StaticPreviewView({
     setHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     setScrollLeft((prev) => (prev === host.scrollLeft ? prev : host.scrollLeft));
   }, []);
-  useLayoutEffect(() => { if (visible) syncFromHost(); }, [visible, syncFromHost]);
+  useLayoutEffect(() => {
+    if (visible) syncFromHost();
+    else painter.release?.();
+  }, [visible, syncFromHost, painter]);
+  useEffect(() => () => { painter.release?.(); }, [painter]);
   useEffect(() => {
     const host = hostRef.current;
     if (!host || typeof ResizeObserver === 'undefined') return;

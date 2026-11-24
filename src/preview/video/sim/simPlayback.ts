@@ -106,6 +106,8 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   const fieldBitmaps = new Map<string, ImageBitmap>();
   let fieldBakeGen = 0;
   let pendingSizeInput: SimFrameInput | null = null;
+  let shrinkGen = 0;
+  let pendingShrink: { bw: number; bh: number } | null = null;
   const engine = new AudioEngine();
   let frame: SimFrameInput | null = null;
   let rafId: number | null = null;
@@ -213,6 +215,37 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     fieldBakeGen += 1;
   }
 
+  function cancelBackingShrink(): void {
+    pendingShrink = null;
+    shrinkGen += 1;
+  }
+
+  /**
+   * 票 88：退全屏当帧先复用旧尺寸 backing store（保留票 87 退出全屏零同步撕毁），
+   * 让出两帧后再回缩到窗口目标像素 `bw × bh`，消除窗口态长期按全屏分辨率超分渲染与非整数拉伸。
+   */
+  function scheduleBackingShrink(bw: number, bh: number): void {
+    if (pendingShrink && pendingShrink.bw === bw && pendingShrink.bh === bh) return;
+    pendingShrink = { bw, bh };
+    const gen = ++shrinkGen;
+    void (async () => {
+      try {
+        await yieldPlaybackFrame();
+        await yieldPlaybackFrame();
+        if (disposed || gen !== shrinkGen || pendingSizeInput || !frame) return;
+        const curBw = Math.max(1, Math.round(frame.metrics.w * density));
+        const curBh = Math.max(1, Math.round(frame.metrics.h * density));
+        if (curBw !== bw || curBh !== bh) return;
+        if (canvas.width <= curBw && canvas.height <= curBh) return;
+        canvas.width = curBw;
+        canvas.height = curBh;
+        render();
+      } finally {
+        if (gen === shrinkGen) pendingShrink = null;
+      }
+    })();
+  }
+
   function queueSizeBake(input: SimFrameInput): void {
     pendingSizeInput = input;
     const gen = ++fieldBakeGen;
@@ -291,11 +324,17 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     const { metrics } = frame;
     const bw = Math.max(1, Math.round(metrics.w * density));
     const bh = Math.max(1, Math.round(metrics.h * density));
-    // 票 87：backing store 只涨不缩，退出全屏不再把 GPU 缓冲拆掉重建。
-    if (canvas.width < bw) canvas.width = bw;
-    if (canvas.height < bh) canvas.height = bh;
+    if (canvas.width < bw || canvas.height < bh) {
+      cancelBackingShrink();
+      if (canvas.width < bw) canvas.width = bw;
+      if (canvas.height < bh) canvas.height = bh;
+    } else if (!pendingSizeInput && (canvas.width > bw || canvas.height > bh)) {
+      scheduleBackingShrink(bw, bh);
+    } else {
+      cancelBackingShrink();
+    }
     // transform 取「位图实际尺寸 / 场地尺寸」（照静态预览面板的同一口径）：
-    // 精确写 density 会在取整后留下一点永不消失的重采样。画布可能比场地大（只涨不缩），
+    // 精确写 density 会在取整后留下一点永不消失的重采样。过渡帧中画布可能暂时大于场地，
     // 用实际 backing store 铺满，CSS 再把整张图画进舞台。
     ctx.setTransform(canvas.width / metrics.w, 0, 0, canvas.height / metrics.h, 0, 0);
     drawSimFrameAt(ctx, frame, Math.min(duration, engine.getVisualSeconds()), layers);
@@ -401,6 +440,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     dispose(): void {
       disposed = true;
       cancelSizeBake();
+      cancelBackingShrink();
       stopRaf();
       engine.dispose();
       frame = null;

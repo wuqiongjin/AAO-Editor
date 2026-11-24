@@ -52,6 +52,8 @@ export interface CanvasSpriteIconProps {
     canvasWidth?: number;
     canvasHeight?: number;
     scale?: number;
+    /** 票 88：同帧多音符由调用方缓存并传入 CTM 缩放因子，免去每音符调 ctx.getTransform() 分配 DOMMatrix */
+    ctxScale?: number;
     decorators?: SpriteIconConfig[];
     renderLayer?: 'main' | 'decorators' | 'all';
 }
@@ -222,7 +224,7 @@ export default class CanvasSpriteIcon {
 
     private static drawSingle(
         ctx: CanvasRenderingContext2D,
-        cfg: { src: string; x: number; y: number; w: number; h: number; canvasX: number; canvasY: number; canvasW: number; canvasH: number; overallScale?: number; scaleX?: number; scaleY?: number; }
+        cfg: { src: string; x: number; y: number; w: number; h: number; canvasX: number; canvasY: number; canvasW: number; canvasH: number; overallScale?: number; scaleX?: number; scaleY?: number; ctxScale?: number; }
     ) {
         const img = CanvasSpriteIcon.getCachedImage(cfg.src);
         if (!img) {
@@ -241,55 +243,66 @@ export default class CanvasSpriteIcon {
         const dy = cfg.canvasY - dH / 2;
 
         let level = 0;
-        let ctxScale = 1;
+        let ctxScale = cfg.ctxScale ?? 1;
         try {
-            const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
-            ctxScale = t ? (Math.hypot(t.a, t.b) || 1) : 1;
+            if (cfg.ctxScale == null) {
+                const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+                ctxScale = t ? (Math.hypot(t.a, t.b) || 1) : 1;
+            }
             level = mipLevelFor(rect.sw, rect.sh, dW * ctxScale, dH * ctxScale);
         } catch { /* getTransform 不可用等 */ }
 
-        // issue 222（抗畸变根治）：尝试使用带 4px 纯净 Padding 的独立解耦图元位图及专属 Mip 链
-        // 彻底消除整张大图集全局降采样导致的邻近精灵渗色与背景深青色杂色污染（Atlas Bleeding）
-        const decoupled = getDecoupledSprite(img, { x: rect.sx, y: rect.sy, w: rect.sw, h: rect.sh });
-        if (decoupled) {
-            const decoupledLevel = decoupledMipLevelFor(rect.sw, rect.sh, dW * ctxScale, dH * ctxScale);
-            const { source, sx, sy, sw, sh } = getDecoupledDrawSource(decoupled, decoupledLevel);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
+        const prevEnabled = ctx.imageSmoothingEnabled;
+        const prevQuality = ctx.imageSmoothingQuality;
+        if (!prevEnabled) ctx.imageSmoothingEnabled = true;
+        if (prevQuality !== 'high') ctx.imageSmoothingQuality = 'high';
+
+        try {
+            // issue 222（抗畸变根治）：尝试使用带 4px 纯净 Padding 的独立解耦图元位图及专属 Mip 链
+            // 彻底消除整张大图集全局降采样导致的邻近精灵渗色与背景深青色杂色污染（Atlas Bleeding）
+            const decoupled = getDecoupledSprite(img, { x: rect.sx, y: rect.sy, w: rect.sw, h: rect.sh });
+            if (decoupled) {
+                const decoupledLevel = decoupledMipLevelFor(rect.sw, rect.sh, dW * ctxScale, dH * ctxScale);
+                const { source, sx, sy, sw, sh } = getDecoupledDrawSource(decoupled, decoupledLevel);
+                try {
+                    ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dW, dH);
+                } catch (e) {
+                    console.warn('[CanvasSpriteIcon] drawImage decoupled failed', e);
+                }
+                return true;
+            }
+
+            // 无 DOM 或解耦不可用时（node 单元测试环境等）原图直绘兜底
+            let source: CanvasImageSource = img;
             try {
-                ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dW, dH);
+                if (level > 0) {
+                    const mip = CanvasSpriteIcon.getMipLevelSource(img, level);
+                    if (mip) source = mip;
+                }
+            } catch { /* 原图直绘 */ }
+            const mipW = (source as { width: number }).width;
+            const mipH = (source as { height: number }).height;
+            const kx = mipW / img.width;
+            const ky = mipH / img.height;
+            const sxL = Math.max(0, Math.min(mipW, rect.sx * kx));
+            const syL = Math.max(0, Math.min(mipH, rect.sy * ky));
+            const swL = Math.max(1, Math.min(mipW - sxL, rect.sw * kx));
+            const shL = Math.max(1, Math.min(mipH - syL, rect.sh * ky));
+
+            try {
+                ctx.drawImage(source, sxL, syL, swL, shL, dx, dy, dW, dH);
             } catch (e) {
-                console.warn('[CanvasSpriteIcon] drawImage decoupled failed', e);
+                console.warn('[CanvasSpriteIcon] drawImage failed', e);
             }
             return true;
-        }
-
-        // 无 DOM 或解耦不可用时（node 单元测试环境等）原图直绘兜底
-        let source: CanvasImageSource = img;
-        try {
-            if (level > 0) {
-                const mip = CanvasSpriteIcon.getMipLevelSource(img, level);
-                if (mip) source = mip;
+        } finally {
+            if (prevQuality !== undefined && ctx.imageSmoothingQuality !== prevQuality) {
+                ctx.imageSmoothingQuality = prevQuality;
             }
-        } catch { /* 原图直绘 */ }
-        const mipW = (source as { width: number }).width;
-        const mipH = (source as { height: number }).height;
-        const kx = mipW / img.width;
-        const ky = mipH / img.height;
-        const sxL = Math.max(0, Math.min(mipW, rect.sx * kx));
-        const syL = Math.max(0, Math.min(mipH, rect.sy * ky));
-        const swL = Math.max(1, Math.min(mipW - sxL, rect.sw * kx));
-        const shL = Math.max(1, Math.min(mipH - syL, rect.sh * ky));
-
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-
-        try {
-            ctx.drawImage(source, sxL, syL, swL, shL, dx, dy, dW, dH);
-        } catch (e) {
-            console.warn('[CanvasSpriteIcon] drawImage failed', e);
+            if (prevEnabled !== undefined && ctx.imageSmoothingEnabled !== prevEnabled) {
+                ctx.imageSmoothingEnabled = prevEnabled;
+            }
         }
-        return true;
     }
 
     /**
@@ -301,6 +314,7 @@ export default class CanvasSpriteIcon {
         anchor: SpriteAnchor,
         list: SpriteIconConfig[],
         spriteScale: number,
+        ctxScale?: number,
     ) {
         for (const dec of list) {
             const sX = dec.scale ?? 1;
@@ -316,27 +330,28 @@ export default class CanvasSpriteIcon {
                 canvasX: anchor.canvasX + offsetX,
                 canvasY: anchor.canvasY + offsetY,
                 canvasW: dW, canvasH: dH,
-                overallScale: 1, scaleX: 1, scaleY: 1,
+                overallScale: 1, scaleX: 1, scaleY: 1, ctxScale,
             });
         }
     }
 
     public render(ctx: CanvasRenderingContext2D, props: CanvasSpriteIconProps) {
-        const { src, x, y, w, h, canvasX, canvasY, canvasSize, canvasWidth, canvasHeight, scale = 1.0, decorators = [], renderLayer = 'all' } = props;
+        const { src, x, y, w, h, canvasX, canvasY, canvasSize, canvasWidth, canvasHeight, scale = 1.0, ctxScale, decorators, renderLayer = 'all' } = props;
 
         const displayW = canvasWidth ?? canvasSize;
         const displayH = canvasHeight ?? canvasSize;
-        const anchor: SpriteAnchor = { canvasX, canvasY, drawW: displayW, drawH: displayH };
 
         if (renderLayer === 'main' || renderLayer === 'all') {
-            CanvasSpriteIcon.drawSingle(ctx, { src, x, y, w, h, canvasX, canvasY, canvasW: displayW, canvasH: displayH, overallScale: scale });
+            CanvasSpriteIcon.drawSingle(ctx, { src, x, y, w, h, canvasX, canvasY, canvasW: displayW, canvasH: displayH, overallScale: scale, ctxScale });
         }
 
+        if (!decorators || decorators.length === 0) return;
+        const anchor: SpriteAnchor = { canvasX, canvasY, drawW: displayW, drawH: displayH };
         const low = decorators.filter(d => (d.zIndex ?? 0) < 10).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
         const high = decorators.filter(d => (d.zIndex ?? 0) >= 10).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
-        if (renderLayer === 'main' || renderLayer === 'all') CanvasSpriteIcon.drawDecorators(ctx, anchor, low, scale);
-        if (renderLayer === 'decorators' || renderLayer === 'all') CanvasSpriteIcon.drawDecorators(ctx, anchor, high, scale);
+        if (renderLayer === 'main' || renderLayer === 'all') CanvasSpriteIcon.drawDecorators(ctx, anchor, low, scale, ctxScale);
+        if (renderLayer === 'decorators' || renderLayer === 'all') CanvasSpriteIcon.drawDecorators(ctx, anchor, high, scale, ctxScale);
     }
 
     /**
@@ -345,8 +360,8 @@ export default class CanvasSpriteIcon {
      * 因为该分支需要主精灵传 decorators 才会触发渲染，直接传挂件当主精灵又丢失 offset）。
      *  挂件的 offsetX/offsetY 是设计 px，会按 spriteScale 应用。
      */
-    public renderDecorator(ctx: CanvasRenderingContext2D, anchor: SpriteAnchor, dec: SpriteIconConfig, spriteScale: number) {
-        CanvasSpriteIcon.drawDecorators(ctx, anchor, [dec], spriteScale);
+    public renderDecorator(ctx: CanvasRenderingContext2D, anchor: SpriteAnchor, dec: SpriteIconConfig, spriteScale: number, ctxScale?: number) {
+        CanvasSpriteIcon.drawDecorators(ctx, anchor, [dec], spriteScale, ctxScale);
     }
 
     public isPointInIcon(px: number, py: number, props: CanvasSpriteIconProps) {

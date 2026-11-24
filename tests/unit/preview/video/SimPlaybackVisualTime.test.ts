@@ -241,8 +241,8 @@ describe('仿真场视觉取时 · 音频主时钟约束', () => {
   });
 });
 
-describe('票 87 · 场地尺寸变化不挡播放', () => {
-  it('放大场地当帧不烘底图、不改 backing store；让出主线程后再换；缩回复用缓存且画布只涨不缩', async () => {
+describe('票 87 / 票 88 · 场地尺寸变化不挡播放且退全屏延迟回缩', () => {
+  it('放大场地当帧不烘底图、不改 backing store；让出主线程后再换；退回小尺寸先复用旧缓冲、让出两帧后精准回缩 bw×bh', async () => {
     const canvas = {
       width: 0,
       height: 0,
@@ -281,10 +281,15 @@ describe('票 87 · 场地尺寸变化不挡播放', () => {
     }, { timeout: 2000 });
     expect(images[0]!.close).not.toHaveBeenCalled();
 
+    // 退全屏当帧：零同步拆缓冲，直接复用已缓存的小尺寸底图；随后延迟回缩到目标 100x100
     playback.setFrame(frame);
     expect(vi.mocked(prepareSimFieldBitmap)).toHaveBeenCalledTimes(2);
     expect(canvas.width).toBe(200);
     expect(canvas.height).toBe(180);
+    await vi.waitFor(() => {
+      expect(canvas.width).toBe(100);
+      expect(canvas.height).toBe(100);
+    }, { timeout: 2000 });
     expect(images[0]!.close).not.toHaveBeenCalled();
     expect(images[1]!.close).not.toHaveBeenCalled();
     playback.dispose();

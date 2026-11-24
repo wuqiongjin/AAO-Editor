@@ -1669,8 +1669,190 @@ describe('drawSimBackground · 自定义 liveFit（票 42）', () => {
   it('liveFit 有值时不画相框（就算传了 stageFrame）', () => {
     const { proxy, calls } = recordingCtx();
     drawSimBackground(proxy, m, bg, 1, 1, { liveFit: 'cover', stageFrame: { cover } });
-    const imgs = calls.filter(([k]) => k === 'drawImage').map(([_, args]) => (args as unknown[])[0]);
+    const imgs = calls.filter(([k]) => k === 'drawImage').map(([, args]) => (args as unknown[])[0]);
     expect(imgs).toEqual([bg]);
     expect(imgs).not.toContain(cover);
+  });
+});
+
+describe('票 88 · 高密压力段 CPU 与命令流收口（drawLaneFlash 归并 / 双押线二分 / imageSmoothingQuality 隔离）', () => {
+  it('drawLaneFlash 同轨同帧 N 次命中合并为 1 次填充；跨 3 轨至多 3 次，且 alpha 复合等价于逐层 source-over', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    // 120 BPM 下 0.5s/beat：在 2.0s 时，0.04s / 0.08s / 0.12s 前同在 lane 3 命中三次，外加 lane 1 命中一次
+    const notes = [
+      single(3.76, 3), // since = 0.12s
+      single(3.84, 3), // since = 0.08s
+      single(3.92, 3), // since = 0.04s
+      single(3.96, 1), // since = 0.02s
+    ];
+    const frame = frameOf(notes, spriteIcon);
+    const stopsPerGrad: Array<{ offset: number; color: string }[]> = [];
+    const { proxy } = makeRecordingCtx({
+      createLinearGradient: () => {
+        const stops: { offset: number; color: string }[] = [];
+        stopsPerGrad.push(stops);
+        return { addColorStop: (offset: number, color: string) => { stops.push({ offset, color }); } };
+      },
+      getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }),
+    });
+    drawSimFrameAt(proxy, frame, 2.0);
+    // 同帧只有 lane 1 和 lane 3 亮，每个亮轨只画 1 个楔形渐变（共 2 个，不是 4 个）
+    const flashGrads = stopsPerGrad.filter((g) => g.some((s) => s.color.startsWith('rgba(255,255,255,')));
+    expect(flashGrads).toHaveLength(2);
+    // lane 3 有 3 次叠亮：底部 (offset=0, u=1) 的复合 alpha = 1 - Π(1 - 0.5*(1 - since/0.2))
+    const a1 = 0.5 * (1 - 0.12 / 0.2);
+    const a2 = 0.5 * (1 - 0.08 / 0.2);
+    const a3 = 0.5 * (1 - 0.04 / 0.2);
+    const expectedBottomAlpha = 1 - (1 - a1) * (1 - a2) * (1 - a3);
+    const lane3Bottom = flashGrads.find((g) => g.length > 2)![0]!;
+    const gotAlpha = Number(lane3Bottom.color.match(/rgba\(255,255,255,([\d.]+)\)/)![1]);
+    expect(gotAlpha).toBeCloseTo(expectedBottomAlpha, 4);
+  });
+
+  it('drawSimultaneousLines 二分窗口裁剪：与长谱大数组保持可见区间边界精确一致', () => {
+    const notes: ChartNote[] = [];
+    for (let i = 0; i < 400; i++) {
+      const b = i * 4;
+      notes.push(single(b, 0), single(b, 6));
+    }
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const sc: SimScene = { ...scene(notes), simultaneousClickLines: true };
+    const f = {
+      scene: sc,
+      chart: buildSimChart(sc, icons),
+      metrics: fieldMetrics(1334, 750),
+      assets: emptySimAssets(),
+      noteIcons: icons,
+      spriteIcon,
+    };
+    const { proxy } = recordingCtx();
+    // seconds = 200s 对应 beat 400（可见窗口 T = 1.25s ⇒ beat 400..402.5，仅 1 组同时点击线 + 2 个单键）
+    drawSimFrameAt(proxy, f, 200);
+    expect(draws).toHaveLength(3);
+  });
+
+  it('票 88 · `+inc` 离屏贴片缓存：DOM 可用时每条 `+inc` 走位图 drawImage，不再逐条反复 strokeText', () => {
+    let tileStrokes = 0;
+    const tileCanvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        setTransform: () => undefined,
+        measureText: () => ({ width: 80 }),
+        strokeText: () => { tileStrokes += 1; },
+        fillText: () => undefined,
+        font: '', textAlign: '', textBaseline: '', lineJoin: '', lineWidth: 1, strokeStyle: '', fillStyle: '',
+      }),
+    };
+    vi.stubGlobal('document', { createElement: () => tileCanvas });
+    try {
+      const notes = Array.from({ length: 12 }, (_, i) => single(2 + i * 0.08, 3));
+      const frame = hudFrame(notes, NO_HUD);
+      const { proxy, calls } = recordingCtx();
+      drawSimFrameAt(proxy, frame, 1.5);
+      // 离屏贴片只在首次建表时 strokeText 1 次，主画布零 strokeText，全部 12 条 `+inc` 走 drawImage(tileCanvas)
+      expect(tileStrokes).toBe(1);
+      const plusBlits = calls.filter(([k, args]) => k === 'drawImage' && (args as unknown[])[0] === tileCanvas);
+      expect(plusBlits).toHaveLength(plusAgesAt(frame.chart, 1.5, SIM_HUD.plusDur).length);
+      expect(calls.filter(([k, args]) => k === 'strokeText' && String((args as unknown[])[0]).startsWith('+'))).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('票 88 · `+inc` 离屏贴片按 (inc, fontPx, ctxScale) 分离入键：预热缩放与全屏渲染不发生尺寸碰撞', () => {
+    const fontsUsed: string[] = [];
+    const created: Array<{ width: number; height: number }> = [];
+    vi.stubGlobal('document', {
+      createElement: () => {
+        const c = {
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            setTransform: () => undefined,
+            measureText: () => ({ width: 80 }),
+            strokeText: () => undefined,
+            fillText: () => undefined,
+            set font(v: string) { fontsUsed.push(v); },
+            get font() { return fontsUsed[fontsUsed.length - 1] ?? ''; },
+            textAlign: '', textBaseline: '', lineJoin: '', lineWidth: 1, strokeStyle: '', fillStyle: '',
+          }),
+        };
+        created.push(c);
+        return c;
+      },
+    });
+    try {
+      const notes = [single(2, 3)];
+      // 模拟 warmup: 1128x634 指标配合放大 CTM (1920/1128 ≈ 1.702)，与 1536x864 指标配合 1.25 CTM
+      // 二者的 fontPx * ctxScale 乘积完全相同，但 CSS fontPx 不同，不能复用同一张贴片。
+      const warmupFrame = { ...hudFrame(notes, NO_HUD), metrics: fieldMetrics(1128, 634) };
+      const fsFrame = { ...hudFrame(notes, NO_HUD), metrics: fieldMetrics(1536, 864) };
+      const noopGrad = () => ({ addColorStop: () => undefined });
+      const c1 = makeRecordingCtx({
+        createLinearGradient: noopGrad,
+        getTransform: () => ({ a: 1920 / 1128, b: 0, c: 0, d: 1920 / 1128, e: 0, f: 0 }),
+      });
+      const c2 = makeRecordingCtx({
+        createLinearGradient: noopGrad,
+        getTransform: () => ({ a: 1.25, b: 0, c: 0, d: 1.25, e: 0, f: 0 }),
+      });
+      drawSimFrameAt(c1.proxy, warmupFrame, 1.2);
+      const countAfterWarmup = created.length;
+      drawSimFrameAt(c2.proxy, fsFrame, 1.2);
+      expect(created.length).toBe(countAfterWarmup + 1);
+      const blits2 = c2.calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === created[created.length - 1]);
+      expect(blits2).toHaveLength(1);
+      const [, dw2] = (blits2[0]![1] as number[]).slice(3, 5);
+      const blits1 = c1.calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === created[countAfterWarmup - 1]);
+      const [, dw1] = (blits1[0]![1] as number[]).slice(3, 5);
+      // 1536 指标的 CSS 贴片宽应大于 1128 指标，不能被误按 1128 的 CSS 宽缩放绘制
+      expect(dw2).toBeGreaterThan(dw1!);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('票 88 · imageSmoothingQuality 隔离：同帧内音符切 high 后在粒子特效与 HUD 前恢复，不污染粒子与 HUD', () => {
+    const sprites = fakeSprites() as unknown as SimSprites;
+    const hud = fakeHud();
+    // 1.3s 处：一个刚刚命中的 tap（触发粒子 + HUD `+inc`）和一颗未落地的音符（触发 CanvasSpriteIcon）
+    const notes = [single(2.0, 3), single(3.0, 4)];
+    const { spriteIcon } = makeRecordingSprite();
+    const base = frameOf(notes, spriteIcon);
+    const frame = { ...base, assets: { ...base.assets, sprites, hud } };
+    const particleQualities: unknown[] = [];
+    const hudQualities: unknown[] = [];
+    const ctxState: Record<string, unknown> = { imageSmoothingQuality: 'low', imageSmoothingEnabled: true };
+    const proxy = new Proxy(ctxState, {
+      get(target, prop) {
+        if (prop === 'drawImage') {
+          return (img: unknown) => {
+            if (img === sprites.particles) particleQualities.push(target.imageSmoothingQuality);
+            if (img === hud.scoreBar) hudQualities.push(target.imageSmoothingQuality);
+          };
+        }
+        if (prop === 'save' || prop === 'restore' || prop === 'setTransform' || prop === 'transform'
+          || prop === 'beginPath' || prop === 'moveTo' || prop === 'lineTo' || prop === 'closePath'
+          || prop === 'fill' || prop === 'stroke' || prop === 'fillRect' || prop === 'fillText'
+          || prop === 'strokeText' || prop === 'clip' || prop === 'arc' || prop === 'arcTo'
+          || prop === 'translate' || prop === 'scale' || prop === 'rotate') {
+          return () => undefined;
+        }
+        if (prop === 'createLinearGradient') return () => ({ addColorStop: () => undefined });
+        if (prop === 'getTransform') return () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+        if (prop === 'measureText') return () => ({ width: 20 });
+        return target[prop as string];
+      },
+      set(target, prop, value) {
+        target[prop as string] = value;
+        return true;
+      },
+    }) as unknown as CanvasRenderingContext2D;
+    drawSimFrameAt(proxy, frame, 1.3);
+    expect(particleQualities.length).toBeGreaterThan(0);
+    expect(hudQualities.length).toBeGreaterThan(0);
+    expect(particleQualities.every((q) => q === 'low')).toBe(true);
+    expect(hudQualities.every((q) => q === 'low')).toBe(true);
   });
 });

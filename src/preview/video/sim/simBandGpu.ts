@@ -149,12 +149,15 @@ function initScratch(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement) {
   // The 2D stage composites the straight-alpha drawing buffer when it draws this canvas.
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  const initialData = new Float32Array(4096);
+  gl.bufferData(gl.ARRAY_BUFFER, initialData.byteLength, gl.DYNAMIC_DRAW);
   return {
     canvas, gl, material, lut, vertices,
     size: gl.getUniformLocation(material, 'size'),
     opacity: gl.getUniformLocation(material, 'opacity'),
     colors: gl.getUniformLocation(material, 'colors[0]'),
-    data: new Float32Array(4096),
+    data: initialData,
+    vertexFloats: initialData.length,
     width: 0,
     height: 0,
     lastOpacity: Number.NaN,
@@ -184,14 +187,12 @@ function drawGlBands(
   const h = Math.max(1, Math.round(metrics.h * sy));
   const { canvas, gl } = scratch;
   if (gl.isContextLost()) throw new Error('Band WebGL context lost');
-  // 票 87：绘制缓冲只涨不缩，退出全屏只改 viewport，避免把 GPU 资源拆掉重建。
-  const needBuffer = canvas.width < w || canvas.height < h;
+  // 跟随主画布实际分辨率调整：过渡帧由 simPlayback 延迟后统一回缩，避免同步拆缓冲也释放窗口态冗余显存
+  const needBuffer = canvas.width !== w || canvas.height !== h;
   const needView = scratch.width !== w || scratch.height !== h;
   if (needBuffer) {
-    const nextW = Math.max(canvas.width, w);
-    const nextH = Math.max(canvas.height, h);
-    if (canvas.width !== nextW) canvas.width = nextW;
-    if (canvas.height !== nextH) canvas.height = nextH;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
     if (gl.drawingBufferWidth < w || gl.drawingBufferHeight < h) {
       throw new Error('Unable to resize band drawing buffer');
     }
@@ -323,7 +324,11 @@ function drawGlBands(
     scratch.lastOpacity = opacity;
   }
   gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.bufferData(gl.ARRAY_BUFFER, scratch.data.subarray(0, size), gl.STREAM_DRAW);
+  if (size > scratch.vertexFloats) {
+    scratch.vertexFloats = scratch.data.length;
+    gl.bufferData(gl.ARRAY_BUFFER, scratch.vertexFloats * Float32Array.BYTES_PER_ELEMENT, gl.DYNAMIC_DRAW);
+  }
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratch.data.subarray(0, size));
   gl.drawArrays(gl.TRIANGLES, 0, size / FLOATS_PER_VERTEX);
 
   ctx.save();

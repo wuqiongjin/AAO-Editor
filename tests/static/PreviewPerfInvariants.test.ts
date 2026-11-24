@@ -20,14 +20,25 @@ describe('issue 80 · 实时预览性能护栏', () => {
     expect(playback).toMatch(/drawSimFrameAt\(ctx, frame, .*layers\);/);
   });
 
-  it('票 87：尺寸变化不按 metrics 对象身份同步烘底图，让出主线程后再换', () => {
+  it('票 87 / 票 88：尺寸变化不按 metrics 对象身份同步烘底图，让出主线程后再换与回缩', () => {
     expect(playback).not.toMatch(/frame\.metrics !== input\.metrics/);
     expect(playback).toMatch(/yieldPlaybackFrame/);
     expect(playback).toMatch(/setTimeout\(resolve, 16\)/);
     expect(playback).toMatch(/queueSizeBake/);
-    expect(playback).toMatch(/canvas\.width < bw/);
+    expect(playback).toMatch(/scheduleBackingShrink/);
     expect(field).toMatch(/COMBO_SHADOW_CACHE_LIMIT/);
     expect(field).toMatch(/LIFE_GAUGE_CACHE_LIMIT/);
+  });
+
+  it('票 88：WebGL VBO 复用 bufferSubData、CanvasSpriteIcon 隔离 smoothing、PlayBar 布局隔离', () => {
+    const gpu = readStripped('src/preview/video/sim/simBandGpu.ts');
+    const sprite = readStripped('src/ui/CanvasSpriteIcon.tsx');
+    const playbarCss = readStripped('src/playback/PlayBar.css');
+    expect(gpu).toMatch(/bufferSubData/);
+    expect(gpu).not.toMatch(/gl\.bufferData\(gl\.ARRAY_BUFFER,\s*scratch\.data/);
+    expect(sprite).toMatch(/ctx\.imageSmoothingQuality\s*=\s*prevQuality/);
+    expect(playbarCss).toMatch(/contain:\s*layout\s+style/);
+    expect(playbarCss).not.toMatch(/\.play-bar\s*\{[^}]*contain:[^}]*paint/);
   });
 
   it('票 87：预览设置浮层不再铺全视口 scrim', () => {
