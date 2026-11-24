@@ -3,6 +3,7 @@ import { AppWindow, Ellipsis, Inbox, List, Music2, Pencil, Play, RotateCcw, Sear
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import BeatSnapCycleConfigModal from './BeatSnapCycleConfigModal';
+import SeekStepConfigModal from './SeekStepConfigModal';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, normalizeKeyEvent, setCapturingShortcut, maskFunctionBinding,
@@ -119,6 +120,7 @@ export default function ShortcutsPage() {
     initialConflict?: string;
   } | null>(null);
   const [cycleConfigOpen, setCycleConfigOpen] = useState(false);
+  const [seekStepOpen, setSeekStepOpen] = useState(false);
   const shortcutTableRef = useRef<HTMLDivElement>(null);
 
   // issue 127：换桶重挂表体，但滚动容器仍是 .shortcut-table → 须显式回顶；搜索只滤行、保持 scrollTop。
@@ -267,6 +269,20 @@ export default function ShortcutsPage() {
                       <Settings size={13} />
                     </button>
                   )}
+                  {(f.id === 'seekBack' || f.id === 'seekForward') && (
+                    <button
+                      className="shortcut-gear-btn"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSeekStepOpen(true);
+                      }}
+                      title={t('shortcuts.seekStep.config')}
+                      aria-label={t('shortcuts.seekStep.configAria')}
+                    >
+                      <Settings size={13} />
+                    </button>
+                  )}
                 </strong>
                 {bound ? (
                   <button
@@ -340,6 +356,9 @@ export default function ShortcutsPage() {
 
       {cycleConfigOpen && (
         <BeatSnapCycleConfigModal onClose={() => setCycleConfigOpen(false)} />
+      )}
+      {seekStepOpen && (
+        <SeekStepConfigModal onClose={() => setSeekStepOpen(false)} />
       )}
       </AppPageShell.Body>
     </AppPageShell>

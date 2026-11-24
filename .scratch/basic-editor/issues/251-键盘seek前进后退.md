@@ -1,7 +1,7 @@
 # 251 · 键盘 seek 前进 / 后退
 
 Type: grilling
-Status: claimed（2026-11-24 定案；原 tmp.diff 编号 235，与已落地的曲线模板 235 撞号，本仓顺延为 251）
+Status: resolved（2026-11-24 已实现并锁测，待页面验收）
 Blocked by: —
 
 ## 来源
@@ -98,3 +98,4 @@ Blocked by: —
 - 2026-11-24 grill：先否「暂停微调 / 自定义步长绑死方向键」误诊；用户改口为进页摸条路程 → 再收成「不用鼠标前进后退」。否决滚轮与可调播放条位置。Q1 功能 + 两页都能用、Q3 播放时钟合同拍板。Q2 从「固定 1 秒不连发」改成连发 + 可调步长；入口从显示面板改到快捷键齿轮；两套步长默认相同允许调散；范围 0.1–5 再改为 0.1–10。整包确认 Q1=OK Q2=OK，先开票跟踪。
 - 2026-11-24 自检：产品定案无改。修正实现口径自相矛盾 —— 「不要进 `noRepeat`」且「不要用 `e.repeat`」在现有 dispatch 下会 30Hz 双发；补 ADR §2.2 / §6 漏改；点名 `PLAYBACK_SHORTCUT_IDS` 身兼两职；切页必须停节拍器。
 - 2026-11-24 编号：tmp.diff 写 235，但本仓 235–250 已占用（235 为曲线模板选型），落地为 251。
+- 2026-11-24（实现记录）：按「实现落点 / 锁测」落地。`FunctionId` 登记 `seekBack` / `seekForward`（出厂 `arrowleft` / `arrowright`）；additive `settings.seekStepBackSeconds` / `seekStepForwardSeconds`（0.1–10，缺/脏 → 1）；`createHoldRepeatSession` 自管 400ms / 250ms，`useShortcutDispatch` 新增 `holdRepeat`（丢掉 `e.repeat`，keyup / blur / 可编辑焦点 / effect 卸掉即停，后按下的方向覆盖前一个）。`PLAYBACK_SHORTCUT_IDS` 仍只有四键；`SEEK_SHORTCUT_IDS` 只进预览 `PLAY_ONLY` 与 `holdRepeat`。工作台 `engine.getSeconds()` + `seek()`；动态预览 `seekTo` 立刻写 `secondsRef`，避免 80ms HUD 把按住叠加冲掉。快捷键页两行齿轮开同一 `SeekStepConfigModal`。ADR-0002 / CONTEXT / features / README 已改。锁测：`SeekStepSettings` / `ShortcutSeekConfig` / `ShortcutHoldRepeat` / `PlaybackShortcuts` + DOM 分发 / 弹窗 / 预览 ←→ + static 接线。`tsc -b` 通过；全量 `vitest run` 456 文件 / 4981 用例通过。仍待人工验收：按住肉眼手感、工作台播放中 vs 暂停、动态预览全屏台上态、静态形态方向键不 seek。

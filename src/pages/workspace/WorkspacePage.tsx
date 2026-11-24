@@ -15,8 +15,10 @@ import PlaybackRate from '../../playback/PlaybackRate';
 import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
 import {
   PLAYBACK_SHORTCUT_IDS,
+  SEEK_SHORTCUT_IDS,
   stepAudioVolume,
   stepPlaybackRatePreset,
+  stepSeekSeconds,
 } from '../../playback/playbackShortcuts';
 import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
 import { useEditing, useUI, useConfig, usePlaybackState, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
@@ -593,9 +595,16 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'rateUp': setRate(stepPlaybackRatePreset(getPlaybackRate(), 1)); break;
       case 'volumeDown': handleVolumeChange(stepAudioVolume(volumeRef.current, -1)); break;
       case 'volumeUp': handleVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
+      // issue 251：键盘 seek 只动播放时钟；读引擎当前秒，不订阅 80ms HUD。
+      case 'seekBack':
+        if (engine) seek(stepSeekSeconds(engine.getSeconds(), -1, settings.seekStepBackSeconds, ctxDuration));
+        break;
+      case 'seekForward':
+        if (engine) seek(stepSeekSeconds(engine.getSeconds(), 1, settings.seekStepForwardSeconds, ctxDuration));
+        break;
     }
   }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
-      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList, setRate, handleVolumeChange]);
+      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList, settings.seekStepBackSeconds, settings.seekStepForwardSeconds, setRate, handleVolumeChange, engine, seek, ctxDuration]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
@@ -603,6 +612,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     active: active && !preparing,
     runFunction,
     noRepeat: PLAYBACK_SHORTCUT_IDS,
+    holdRepeat: SEEK_SHORTCUT_IDS,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
     // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
     // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 183 起开合片段库）。

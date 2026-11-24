@@ -620,6 +620,34 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     });
   });
 
+  describe('键盘 seek（issue 251）', () => {
+    it('页面 active 时 ← / → 调 seek', async () => {
+      await renderStage({ initialSeconds: 5 });
+      calls.seek.mockClear();
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(calls.seek).toHaveBeenLastCalledWith(4);
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(calls.seek).toHaveBeenLastCalledWith(5);
+    });
+
+    it('焦点在时间码 input 内不 seek', async () => {
+      await renderStage({ initialSeconds: 5 });
+      calls.seek.mockClear();
+      fireEvent.doubleClick(currentTime());
+      expect(timeInput()).toBeTruthy();
+      fireEvent.keyDown(timeInput()!, { key: 'ArrowLeft' });
+      fireEvent.keyDown(timeInput()!, { key: 'ArrowRight' });
+      expect(calls.seek).not.toHaveBeenCalled();
+    });
+
+    it('预览失活不接管', async () => {
+      await renderStage({ active: false, initialSeconds: 5 });
+      calls.seek.mockClear();
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(calls.seek).not.toHaveBeenCalled();
+    });
+  });
+
   it('chart-preview 57 / issue 188 · 播放期 onTick 按 80ms 节流 PlayBar HUD 且不触发父级 onSecondsChange，暂停或卸载时才回写父级', async () => {
     const { act } = await import('@testing-library/react');
     const onSecondsChange = vi.fn();

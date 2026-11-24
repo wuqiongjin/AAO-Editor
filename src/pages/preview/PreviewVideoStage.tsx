@@ -7,10 +7,10 @@
 //   - 回放：`createSimPlayback`（自持引擎当秒源；rAF 驱动**同一份**任意秒出帧函数）
 //   - 播放条：工作台同一件 `PlayBar`（issue 22 起复用）：播放/暂停 + 时间码（可双击编辑）
 //     + 进度（可拖）+ 音量；倍速（`src/playback/PlaybackRate`，58 起两处共用）接 `rateSlot`，
-//     值读共享单点 `usePlaybackRate`。空格由本层挂着的 `useShortcutDispatch` 页面级接管（只认 play，Q2）。
+//     值读共享单点 `usePlaybackRate`。空格 / 倍速音量四键 / 键盘 seek 由本层 `useShortcutDispatch` 页面级接管（Q2 / 230 / 251）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getBpmEvents, type BpmEvent } from '../../audio/AudioTiming';
-import type { AppSettings } from '../../settings/AppSettings';
+import { DEFAULT_SEEK_STEP_SECONDS, type AppSettings } from '../../settings/AppSettings';
 import { formatKey, type FunctionId, type ShortcutConfig } from '../../settings/ShortcutConfig';
 import { useShortcutDispatch } from '../../settings/useShortcutDispatch';
 import { notesEqual } from '../../chart/editing/NotesEqual';
@@ -20,8 +20,10 @@ import PlaybackRate from '../../playback/PlaybackRate';
 import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
 import {
   PLAYBACK_SHORTCUT_IDS,
+  SEEK_SHORTCUT_IDS,
   stepAudioVolume,
   stepPlaybackRatePreset,
+  stepSeekSeconds,
 } from '../../playback/playbackShortcuts';
 import { PLAYBACK_HUD_PERIOD_MS } from '../../playback/usePlaybackCoordinator';
 import { resolveCanvasDpr } from '../../rendering';
@@ -43,10 +45,10 @@ import {
 } from '../../preview';
 
 /**
- * 预览页只接管 play + 四个倍速 / 音量键（issue 22 Q2 / issue 230）：其余绑定放行原生行为，
- * 不吞浏览器键（引用稳定）。倍速 / 音量在这页也必须有反应 —— 状态与工作台同源，按了没用会被当成坏掉。
+ * 预览页只接管 play + 四个倍速 / 音量键 + seek 两键（issue 22 Q2 / 230 / 251）：其余绑定放行原生行为，
+ * 不吞浏览器键（引用稳定）。倍速 / 音量 / seek 在这页也必须有反应 —— 状态与工作台同源，按了没用会被当成坏掉。
  */
-const PLAY_ONLY: readonly FunctionId[] = ['play', ...PLAYBACK_SHORTCUT_IDS];
+const PLAY_ONLY: readonly FunctionId[] = ['play', ...PLAYBACK_SHORTCUT_IDS, ...SEEK_SHORTCUT_IDS];
 
 /** 票 69 复验整改：动态舞台同步令牌（按对象身份标识一次数据版本与谱面目标） */
 export interface VideoSyncToken {
@@ -90,6 +92,9 @@ export interface PreviewVideoStageProps {
   timePrecision?: AppSettings['display']['timePrecision'];
   /** 快捷键配置（空格页面级接管 play，issue 22 Q2）：由页面从 `settings.shortcuts` 传 */
   shortcuts: ShortcutConfig;
+  /** 键盘 seek 后退 / 前进步长（issue 251）：由页面从 settings 传，舞台不直读 context */
+  seekStepBackSeconds?: number;
+  seekStepForwardSeconds?: number;
   /** 当前看哪张谱面（切谱面重置秒数） */
   chartId?: string | null;
   /** 初始/恢复播放秒数（切回页面或切回动态形态时恢复） */
@@ -114,6 +119,8 @@ export default function PreviewVideoStage({
   noteSkin,
   timePrecision,
   shortcuts,
+  seekStepBackSeconds = DEFAULT_SEEK_STEP_SECONDS,
+  seekStepForwardSeconds = DEFAULT_SEEK_STEP_SECONDS,
   chartId,
   initialSeconds,
   onSecondsChange,
@@ -331,19 +338,30 @@ export default function PreviewVideoStage({
   }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, syncToken, onSyncComplete]);
 
   const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
+  const secondsRef = useRef(tick.seconds);
+  const durationRef = useRef(duration);
+  durationRef.current = duration;
+  const seekBackRef = useRef(seekStepBackSeconds);
+  seekBackRef.current = seekStepBackSeconds;
+  const seekForwardRef = useRef(seekStepForwardSeconds);
+  seekForwardRef.current = seekStepForwardSeconds;
+  useEffect(() => { secondsRef.current = tick.seconds; }, [tick.seconds]);
+
   const seekTo = useCallback((seconds: number) => {
     playbackRef.current?.seek(seconds);
+    secondsRef.current = seconds;
     onSecondsChange?.(seconds);
   }, [onSecondsChange]);
 
   // 空格（play）页面级接管（issue 22 Q2）：预览页 active 时按空格 = 播放 / 暂停。
-  // 焦点在 input / textarea / select 内由 hook 放行原生（与工作台同口径）；only 只认 play——
+  // 焦点在 input / textarea / select 内由 hook 放行原生（与工作台同口径）；only 只认 play + 四键 + seek——
   // 表里其余编辑功能键不 preventDefault，放行浏览器自己的行为（如 Ctrl+D / Ctrl+T）。
   useShortcutDispatch({
     shortcutConfig: shortcuts,
     active,
     only: PLAY_ONLY,
     noRepeat: PLAYBACK_SHORTCUT_IDS,
+    holdRepeat: SEEK_SHORTCUT_IDS,
     runFunction: useCallback((fn: FunctionId) => {
       switch (fn) {
         case 'play': togglePlay(); break;
@@ -352,8 +370,14 @@ export default function PreviewVideoStage({
         case 'rateUp': setRate(stepPlaybackRatePreset(getPlaybackRate(), 1)); break;
         case 'volumeDown': onVolumeChange(stepAudioVolume(volumeRef.current, -1)); break;
         case 'volumeUp': onVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
+        case 'seekBack':
+          seekTo(stepSeekSeconds(secondsRef.current, -1, seekBackRef.current, durationRef.current));
+          break;
+        case 'seekForward':
+          seekTo(stepSeekSeconds(secondsRef.current, 1, seekForwardRef.current, durationRef.current));
+          break;
       }
-    }, [togglePlay, setRate, onVolumeChange]),
+    }, [togglePlay, setRate, onVolumeChange, seekTo]),
   });
 
   if (assets?.missing) {

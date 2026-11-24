@@ -4,7 +4,7 @@
 import '@testing-library/jest-dom/vitest';
 import { useCallback, useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import {
   getDefaultConfig,
   setCapturingShortcut,
@@ -14,19 +14,24 @@ import {
 import { useShortcutDispatch } from '@/src/settings/useShortcutDispatch';
 import {
   PLAYBACK_SHORTCUT_IDS,
+  SEEK_SHORTCUT_IDS,
   stepAudioVolume,
   stepPlaybackRatePreset,
+  stepSeekSeconds,
 } from '@/src/playback/playbackShortcuts';
 
 const CFG: ShortcutConfig = getDefaultConfig();
 
-function DispatchHarness({ onPlay }: { onPlay: () => void }) {
+function DispatchHarness({ onPlay, active = true }: { onPlay: () => void; active?: boolean }) {
   const [rate, setRate] = useState(1);
   const [volume, setVolume] = useState(0.5);
+  const [seconds, setSeconds] = useState(5);
   const rateRef = useRef(rate);
   rateRef.current = rate;
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
+  const secondsRef = useRef(seconds);
+  secondsRef.current = seconds;
 
   const runFunction = useCallback((fn: FunctionId) => {
     switch (fn) {
@@ -34,21 +39,25 @@ function DispatchHarness({ onPlay }: { onPlay: () => void }) {
       case 'rateUp': setRate(stepPlaybackRatePreset(rateRef.current, 1)); break;
       case 'volumeDown': setVolume(stepAudioVolume(volumeRef.current, -1)); break;
       case 'volumeUp': setVolume(stepAudioVolume(volumeRef.current, 1)); break;
+      case 'seekBack': setSeconds(stepSeekSeconds(secondsRef.current, -1, 1, 12)); break;
+      case 'seekForward': setSeconds(stepSeekSeconds(secondsRef.current, 1, 1, 12)); break;
       case 'play': onPlay(); break;
     }
   }, [onPlay]);
 
   useShortcutDispatch({
     shortcutConfig: CFG,
-    active: true,
+    active,
     runFunction,
     noRepeat: PLAYBACK_SHORTCUT_IDS,
+    holdRepeat: SEEK_SHORTCUT_IDS,
   });
 
   return (
     <div>
       <span role="status" aria-label="倍速">{rate}</span>
       <span role="status" aria-label="音量">{volume}</span>
+      <span role="status" aria-label="秒">{seconds}</span>
     </div>
   );
 }
@@ -129,5 +138,69 @@ describe('issue 230 · 四键分发（工作台 useShortcutDispatch）', () => {
     for (const key of [',', '.', ';', "'"]) fireEvent.keyDown(window, { key });
     expect(readout('倍速')).toBe('1');
     expect(readout('音量')).toBe('0.5');
+  });
+});
+
+describe('issue 251 · 工作台键盘 seek 分发', () => {
+  it('← / → 按 1 秒步进，端点停在 0 / duration', () => {
+    setup();
+    const tap = (key: string) => {
+      fireEvent.keyDown(window, { key });
+      fireEvent.keyUp(window, { key });
+    };
+    tap('ArrowLeft');
+    expect(readout('秒')).toBe('4');
+    tap('ArrowRight');
+    expect(readout('秒')).toBe('5');
+    for (let i = 0; i < 20; i++) tap('ArrowLeft');
+    expect(readout('秒')).toBe('0');
+    for (let i = 0; i < 20; i++) tap('ArrowRight');
+    expect(readout('秒')).toBe('12');
+  });
+
+  it('焦点在输入控件时方向键不 seek', () => {
+    setup();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: 'ArrowLeft' });
+    fireEvent.keyDown(input, { key: 'ArrowRight' });
+    expect(readout('秒')).toBe('5');
+    input.remove();
+  });
+
+  it('页面失活不接管', () => {
+    const onPlay = vi.fn();
+    render(<DispatchHarness onPlay={onPlay} active={false} />);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(readout('秒')).toBe('5');
+  });
+
+  it('e.repeat 不叠加派发', () => {
+    setup();
+    fireEvent.keyDown(window, { key: 'ArrowRight', repeat: true });
+    expect(readout('秒')).toBe('5');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(readout('秒')).toBe('6');
+  });
+
+  it('按住 400ms 后再跳，keyup 立刻停', () => {
+    vi.useFakeTimers();
+    try {
+      setup();
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(readout('秒')).toBe('6');
+      act(() => { vi.advanceTimersByTime(399); });
+      expect(readout('秒')).toBe('6');
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(readout('秒')).toBe('7');
+      act(() => { vi.advanceTimersByTime(250); });
+      expect(readout('秒')).toBe('8');
+      fireEvent.keyUp(window, { key: 'ArrowRight' });
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(readout('秒')).toBe('8');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

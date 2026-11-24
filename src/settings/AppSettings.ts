@@ -176,6 +176,14 @@ export interface AppSettings {
    */
   beatSnapCycleList: number[];
   /**
+   * 键盘 seek 后退 / 前进步长（issue 251）：一次按键推进的播放时钟秒数。
+   * 两套独立、出厂都是 1、范围 0.1–10（0.1 一档）。additive，不 bump schemaVersion；
+   * 与 `settings.shortcuts` 解耦——快捷键页「恢复默认」只重置键位，不清步长。
+   * **不**写入 `playbar`（那是工作台标记点按钮 chrome）。
+   */
+  seekStepBackSeconds: number;
+  seekStepForwardSeconds: number;
+  /**
    * 片段粘贴模式（issue 186 / ADR-0023 §2）：`withBpm` = 含 BPM（默认）还是不含 BPM。
    * 只是**偏好**（"我上次怎么贴的"），与 `beatSnap` 同属"我的习惯"；**片段数据本身不进设置对象**
    * （ADR-0023 §3 只约束后者）。additive 字段，不 bump schemaVersion；缺字段 / 脏值回落 true。
@@ -441,6 +449,17 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   bgBrightness: BG_BRIGHTNESS_RANGE.fallback,
 };
 
+/** 键盘 seek 步长（issue 251）：缺 / 非数 / ≤0 → 1；量化到 0.1；钳在 0.1–10。 */
+export const DEFAULT_SEEK_STEP_SECONDS = 1;
+export const SEEK_STEP_MIN = 0.1;
+export const SEEK_STEP_MAX = 10;
+
+export function normalizeSeekStepSeconds(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return DEFAULT_SEEK_STEP_SECONDS;
+  const snapped = Math.round(raw * 10) / 10;
+  return Math.min(SEEK_STEP_MAX, Math.max(SEEK_STEP_MIN, snapped));
+}
+
 /** 音符速度档归一化（读写同一个白名单；快照值对齐步长） */
 export function normalizeNoteSpeed(raw: unknown, fallback: number = SIM_NOTE_SPEED_RANGE.fallback): number {
   const { min, max, step } = SIM_NOTE_SPEED_RANGE;
@@ -528,6 +547,8 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     curve: { ...DEFAULT_CURVE_CONFIG },
     beatSnap: DEFAULT_BEAT_SNAP,
     beatSnapCycleList: [...DEFAULT_BEAT_SNAP_CYCLE_LIST],
+    seekStepBackSeconds: DEFAULT_SEEK_STEP_SECONDS,
+    seekStepForwardSeconds: DEFAULT_SEEK_STEP_SECONDS,
     // 片段粘贴默认「含 BPM」（ADR-0023 §2）
     patternPaste: { withBpm: true },
     // 片段库排序默认「最新收藏在前」（issue 192）
@@ -638,6 +659,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     curve: normalizeCurveConfig(obj.curve),
     beatSnap: normalizeBeatSnap(obj.beatSnap),
     beatSnapCycleList: normalizeBeatSnapCycleList(obj.beatSnapCycleList),
+    seekStepBackSeconds: normalizeSeekStepSeconds(obj.seekStepBackSeconds),
+    seekStepForwardSeconds: normalizeSeekStepSeconds(obj.seekStepForwardSeconds),
     // 片段粘贴模式（issue 186）：只认布尔，缺字段 / 脏值 = 带 BPM（默认档）
     patternPaste: {
       withBpm: typeof patternPaste.withBpm === 'boolean' ? patternPaste.withBpm : defaults.patternPaste.withBpm,
@@ -788,6 +811,8 @@ export type SettingsPatch = Partial<{
   curve?: CurveConfig;
   beatSnap?: number;
   beatSnapCycleList?: number[];
+  seekStepBackSeconds?: number;
+  seekStepForwardSeconds?: number;
   patternPaste?: Partial<AppSettings['patternPaste']>;
   patternLibrary?: Partial<AppSettings['patternLibrary']>;
   playbar?: Partial<AppSettings['playbar']>;
@@ -815,6 +840,8 @@ export function updateSettings(prev: AppSettings, patch: SettingsPatch): AppSett
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
     beatSnapCycleList: patch.beatSnapCycleList !== undefined ? normalizeBeatSnapCycleList(patch.beatSnapCycleList) : prev.beatSnapCycleList,
+    seekStepBackSeconds: patch.seekStepBackSeconds !== undefined ? normalizeSeekStepSeconds(patch.seekStepBackSeconds) : prev.seekStepBackSeconds,
+    seekStepForwardSeconds: patch.seekStepForwardSeconds !== undefined ? normalizeSeekStepSeconds(patch.seekStepForwardSeconds) : prev.seekStepForwardSeconds,
     // 段内浅合并；非布尔值不写入（脏值不会顶掉上一次的有效偏好）
     patternPaste: {
       withBpm: typeof patch.patternPaste?.withBpm === 'boolean' ? patch.patternPaste.withBpm : prev.patternPaste.withBpm,

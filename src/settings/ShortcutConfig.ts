@@ -36,6 +36,8 @@ export type FunctionId =
   | 'undo' | 'redo' | 'play' | 'jumpToMarker'
   // issue 230：倍速 / 音量快捷键（作用于播放态、可逆、结果即时可见；对齐 Bestdori 键位）
   | 'rateDown' | 'rateUp' | 'volumeDown' | 'volumeUp'
+  // issue 251：键盘 seek（按秒步进，出厂 ← / →；连发自管，不进 230 的 noRepeat）
+  | 'seekBack' | 'seekForward'
   // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环），出厂未绑定（binding: null）
   | 'beatSnapNext' | 'beatSnapPrev' | 'beatSnapCycle'
   // issue 239：设为 1/N（Bestdori 八档，出厂数字键）
@@ -106,6 +108,9 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'rateUp',             label: 'shortcut.fn.rateUp',             category: 'play', binding: '.' },
   { id: 'volumeDown',         label: 'shortcut.fn.volumeDown',         category: 'play', binding: ';' },
   { id: 'volumeUp',           label: 'shortcut.fn.volumeUp',           category: 'play', binding: "'" },
+  // 键盘 seek（issue 251）：出厂方向键；`,` / `.` 仍给倍速。连发不走本表。
+  { id: 'seekBack',           label: 'shortcut.fn.seekBack',           category: 'play', binding: 'arrowleft' },
+  { id: 'seekForward',        label: 'shortcut.fn.seekForward',        category: 'play', binding: 'arrowright' },
   // 节拍吸附（issue 216，双轨制 Q1=A）：出厂默认 null（零冲突），偏好用户在设置页自行绑定
   { id: 'beatSnapNext',       label: 'shortcut.fn.beatSnapNext',       category: 'snap', binding: null },
   { id: 'beatSnapPrev',       label: 'shortcut.fn.beatSnapPrev',       category: 'snap', binding: null },
@@ -156,6 +161,8 @@ export const formatKey = (key: string | null): string => {
     if (p === 'shift') return 'Shift';
     if (p === 'alt') return 'Alt';
     if (p === ' ') return 'Space'; // 组合键中的空格（如 ctrl+ 空格）也应显示为 Space
+    if (p === 'arrowleft') return '←';
+    if (p === 'arrowright') return '→';
     return p.toUpperCase();
   }).join('+');
 };

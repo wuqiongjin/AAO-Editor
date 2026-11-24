@@ -517,6 +517,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 timePrecision={settings.display.timePrecision}
                 // 空格（play）页面级接管（issue 22 Q2）：配置从设置域取，预览条那层不直读 context
                 shortcuts={settings.shortcuts}
+                seekStepBackSeconds={settings.seekStepBackSeconds}
+                seekStepForwardSeconds={settings.seekStepForwardSeconds}
                 syncToken={videoSyncToken}
                 onSyncComplete={setAckedVideoToken}
               />
