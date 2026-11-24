@@ -21,4 +21,12 @@ describe('BPM 就地编辑', () => {
     expect(src).toMatch(/parseBpmInput\s*\(/);
     expect(src).not.toMatch(/parseInt\s*\(\s*bpmEdit\.value/);
   });
+
+  it('挂载聚焦带 preventScroll（issue 252：禁止焦点滚动画布宿主）', () => {
+    expect(src).toMatch(/el\.focus\(\s*\{\s*preventScroll:\s*true\s*\}\s*\)/);
+  });
+
+  it('输入盒定位走 bpmInlineInputBox（纵向钳进画布）', () => {
+    expect(src).toMatch(/bpmInlineInputBox\s*\(/);
+  });
 });

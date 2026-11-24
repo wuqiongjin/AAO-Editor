@@ -17,6 +17,7 @@ import {
   drawGutterLabel,
   boundLabelGapPx,
   bpmLabelBox,
+  bpmInlineInputBox,
   BPM_LABEL_GAP_PX,
   GUTTER_LABEL_FONT_PX,
   GUTTER_LABEL_LINE_GAP_PX,
@@ -492,6 +493,30 @@ describe('bpmLabelBox：BPM 数字命中盒（2026-09-08 修订：不再整条�
     // 与 drawGutterLabel 的隐藏条件同口径：x1 < 0
     expect(bpmLabelBox(10, LINE_Y, '120').x1).toBeLessThan(0);
     expect(bpmLabelBox(TRACK_START_X, LINE_Y, '120').x1).toBeGreaterThan(0);
+  });
+});
+
+describe('bpmInlineInputBox：就地编辑输入盒（issue 252）', () => {
+  const TRACK_START_X = 300;
+  const FONT = GUTTER_LABEL_FONT_PX;
+  const H = 900;
+
+  it('beat 0 贴判定线：整盒在画布内（修前底边溢出 3px）', () => {
+    const box = bpmInlineInputBox(0, H, '120', FONT, TRACK_START_X, H);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.top + box.height).toBeLessThanOrEqual(H);
+    expect(box.height).toBe(FONT + 6);
+    const unclampedTop = bpmLabelAnchorY(0, H, FONT, H) - FONT / 2 - 3;
+    expect(unclampedTop + box.height).toBeGreaterThan(H);
+    expect(box.top).toBe(H - box.height);
+  });
+
+  it('中段 BPM：位置与修前公式一致（不误钳）', () => {
+    const lineY = 400;
+    const box = bpmInlineInputBox(4, lineY, '120', FONT, TRACK_START_X, H);
+    expect(box.top).toBe(lineY - FONT / 2 - 3);
+    expect(box.top + box.height).toBeLessThan(H);
+    expect(box.left).toBe(Math.max(0, TRACK_START_X - BPM_LABEL_GAP_PX - box.width));
   });
 });
 
