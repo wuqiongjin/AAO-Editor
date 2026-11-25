@@ -28,7 +28,8 @@ export type MatrixTool =
   | 'delete' | 'paste' | 'mirror' | 'copy' | 'cut'
   | 'noteCode'; // issue 59 §2：持工具态，点音符 = 打开该音符代码弹窗（唯一不改谱面的工具）
 
-type ActionToolId = 'delete' | 'mirror' | 'copy' | 'cut';
+/** 画布动作族（不含粘贴 / 音符代码：那两行不走 `actionOnTargetsOps`） */
+type MatrixActionTool = 'delete' | 'mirror' | 'copy' | 'cut';
 
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
@@ -44,7 +45,7 @@ export type MatrixOp =
 
 const isKeyTool = (tool: MatrixTool): tool is 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional' =>
   tool === 'single' || tool === 'flick' || tool === 'skill' || tool === 'ldirectional' || tool === 'rdirectional';
-const isActionTool = (tool: MatrixTool): tool is ActionToolId =>
+const isActionTool = (tool: MatrixTool): tool is MatrixActionTool =>
   tool === 'delete' || tool === 'mirror' || tool === 'copy' || tool === 'cut';
 
 /** 命中的是否是一条**已有** BPM 线（issue 56 Q14=A：单击 BPM 线默认无效果，只有删除/音符代码两个例外） */
@@ -413,7 +414,7 @@ export function resolveActionTargets(
 }
 
 /** 动作族作用于一组目标条目（删除 / 剪切 → 清选区；镜像 / 复制 → 选区 = 本次产物） */
-export function actionOnTargetsOps(tool: ActionToolId, notes: ChartNote[], targets: SelectionItem[]): MatrixOp[] {
+export function actionOnTargetsOps(tool: MatrixActionTool, notes: ChartNote[], targets: SelectionItem[]): MatrixOp[] {
   if (targets.length === 0) return [];
   if (tool === 'delete') return [{ t: 'setNotes', notes: deleteSelection(notes, targets) }, { t: 'setSelection', items: [] }];
   if (tool === 'copy') {

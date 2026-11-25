@@ -903,8 +903,6 @@
   "tool.chartCode": "谱面代码",
   "toolbar.title": "工具栏",
   "toolbar.pasteEmpty": "粘贴（剪贴板为空，先 Ctrl+C 复制）",
-  "toolbar.copyNeedsSelection": "复制（先选中音符）",
-  "toolbar.cutNeedsSelection": "剪切（先选中音符）",
   "patternLibrary.title": "片段库",
   "patternLibrary.toggle": "片段库",
   "patternLibrary.close": "收起片段库",

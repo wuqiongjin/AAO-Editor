@@ -475,7 +475,7 @@ describe('issue 254 Ctrl+左键整条选中后再点端点 → 整片执行', ()
   const ctrlSel = noteSel(0);
   const posStart = sp(2, 1);
 
-  it.each(['skill', 'flick', 'delete', 'mirror'] as MatrixTool[])(
+  it.each(['skill', 'flick', 'delete', 'mirror', 'copy', 'cut'] as MatrixTool[])(
     '%s：框选整条后再点端点 ≡ Ctrl+左键后再点同一端点',
     (tool) => {
       const viaBox = clickOps(input({ tool, notes, hit: hitStart, selectedItems: boxSel, pos: posStart }));
