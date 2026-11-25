@@ -167,6 +167,7 @@ function summarizeChart(chart) {
         ...(chart.pendingPublish ? { pendingPublish: true } : {}),
         lastModified: chart.lastModified,
         noteCount: countChartNotes(chart.notes),
+        charterCredit: chart.charterCredit ?? null,
     };
 }
 
@@ -179,6 +180,9 @@ function summarizeProjectDoc(id, doc, coverStat) {
         id,
         name: doc.name ?? null,
         artist: doc.artist ?? null,
+        lyricist: doc.lyricist ?? null,
+        composer: doc.composer ?? null,
+        arranger: doc.arranger ?? null,
         source: doc.source,
         durationSeconds: doc.durationSeconds,
         lastOpened: doc.lastOpened,
@@ -187,6 +191,10 @@ function summarizeProjectDoc(id, doc, coverStat) {
         audioPresent: Boolean(doc.audioPresent),
         coverPresent,
         coverVersion,
+        liveBgName: doc.liveBgName ?? null,
+        liveBgMime: doc.liveBgMime ?? null,
+        liveBgUseCustom: Boolean(doc.liveBgUseCustom),
+        liveBgFit: doc.liveBgFit,
         charts: (Array.isArray(doc.charts) ? doc.charts : []).map(summarizeChart),
     };
 }
@@ -194,7 +202,11 @@ function summarizeProjectDoc(id, doc, coverStat) {
 function isValidSummary(summary) {
     if (!summary || typeof summary !== 'object') return false;
     if (typeof summary.id !== 'string' || !Array.isArray(summary.charts)) return false;
-    return summary.charts.every((c) => c && typeof c.id === 'string' && typeof c.noteCount === 'number');
+    if (!('lyricist' in summary) || !('composer' in summary) || !('arranger' in summary)) return false;
+    if (!('liveBgName' in summary) || !('liveBgMime' in summary) || !('liveBgUseCustom' in summary)) return false;
+    return summary.charts.every((c) => (
+        c && typeof c.id === 'string' && typeof c.noteCount === 'number' && 'charterCredit' in c
+    ));
 }
 
 function buildIndexEntry(projectStat, coverStat, summary) {

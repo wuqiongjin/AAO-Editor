@@ -97,12 +97,16 @@ export interface ChartSummaryWire {
   pendingPublish?: true;
   lastModified: number;
   noteCount: number;
+  charterCredit?: string | null;
 }
 
 export interface ProjectSummaryWire {
   id: string;
   name: string | null;
   artist: string | null;
+  lyricist?: string | null;
+  composer?: string | null;
+  arranger?: string | null;
   source: SongSource;
   durationSeconds: number;
   lastOpened: number;
@@ -111,6 +115,10 @@ export interface ProjectSummaryWire {
   audioPresent: boolean;
   coverPresent: boolean;
   coverVersion: string | null;
+  liveBgName?: string | null;
+  liveBgMime?: string | null;
+  liveBgUseCustom?: boolean;
+  liveBgFit?: LiveBgFit;
   charts: ChartSummaryWire[];
 }
 

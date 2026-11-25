@@ -10,6 +10,7 @@ import {
 } from '@/electron/storage/dataRoot.cjs';
 import {
   SCHEMA_VERSION,
+  SUMMARY_INDEX_VERSION,
   countChartNotes,
   deleteProject,
   getProjectSummary,
@@ -127,6 +128,7 @@ describe('chart-projects 44 · index.json 单索引缓存、自愈与缩略图�
         upload: null,
         lastModified: 1000,
         noteCount: 3,
+        charterCredit: null,
       });
       expect(rebuilt[0].charts[0]).not.toHaveProperty('notes');
       expect(rebuilt[0].charts[0]).not.toHaveProperty('appliedChartCodeText');
@@ -155,6 +157,41 @@ describe('chart-projects 44 · index.json 单索引缓存、自愈与缩略图�
       utimesSync(jsonPath, later, later);
       const refreshed = await listProjects(root);
       expect(refreshed[0].name).toBe('Externally Edited');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('同号旧形状摘要（缺署名 / liveBg 键）不命中，回源补齐字段', async () => {
+    const root = tmpDir('aao-idx-shape-');
+    try {
+      ensureDataRootLayoutSync(root);
+      await putProject(root, {
+        id: 'p1',
+        doc: makeDoc({ lyricist: 'L', composer: 'C', arranger: 'A' }),
+      });
+
+      const indexPath = projectCacheIndexPath(root);
+      const idx = JSON.parse(readFileSync(indexPath, 'utf8'));
+      expect(idx.version).toBe(SUMMARY_INDEX_VERSION);
+      const stale = idx.entries.p1.summary;
+      stale.name = 'Stale Shape';
+      delete stale.lyricist;
+      delete stale.composer;
+      delete stale.arranger;
+      delete stale.liveBgName;
+      delete stale.liveBgMime;
+      delete stale.liveBgUseCustom;
+      for (const chart of stale.charts) delete chart.charterCredit;
+      writeFileSync(indexPath, JSON.stringify(idx), 'utf8');
+
+      const list = await listProjects(root);
+      expect(list[0].name).toBe('Song A');
+      expect(list[0].lyricist).toBe('L');
+      expect(list[0].composer).toBe('C');
+      expect(list[0].arranger).toBe('A');
+      expect(list[0].liveBgUseCustom).toBe(false);
+      expect(list[0].charts[0].charterCredit).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

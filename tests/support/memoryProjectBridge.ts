@@ -102,6 +102,9 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
       id,
       name: (doc.name as string | null | undefined) ?? null,
       artist: (doc.artist as string | null | undefined) ?? null,
+      lyricist: (doc.lyricist as string | null | undefined) ?? null,
+      composer: (doc.composer as string | null | undefined) ?? null,
+      arranger: (doc.arranger as string | null | undefined) ?? null,
       source: (doc.source as ProjectSummaryWire['source']) ?? { type: 'custom' },
       durationSeconds: Number(doc.durationSeconds ?? 0),
       lastOpened: Number(doc.lastOpened ?? 0),
@@ -110,6 +113,10 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
       audioPresent: Boolean(doc.audioPresent),
       coverPresent,
       coverVersion: coverPresent && row.cover ? `1-${row.cover.byteLength}` : null,
+      liveBgName: (doc.liveBgName as string | null | undefined) ?? null,
+      liveBgMime: (doc.liveBgMime as string | null | undefined) ?? null,
+      liveBgUseCustom: Boolean(doc.liveBgUseCustom),
+      liveBgFit: doc.liveBgFit as ProjectSummaryWire['liveBgFit'],
       charts: charts.map((c) => ({
         id: String(c.id),
         title: (c.title as string | null | undefined) ?? null,
@@ -119,6 +126,7 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
         upload: (c.upload as ProjectSummaryWire['charts'][number]['upload']) ?? null,
         lastModified: Number(c.lastModified ?? 0),
         noteCount: countChartNotes((Array.isArray(c.notes) ? c.notes : []) as ChartNote[]),
+        charterCredit: (c.charterCredit as string | null | undefined) ?? null,
       })),
     };
   };

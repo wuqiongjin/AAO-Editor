@@ -120,6 +120,8 @@ export interface ChartSummary {
   pendingPublish?: true;
   lastModified: number;
   noteCount: number;
+  /** 谱师署名（票 79）：摘要要带，编辑谱面信息弹窗不为此再 get 整张 notes */
+  charterCredit?: string | null;
 }
 
 /** 目录 / 列表用轻量工程摘要（chart-projects 44）：Electron 走封面协议，Web 保留 coverBlob 降级 */
@@ -127,6 +129,9 @@ export interface ProjectSummary {
   id: string;
   name: string | null;
   artist: string | null;
+  lyricist?: string | null;
+  composer?: string | null;
+  arranger?: string | null;
   source: SongSource;
   durationSeconds: number;
   lastOpened: number;
@@ -137,6 +142,10 @@ export interface ProjectSummary {
   coverPresent: boolean;
   coverVersion?: string | null;
   coverBlob?: Blob;
+  liveBgName?: string | null;
+  liveBgMime?: string | null;
+  liveBgUseCustom?: boolean;
+  liveBgFit?: LiveBgFit;
 }
 
 export function summarizeChart(chart: ProjectChart): ChartSummary {
@@ -150,6 +159,7 @@ export function summarizeChart(chart: ProjectChart): ChartSummary {
     ...(chart.pendingPublish ? { pendingPublish: true } : {}),
     lastModified: chart.lastModified,
     noteCount: countChartNotes(chart.notes),
+    charterCredit: chart.charterCredit ?? null,
   };
 }
 
@@ -159,6 +169,9 @@ export function summarizeProject(project: ChartProject): ProjectSummary {
     id: project.id,
     name: project.name,
     artist: project.artist,
+    lyricist: project.lyricist ?? null,
+    composer: project.composer ?? null,
+    arranger: project.arranger ?? null,
     source: project.source,
     durationSeconds: project.durationSeconds,
     lastOpened: project.lastOpened,
@@ -168,6 +181,10 @@ export function summarizeProject(project: ChartProject): ProjectSummary {
     audioPresent: Boolean(project.audioBlob && project.audioBlob.size > 0) || project.audioName != null,
     coverPresent: Boolean(coverBlob),
     coverVersion: null,
+    liveBgName: project.liveBgName ?? null,
+    liveBgMime: project.liveBgMime ?? null,
+    liveBgUseCustom: Boolean(project.liveBgUseCustom),
+    liveBgFit: project.liveBgFit,
     ...(coverBlob ? { coverBlob } : {}),
   };
 }
@@ -419,6 +436,9 @@ function summaryFromWire(wire: ProjectSummaryWire): ProjectSummary {
     id: wire.id,
     name: wire.name ?? null,
     artist: wire.artist ?? null,
+    lyricist: wire.lyricist ?? null,
+    composer: wire.composer ?? null,
+    arranger: wire.arranger ?? null,
     source,
     durationSeconds: wire.durationSeconds,
     lastOpened: wire.lastOpened,
@@ -427,6 +447,10 @@ function summaryFromWire(wire: ProjectSummaryWire): ProjectSummary {
     audioPresent: Boolean(wire.audioPresent),
     coverPresent: Boolean(wire.coverPresent),
     coverVersion: wire.coverVersion ?? null,
+    liveBgName: wire.liveBgName ?? null,
+    liveBgMime: wire.liveBgMime ?? null,
+    liveBgUseCustom: Boolean(wire.liveBgUseCustom),
+    liveBgFit: wire.liveBgFit,
     charts: (wire.charts ?? []).map((c) => ({
       id: c.id,
       title: c.title ?? null,
@@ -437,6 +461,7 @@ function summaryFromWire(wire: ProjectSummaryWire): ProjectSummary {
       ...(c.pendingPublish ? { pendingPublish: true as const } : {}),
       lastModified: c.lastModified,
       noteCount: c.noteCount,
+      charterCredit: c.charterCredit ?? null,
     })),
   };
 }
@@ -479,7 +504,7 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     const project = projectFromRecord(id, doc, wire.audio, wire.cover);
     this.lastWrittenAudio.set(id, project.audioBlob ?? null);
     this.lastWrittenCover.set(id, project.coverBlob ?? null);
-    this.lastWrittenLiveBg.set(id, wire.doc.liveBgPresent ? STAGED_ON_DISK : null);
+    this.lastWrittenLiveBg.set(id, doc.liveBgPresent ? STAGED_ON_DISK : null);
     return project;
   }
 
