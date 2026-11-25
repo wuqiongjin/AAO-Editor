@@ -187,6 +187,9 @@ describe('展示辅助', () => {
     expect(formatKey(' ')).toBe('Space');
     expect(formatKey('ctrl+ ')).toBe('Ctrl+Space'); // 「跳回起点标记」组合键中空格的展示
     expect(formatKey('ctrl+shift+q')).toBe('Ctrl+Shift+Q');
+    expect(formatKey('arrowleft')).toBe('←');
+    expect(formatKey('arrowright')).toBe('→');
+    expect(formatKey('ctrl+arrowleft')).toBe('Ctrl+←');
   });
 
   it('categoryShortcuts 合并 切换/执行', () => {

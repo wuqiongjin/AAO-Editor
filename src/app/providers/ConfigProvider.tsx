@@ -72,6 +72,8 @@ export interface ConfigContextValue {
   setBeatSnap: (beatSnap: number) => void;
   /** 节拍吸附常用循环列表（issue 216）：写回 settings.beatSnapCycleList 并持久化 */
   setBeatSnapCycleList: (list: number[]) => void;
+  /** 键盘 seek 步长（issue 251）：段内写回后退 / 前进步长并持久化；与快捷键重置解耦 */
+  setSeekStepSeconds: (patch: { back?: number; forward?: number }) => void;
   /** 片段粘贴模式（issue 186）：写回 settings.patternPaste.withBpm 并持久化（记住上次选择） */
   setPatternPasteWithBpm: (withBpm: boolean) => void;
   /** 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化 */
@@ -229,6 +231,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     commit({ beatSnapCycleList: list });
   }, [commit]);
 
+  const setSeekStepSeconds = useCallback((patch: { back?: number; forward?: number }) => {
+    commit({
+      ...(patch.back !== undefined ? { seekStepBackSeconds: patch.back } : {}),
+      ...(patch.forward !== undefined ? { seekStepForwardSeconds: patch.forward } : {}),
+    });
+  }, [commit]);
+
   // 片段粘贴模式（issue 186）：与节拍吸附同范式——引用稳定（UIProvider 直接透传）
   const setPatternPasteWithBpm = useCallback((withBpm: boolean) => {
     commit({ patternPaste: { withBpm } });
@@ -303,6 +312,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setCurveConfig,
     setBeatSnap,
     setBeatSnapCycleList,
+    setSeekStepSeconds,
     setPatternPasteWithBpm,
     setPatternLibrarySort,
     setPlaybar,
@@ -333,6 +343,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setCurveConfig,
     setBeatSnap,
     setBeatSnapCycleList,
+    setSeekStepSeconds,
     setPatternPasteWithBpm,
     setPatternLibrarySort,
     setPlaybar,

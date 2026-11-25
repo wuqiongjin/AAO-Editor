@@ -6,6 +6,7 @@ import {
   PLAYBACK_SHORTCUT_IDS,
   stepAudioVolume,
   stepPlaybackRatePreset,
+  stepSeekSeconds,
 } from '@/src/playback/playbackShortcuts';
 import { SIM_PLAYBACK_RATE_PRESETS } from '@/src/playback/playbackRateState';
 
@@ -82,5 +83,15 @@ describe('issue 230 · 音量步进', () => {
 describe('issue 230 · 按住不连发名单', () => {
   it('只列四个播放控制功能（其它快捷键连发行为不变）', () => {
     expect([...PLAYBACK_SHORTCUT_IDS]).toEqual(['rateDown', 'rateUp', 'volumeDown', 'volumeUp']);
+  });
+});
+
+describe('issue 251 · 键盘 seek 步进', () => {
+  it('加减步长，钳在 [0, duration] 两端停住', () => {
+    expect(stepSeekSeconds(5, 1, 1, 12)).toBe(6);
+    expect(stepSeekSeconds(5, -1, 1, 12)).toBe(4);
+    expect(stepSeekSeconds(0, -1, 1, 12)).toBe(0);
+    expect(stepSeekSeconds(12, 1, 1, 12)).toBe(12);
+    expect(stepSeekSeconds(11.6, 1, 1, 12)).toBe(12);
   });
 });
