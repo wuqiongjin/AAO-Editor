@@ -402,6 +402,28 @@ export function layoutBpmGutter(
  * 纵向钉在 lineCanvasY；传入 surfaceH 时命中盒与画布求交（半截可点，完全出画 y1≥y2）。
  * 纯函数（不依赖 canvas 测量），供命中判定与单测共用。
  */
+/**
+ * BPM 就地编辑 HTML 输入框（ADR-0008 §5）：覆盖在沟槽数字上。
+ * 宽高估算与 `FinalVirtualCanvas` 原内联公式同款；纵向先按 `bpmLabelAnchorY` 对齐数字中心，
+ * 再把整盒钳进画布（issue 253：±3px 内边距会让 beat 0 底边溢出，`focus()` 带动滚动宿主）。
+ */
+export function bpmInlineInputBox(
+  beat: number,
+  lineCanvasY: number,
+  value: string,
+  fontPx: number,
+  trackStartX: number,
+  surfaceH: number,
+): { left: number; top: number; width: number; height: number; fontPx: number } {
+  const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
+  const width = Math.max((value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
+  const height = fontPx + 6;
+  const lineY = bpmLabelAnchorY(beat, lineCanvasY, fontPx, surfaceH);
+  const unclampedTop = lineY - fontPx / 2 - 3;
+  const top = Math.max(0, Math.min(unclampedTop, surfaceH - height));
+  return { left: Math.max(0, rightEdge - width), top, width, height, fontPx };
+}
+
 export function bpmLabelBox(
   trackStartX: number,
   lineCanvasY: number,

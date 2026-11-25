@@ -24,7 +24,7 @@ import {
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
 import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../rendering/playbackMarker';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
+import { GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmInlineInputBox } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
 import { buildPatternPastePayload } from '../../../patterns/paste';
@@ -497,8 +497,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     // 就地编辑输入框挂载即聚焦全选（光标置于数字内，§5）
+    // issue 253：必须 preventScroll——beat 0 输入盒贴判定线，默认 focus 会滚动 .ws-chart-area，整谱跟着跳。
     const attachBpmInput = useCallback((el: HTMLInputElement | null) => {
-        if (el) { el.focus(); el.select(); }
+        if (el) { el.focus({ preventScroll: true }); el.select(); }
     }, []);
 
     // issue 45：拆除顶层 key={projectId} 后，切工程时显式重置此前依赖卸载自动归零的瞬态编辑态
@@ -1080,8 +1081,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     if (bpmEdit) {
         const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
         const { trackStartX } = geometry.trackGeometry(viewport.scale);
-        const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
-        const width = Math.max((bpmEdit.value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
         const gutter = layoutBpmGutter(
             notes,
             (beat) => virtualToCanvas(0, beatToVirtualY(beat)).y,
@@ -1090,13 +1089,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             expandedBpmGroupKey,
         );
         const num = gutter.numerals.find((n) => Math.abs(n.beat - bpmEdit.beat) < 1e-9);
-        const lineY = bpmLabelAnchorY(
+        bpmInputBox = bpmInlineInputBox(
             bpmEdit.beat,
             num?.y ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y,
+            bpmEdit.value,
             fontPx,
+            trackStartX,
             surf.h,
         );
-        bpmInputBox = { left: Math.max(0, rightEdge - width), top: lineY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
     }
 
     // issue 50（Q24 a）：surface 为 null 时不渲染（chartArea 还未就绪；保护所有依赖 surface 的几何/绘制）

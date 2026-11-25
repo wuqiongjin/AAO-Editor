@@ -244,6 +244,9 @@
 - **249 谱面滚动条与 Playbar 往返拖动卡顿**（[249](./issues/249-谱面滚动条往返拖动卡顿.md)，`Type: bug`，resolved / 2026-11-24 已实现并实测）—— 废弃首轮 Portal 拆层恢复顶层 `<canvas>`，滚动条与 PlayBar 拖拽统一走冷区几何预览 + 合并裁切 + 停稳异步分片补建 + PlayBar rAF 合流，200% `Retribution` 播放无掉帧回退且 300% 滚动条/PlayBar 往返 0 长任务。
 - **250 冷启动与高倍缩放谱面播放掉帧**（[250](./issues/250-冷启动高倍缩放谱面播放掉帧.md)，`Type: chore`，resolved / 2026-11-24 已实现并实测）—— `renderNotesSteps` 把后台瓦片 `putImageData` 贴回切片为 2 ms/步并消除 `renderBandStrip` 冗余拷贝，连续外部缩放与 `Ctrl+滚轮` 共用 `armZoomGesture` 节流并消除 3+ 次续期漏洞；Electron 200% 切工程起播与 3 轮冷启动 0–500 ms 尖峰归零，300% PlayBar 拖动 0 长任务。
 - **251 键盘 seek 前进 / 后退**（[251](./issues/251-键盘seek前进后退.md)，`Type: grilling`，resolved / 2026-11-25 页面验收通过；tmp.diff 原编号 235，与曲线模板 235 撞号后顺延）—— **定了什么** = 新增 `seekBack` / `seekForward`（出厂 ← / →），工作台与动态预览都能用；只动播放时钟、合同跟现有拖条一致。按住自管节拍（keydown 立刻一跳，约 300ms 后每 50ms；2026-11-25 从 400/250 收紧），频率不开放。**后退步长 / 前进步长** 两套独立秒数、默认都是 1、范围 0.1–10；快捷键页两行齿轮开同一弹窗两格，与快捷键重置解耦。不做滚轮 seek、不挪播放条、不进设置页 / 显示面板 / 播放条。修订 ADR-0002「seek 不配键」。痛点来自动态预览摸条路程，解在快捷键系统。
+- **252 画布幽灵预览不跟随节奏图示大小**（[252](./issues/252-画布幽灵预览不跟随节奏图示大小.md)，`Type: bug`，resolved / 2026-11-24，待页面验收）—— 幽灵图标改走 `noteSpriteScale`（`viewport.scale × noteSize`），与实绘同口径；滑条段原本已跟随。
+- **253 第 0 拍 BPM 就地编辑画面移动**（[253](./issues/253-第0拍BPM就地编辑画面移动.md)，`Type: bug`，resolved / 2026-11-24，待页面验收）—— `focus({ preventScroll: true })` + 输入盒纵向钳进画布，避免 sticky 画布的滚动宿主被焦点带动。
+
 
 ## Not yet specified
 
