@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CTRL_WHEEL_ZOOM_IN,
+  CTRL_WHEEL_ZOOM_OUT,
   MAX_WHEEL_SCROLL_BOOST,
+  ctrlWheelZoomFactor,
   wheelDeltaPx,
   wheelScrollBoost,
 } from '@/src/chart/components/canvas/wheelScroll';
@@ -25,5 +28,18 @@ describe('画布滚轮滚动补偿', () => {
     expect(wheelDeltaPx(3, 1, 800)).toBe(48);
     expect(wheelDeltaPx(2, 2, 800)).toBe(1600);
     expect(wheelDeltaPx(Number.NaN, 0, 800)).toBe(0);
+  });
+});
+
+describe('issue 255 · Ctrl+滚轮缩放倍率', () => {
+  it('放大 1.15，缩小取其倒数，往返回到原点', () => {
+    expect(ctrlWheelZoomFactor(-100)).toBe(CTRL_WHEEL_ZOOM_IN);
+    expect(ctrlWheelZoomFactor(100)).toBe(CTRL_WHEEL_ZOOM_OUT);
+    expect(CTRL_WHEEL_ZOOM_IN).toBe(1.15);
+    expect(CTRL_WHEEL_ZOOM_IN * CTRL_WHEEL_ZOOM_OUT).toBe(1);
+  });
+
+  it('从 100% 放大 5 格到约 201%', () => {
+    expect(CTRL_WHEEL_ZOOM_IN ** 5).toBeCloseTo(2.011, 3);
   });
 });

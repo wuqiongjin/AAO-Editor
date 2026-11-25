@@ -28,10 +28,13 @@ describe('issue 200 · 画布滚轮反转（invertWheel）接线与逻辑锁', (
     expect(src).toMatch(/if\s*\(!e\.shiftKey\s*&&\s*!invert\s*&&\s*boost\s*===\s*1\)\s*return/);
   });
 
-  it('Ctrl+滚轮缩放逻辑保持原样，优先于 invertWheel', () => {
+  it('Ctrl+滚轮缩放优先于 invertWheel，倍率走 ctrlWheelZoomFactor', () => {
     const ctrlIdx = src.indexOf('if (e.ctrlKey)');
     const invertIdx = src.indexOf('const invert = display.invertWheel');
     expect(ctrlIdx).toBeGreaterThan(0);
     expect(invertIdx).toBeGreaterThan(ctrlIdx);
+    const ctrlBlock = src.slice(ctrlIdx, invertIdx);
+    expect(ctrlBlock).toMatch(/ctrlWheelZoomFactor\(e\.deltaY\)/);
+    expect(ctrlBlock).not.toMatch(/0\.9\s*:\s*1\.1/);
   });
 });

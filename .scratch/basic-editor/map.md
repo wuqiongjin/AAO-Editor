@@ -247,6 +247,7 @@
 - **252 画布幽灵预览不跟随节奏图示大小**（[252](./issues/252-画布幽灵预览不跟随节奏图示大小.md)，`Type: bug`，resolved / 2026-11-24，待页面验收）—— 幽灵图标改走 `noteSpriteScale`（`viewport.scale × noteSize`），与实绘同口径；滑条段原本已跟随。
 - **253 第 0 拍 BPM 就地编辑画面移动**（[253](./issues/253-第0拍BPM就地编辑画面移动.md)，`Type: bug`，resolved / 2026-11-24，待页面验收）—— `focus({ preventScroll: true })` + 输入盒纵向钳进画布，避免 sticky 画布的滚动宿主被焦点带动。
 - **254 Ctrl+左键整条选中后再点端点编辑只生效该端点**（[254](./issues/254-整条滑条选中态端点编辑只生效子件.md)，`Type: bug`，resolved / 2026-11-24 已实现）—— **根因** = 229 只补了拖动；issue 88 的 `hitInSelection` 仍用 `sameSelectionItem`，Ctrl+左键 `{kind:'note'}` 与光标 `slideNode`/`slideRegion` 永不相等 ⇒ 退化单改端点。**改成什么** = 点端点编辑与框选整条后再点该端点同源（整片生效）；选区结构不动；键型须把 `{kind:'note'}` 展开成结点+逻辑段，否则 `keyTargetsFromItems` 会空操作。
+- **255 Ctrl+滚轮缩放步长**（[255](./issues/255-Ctrl滚轮缩放步长.md)，`Type: feature`，resolved / 2026-11-25 已实现并锁测，待页面验收）—— 画布 Ctrl+滚轮每格改为 1.15 / 1/1.15（100% → ~201% 约 5 格）；工具栏 ± 仍 ±0.1；长按连发不做。
 
 
 ## Not yet specified

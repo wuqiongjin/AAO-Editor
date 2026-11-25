@@ -35,7 +35,7 @@ import {
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
-import { wheelDeltaPx, wheelScrollBoost } from './wheelScroll';
+import { ctrlWheelZoomFactor, wheelDeltaPx, wheelScrollBoost } from './wheelScroll';
 // 画布实时信息叠加（issue 22 / issue 179 / issue 188）：判定线处 BPM（左下）+ 已过 / 总数（右下）。
 // 独立子组件消费 currentSeconds，使 80ms 时间码节流更新只重渲本轻量 HUD，不触发整张画布重渲染。
 const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
@@ -784,7 +784,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // Ctrl+滚轮 = 缩放；普通滚动交给父容器（原生）
         if (e.ctrlKey) {
             e.preventDefault();
-            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            const zoomFactor = ctrlWheelZoomFactor(e.deltaY);
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
             const effNewScale = geometry.effectiveScale(newScale);
             // issue 144：钳住不动不改数字
