@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// issue 180 锁测：窄工具轨（177 Q2 / Q10 / Q11）——15 键 5 组、持工具态、即时动作的置灰
+// issue 180 锁测：窄工具轨（177 Q2 / Q10 / Q11）——15 键 5 组、持工具态
+// issue 256：复制 / 剪切进动作族，按钮只 arm/释放，不写剪贴板
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -29,6 +30,20 @@ function SelectOne() {
   );
 }
 
+function CopySel() {
+  const { copy } = useEditing();
+  return (
+    <button type="button" onClick={() => copy()}>
+      copy-sel
+    </button>
+  );
+}
+
+function ClipboardProbe() {
+  const { clipboard } = useEditing();
+  return <output data-testid="clip">{clipboard.length}</output>;
+}
+
 /** issue 186：点片段卡片 = 进片段粘贴持工具态（此处用探针模拟抽屉的那次回调） */
 function PastePattern() {
   const { togglePatternPaste } = useUI();
@@ -55,8 +70,10 @@ function setup() {
       <UIProvider>
         <EditingProvider>
           <SelectOne />
+          <CopySel />
           <PastePattern />
           <ArmedProbe />
+          <ClipboardProbe />
           <WorkspaceToolRail />
         </EditingProvider>
       </UIProvider>
@@ -110,22 +127,30 @@ describe('issue 180 · 工作台窄工具轨', () => {
     expect(tip.querySelectorAll('kbd').length).toBeGreaterThan(0);
   });
 
-  it('复制 / 剪切是即时动作：无选区置灰并提示，有选区可点且不进持工具态', () => {
+  it('issue 256：复制 / 剪切与删除同构——无选区可进态；有选区点击也只进态、不写剪贴板；再点落回指针', () => {
     setup();
-    expect(tool('复制')).toBeDisabled();
-    expect(tool('剪切')).toBeDisabled();
-    expect(within(tool('复制')).getByRole('tooltip')).toHaveTextContent('先选中音符');
-    expect(tool('复制')).not.toHaveAttribute('aria-pressed');
+    expect(tool('复制')).toBeEnabled();
+    expect(tool('剪切')).toBeEnabled();
+    expect(tool('复制')).toHaveAttribute('aria-pressed', 'false');
+    expect(tool('剪切')).not.toHaveClass('is-danger');
+    expect(tool('删除')).toHaveClass('is-danger');
+
+    fireEvent.click(tool('复制'));
+    expect(armed()).toBe('copy');
+    expect(tool('复制')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('clip')).toHaveTextContent('0');
 
     fireEvent.click(screen.getByRole('button', { name: 'select-one' }));
-    expect(tool('复制')).toBeEnabled();
+    fireEvent.click(tool('剪切'));
+    expect(armed()).toBe('cut');
+    expect(tool('剪切')).toHaveAttribute('aria-pressed', 'true');
+    expect(tool('复制')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('clip')).toHaveTextContent('0');
     expect(tool('粘贴')).toBeDisabled();
-    fireEvent.click(tool('复制'));
+
+    fireEvent.click(tool('剪切'));
     expect(armed()).toBe('pointer');
-    // 复制后剪贴板非空 → 粘贴可进态
-    expect(tool('粘贴')).toBeEnabled();
-    fireEvent.click(tool('粘贴'));
-    expect(armed()).toBe('paste');
+    expect(tool('剪切')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('粘贴空剪贴板置灰，tooltip 说明原因', () => {
@@ -143,7 +168,7 @@ describe('issue 186 · 片段粘贴态下的「粘贴」钮', () => {
   it('剪贴板非空 → 回剪贴板来源（仍持粘贴工具，不退出）', () => {
     setup();
     fireEvent.click(screen.getByRole('button', { name: 'select-one' }));
-    fireEvent.click(tool('复制'));
+    fireEvent.click(screen.getByRole('button', { name: 'copy-sel' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'paste-pattern' }));
     expect(armed()).toBe('paste');

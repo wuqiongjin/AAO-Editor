@@ -19,11 +19,11 @@ export type FunctionId =
   // 光标在段=重应用 / 空白=挂锚点续段（按光标分发，对齐 execSlide 双语义先例）。
   // 默认键不用 Ctrl+W——浏览器保留键（关标签、preventDefault 拦不住）。
   | 'switchCurve' | 'execCurve'
-  // ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——连续复制无意义、连续剪切有误删风险，
-  // 二者必须有选区，只保留 execCopy / execCut 作用于选区。故无 switchCopy / switchCut。
-  | 'execCopy'
+  // issue 256 / ADR-0008 §2.1：复制/剪切进持工具态。切换键 C / X 只 arm；
+  // Ctrl+C / Ctrl+X 仍是作用于当前选区的执行键（不改 armedTool）。
+  | 'switchCopy' | 'execCopy'
   | 'switchPaste' | 'execPaste'
-  | 'execCut'
+  | 'switchCut' | 'execCut'
   | 'switchDelete' | 'execDelete'
   | 'switchMirror' | 'execMirror'
   // issue 59 §2：音符代码 = 持工具态（点谁看谁）；Ctrl+B = 打开光标处音符的代码（不切工具的快捷版）
@@ -85,9 +85,11 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'execSlide',          label: 'shortcut.fn.execSlide',          category: 'slide', binding: 'ctrl+e' },
   { id: 'switchCurve',        label: 'shortcut.fn.switchCurve',        category: 'curve', binding: 'w' },
   { id: 'execCurve',          label: 'shortcut.fn.execCurve',          category: 'curve', binding: 'shift+w' },
+  { id: 'switchCopy',         label: 'shortcut.fn.switchCopy',         category: 'copy', binding: 'c' },
   { id: 'execCopy',           label: 'shortcut.fn.execCopy',           category: 'copy', binding: 'ctrl+c' },
   { id: 'switchPaste',        label: 'shortcut.fn.switchPaste',        category: 'paste', binding: 'v' },
   { id: 'execPaste',          label: 'shortcut.fn.execPaste',          category: 'paste', binding: 'ctrl+v' },
+  { id: 'switchCut',          label: 'shortcut.fn.switchCut',          category: 'cut', binding: 'x' },
   { id: 'execCut',            label: 'shortcut.fn.execCut',            category: 'cut', binding: 'ctrl+x' },
   { id: 'switchDelete',       label: 'shortcut.fn.switchDelete',       category: 'delete', binding: 't' },
   { id: 'execDelete',         label: 'shortcut.fn.execDelete',         category: 'delete', binding: 'ctrl+t' },

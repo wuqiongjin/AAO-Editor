@@ -556,11 +556,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       // issue 185：收藏选区为片段。**故意不进 `CHART_EDIT_FUNCTIONS`** —— 它读的是选区、
       // 不写谱面，只读（已上传）谱面也允许；上面的闸门判断因此不会拦它。
       case 'execSavePattern': void saveSelection(); break;
+      case 'switchCopy': setArmedTool('copy'); break;
       case 'execCopy': copy(); break;
       // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
       // 与工具栏按钮同步：不进态。键鼠一致（避免"界面无、键盘有"的错位）。
       case 'switchPaste': if (clipboard.length > 0) setArmedTool('paste'); break;
       case 'execPaste': pasteAtCursor(); break;
+      case 'switchCut': setArmedTool('cut'); break;
       case 'execCut': cut(); break;
       case 'switchDelete': setArmedTool('delete'); break;
       case 'execDelete': deleteSelectedNotes(); break;
