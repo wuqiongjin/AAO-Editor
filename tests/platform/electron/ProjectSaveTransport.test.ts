@@ -17,6 +17,8 @@ function fixture(): ChartProject {
     charts: [{
       id: 'c1', title: null, diff: 3, level: null, completed: false, upload: null,
       lastModified: 1, chartCodePristine: true,
+      // 票 79：谱师署名随谱面记录跨 JSON 文本往返
+      charterCredit: 'A、B',
       appliedChartCodeText: '[ {"type":"System","data":"未知字段保真"} ]',
       notes: [
         { type: 'BPM', beat: 0, bpm: 120 },
@@ -43,6 +45,7 @@ function transport(root: string) {
     list: () => invoke('project:list') as ReturnType<ElectronProjectBridge['list']>,
     delete: (id) => invoke('project:delete', id),
     uploadRefs: (id) => invoke('project:uploadRefs', id) as ReturnType<ElectronProjectBridge['uploadRefs']>,
+    getLiveBg: (id) => invoke('project:getLiveBg', id) as ReturnType<ElectronProjectBridge['getLiveBg']>,
   };
   return { backend: new ElectronFileProjectBackend(bridge), put, invoke };
 }

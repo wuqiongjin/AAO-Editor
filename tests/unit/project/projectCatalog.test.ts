@@ -354,6 +354,25 @@ describe('duplicateProject · 照搬工程、谱面状态不带', () => {
     expect(src.charts[0].completed).toBe(true);
     expect(src.charts[0].upload).toEqual({ postId: 254301, at: 3 });
   });
+
+  it('票 42 · 自定义表演背景元数据一起带走（sidecar 由存储层拷）', () => {
+    const src = createBlankProject({
+      id: 'pSrcBg',
+      chartId: 'cSrcBg',
+      now: 10,
+      name: 'FIRE BIRD',
+      diff: 3,
+    });
+    src.liveBgName = 'live.png';
+    src.liveBgMime = 'image/png';
+    src.liveBgUseCustom = true;
+    src.liveBgFit = 'contain';
+    const copy = duplicateProject(src, { id: 'pCopyBg', chartIds: ['cCopyBg'], now: 99 });
+    expect(copy.liveBgName).toBe('live.png');
+    expect(copy.liveBgMime).toBe('image/png');
+    expect(copy.liveBgUseCustom).toBe(true);
+    expect(copy.liveBgFit).toBe('contain');
+  });
 });
 
 describe('票 42 Q3 · 发布描述草稿持久化', () => {

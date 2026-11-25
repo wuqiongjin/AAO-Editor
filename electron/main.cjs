@@ -4,7 +4,7 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, n
 const path = require('path');
 const os = require('os');
 const { autoUpdater } = require('electron-updater');
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
 const {
     loadDataRootSync,
     cacheDir,

@@ -28,7 +28,7 @@ function setup() {
 
 const trigger = () => screen.getByRole('button', { name: '画布显示设置' });
 const panel = () => screen.getByRole('dialog', { name: '画布显示设置' });
-const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
+const clickOutside = () => fireEvent.pointerDown(document.body);
 const stored = (): StoredSettings => JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as StoredSettings;
 
 const noteSizeSlider = () => within(panel()).getByRole('slider', { name: '节奏图示大小' });
@@ -281,8 +281,8 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     fireEvent.click(trigger());
     expect(panel()).toBeInTheDocument();
 
-    // 点遮罩关
-    fireEvent.click(scrim());
+    // 点面板外关
+    clickOutside();
     expect(screen.queryByRole('dialog', { name: '画布显示设置' })).not.toBeInTheDocument();
   });
 

@@ -152,13 +152,12 @@ export interface ActiveNoteIcons {
   /** SP 段连接带（longNoteLine2 无缝变体，ADR-0009 §5：段内任一 hidden → 该段用之）；包缺失时回退 slideBand */
   slideBandSp: SpriteIconConfig;
   slideAmongFor(lane: number): SpriteIconConfig;
-  /** 滑条端点基底（= note_long 长条端帽；结点带 flick/skill 时由调用方 spread 覆盖） */
-  slideEndpointFor(lane: number): SpriteIconConfig;
   /**
-   * 滑条端点的**逐轨**精灵（`note_long_<lane>`，chart-preview 25 #2，仿真场专用）：
-   * 按住期间接触点上那枚端帽，轨位按插值**就近取整**（照 bundle 的 `Math.round(e + 3)`）。
+   * 滑条端点基底（= note_long 长条端帽；结点带 flick/skill 时由调用方 spread 覆盖）。
+   * 全轨道恒取 FLAT_LANE 那张：逐轨 `note_long_<lane>` 自带舞台透视倾角（外轨歪），
+   * 票 77 起连按住期间的接触点端帽也一样扁平。
    */
-  slideEndpointLaneFor(lane: number): SpriteIconConfig;
+  slideEndpointFor(lane: number): SpriteIconConfig;
   /** 滑键顶部箭头装饰（墨迹精确组合；包未提供时为 null） */
   flickTopDecorator: SpriteIconConfig | null;
   /**
@@ -332,10 +331,6 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     slideBandSp: bandSpConfig,
     slideAmongFor: () => amongConfig,
     slideEndpointFor: () => longConfig,
-    slideEndpointLaneFor: (lane) => {
-      const r = laneRect(slidePack.long, lane);
-      return r ? rectToConfig(slidePack.atlas, r) : longConfig;
-    },
     flickTopDecorator,
     simultaneousLine,
     dirGroup,

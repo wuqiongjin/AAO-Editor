@@ -87,12 +87,10 @@ describe('issue 209 · 工作台顶栏切换器视觉与动效', () => {
     fireEvent.click(trigger);
     expect(caret).not.toHaveClass('is-open');
 
-    // 再次打开并通过点击 scrim 关闭
+    // 再次打开并通过点击面板外关闭
     fireEvent.click(trigger);
     expect(caret).toHaveClass('is-open');
-    const scrim = document.querySelector('.pp-menu__scrim') as HTMLElement;
-    expect(scrim).toBeInTheDocument();
-    fireEvent.click(scrim);
+    fireEvent.pointerDown(document.body);
     expect(caret).not.toHaveClass('is-open');
   });
 });

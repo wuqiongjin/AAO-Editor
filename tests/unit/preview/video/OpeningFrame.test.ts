@@ -6,11 +6,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPENING_ITEMS,
+  OPENING_COVER_INTRO_SECONDS,
+  OPENING_STACK,
+  OPENING_STACK_T,
   OPENING_FADE_IN_SECONDS,
   OPENING_FADE_OUT_SECONDS,
   OPENING_HOLD_SECONDS,
   OPENING_ITEM_IDS,
   OPENING_SECONDS,
+  OPENING_STACK_DRIFT_AT,
+  OPENING_STACK_DRIFT_SECONDS,
   OPENING_TRACK_IN_AT,
   OPENING_TRACK_IN_SECONDS,
   drawOpeningFieldBackground,
@@ -18,18 +23,24 @@ import {
   drawOpeningTrack,
   extractCreditLines,
   openingAlphaAt,
+  openingCoverIntroAt,
   openingItemOrder,
   openingSegmentAt,
+  openingStackDriftAt,
   openingStackMetrics,
   openingTrackAlphaAt,
   type OpeningFrameInput,
   type OpeningItemId,
 } from '@/src/preview/video/opening';
 import { fieldMetrics } from '@/src/preview/video/sim/simGeometry';
-import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
+import { getActiveUiLanguage, setActiveUiLanguage } from '@/src/i18n';
+import { fillTexts, makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
 /** 假封面（node 环境没有真图；`drawSquareCover` 只读 width / height） */
 const coverStub = () => ({ width: 512, height: 512 }) as unknown as CanvasImageSource;
+
+/** 垫层推到位的露出厚度（1080p）：`OPENING_STACK_T × 位移倍率` —— 2026-10-27 定稿 1.45× */
+const STACK_D = Math.round(OPENING_STACK_T * OPENING_STACK.distance * 1080);
 
 function frameInput(over: Partial<OpeningFrameInput> = {}): OpeningFrameInput {
   return {
@@ -59,26 +70,32 @@ const texts = (calls: RecordedCall[]) =>
   calls.filter(([k]) => k === 'fillText').map(([, a]) => String(a[0]));
 
 describe('chart-preview 30 · 四段时长（用户 2026-10-10 逐段拍板）', () => {
-  it('① 1.0 / ② 1.5 / ③ 1.0 / ④ 1.5 ⇒ 合计 5.0s；④ 起点在 3.5s', () => {
-    expect(OPENING_FADE_IN_SECONDS).toBe(1.0);
-    expect(OPENING_HOLD_SECONDS).toBe(1.5);
-    expect(OPENING_FADE_OUT_SECONDS).toBe(1.0);
-    expect(OPENING_TRACK_IN_SECONDS).toBe(1.5);
-    expect(OPENING_SECONDS).toBe(5.0);
-    expect(OPENING_TRACK_IN_AT).toBe(3.5);
+  it('① 1 / ② 2.2 / ③ 1.75 / ④ 1.8 ⇒ 合计 6.75s（2026-10-27 定稿）；④ 起点在 4.95s', () => {
+    expect(OPENING_FADE_IN_SECONDS).toBe(1);
+    expect(OPENING_HOLD_SECONDS).toBe(2.2);
+    expect(OPENING_FADE_OUT_SECONDS).toBe(1.75);
+    expect(OPENING_TRACK_IN_SECONDS).toBe(1.8);
+    expect(OPENING_SECONDS).toBe(6.75);
+    expect(OPENING_TRACK_IN_AT).toBe(4.95);
   });
 
   it('分段边界', () => {
     expect(openingSegmentAt(0)).toBe('fadeIn');
     expect(openingSegmentAt(0.99)).toBe('fadeIn');
     expect(openingSegmentAt(1.0)).toBe('hold');
-    expect(openingSegmentAt(2.49)).toBe('hold');
-    expect(openingSegmentAt(2.5)).toBe('fadeOut');
-    expect(openingSegmentAt(3.49)).toBe('fadeOut');
-    expect(openingSegmentAt(3.5)).toBe('trackIn');
-    expect(openingSegmentAt(4.99)).toBe('trackIn');
-    expect(openingSegmentAt(5.0)).toBe('sim');
+    expect(openingSegmentAt(3.19)).toBe('hold');
+    expect(openingSegmentAt(3.2)).toBe('fadeOut');
+    expect(openingSegmentAt(4.94)).toBe('fadeOut');
+    expect(openingSegmentAt(4.95)).toBe('trackIn');
+    expect(openingSegmentAt(6.74)).toBe('trackIn');
+    expect(openingSegmentAt(6.75)).toBe('sim');
     expect(openingSegmentAt(9.9)).toBe('sim');
+  });
+
+  it('票 74 · ④ 之后仍是 sim 段（前导补偿帧由 frameDriver 按负秒取）', () => {
+    expect(openingSegmentAt(OPENING_SECONDS - 0.01)).toBe('trackIn');
+    expect(openingSegmentAt(OPENING_SECONDS)).toBe('sim');
+    expect(openingSegmentAt(OPENING_SECONDS + 1.25)).toBe('sim');
   });
 });
 
@@ -87,19 +104,19 @@ describe('chart-preview 30 · 两段 alpha', () => {
     expect(openingAlphaAt(0)).toBe(0);
     expect(openingAlphaAt(0.5)).toBeCloseTo(0.5, 5);
     expect(openingAlphaAt(1.0)).toBe(1);
-    expect(openingAlphaAt(2.4)).toBe(1);
-    expect(openingAlphaAt(3.0)).toBeCloseTo(0.5, 5);
-    expect(openingAlphaAt(3.5)).toBe(0);
-    expect(openingAlphaAt(4.5)).toBe(0);
+    expect(openingAlphaAt(3.1)).toBe(1);
+    expect(openingAlphaAt(4.075)).toBeCloseTo(0.5, 5);
+    expect(openingAlphaAt(4.95)).toBe(0);
+    expect(openingAlphaAt(5.5)).toBe(0);
   });
 
   it('轨道层：④ 之前全 0（③ 里只有背景图），④ 里 0 → 1，之后恒 1', () => {
     expect(openingTrackAlphaAt(0)).toBe(0);
-    expect(openingTrackAlphaAt(3.49)).toBe(0);
-    expect(openingTrackAlphaAt(3.5)).toBe(0);
-    expect(openingTrackAlphaAt(4.25)).toBeCloseTo(0.5, 5);
-    expect(openingTrackAlphaAt(5.0)).toBe(1);
-    expect(openingTrackAlphaAt(6.5)).toBe(1);
+    expect(openingTrackAlphaAt(4.94)).toBe(0);
+    expect(openingTrackAlphaAt(4.95)).toBe(0);
+    expect(openingTrackAlphaAt(5.85)).toBeCloseTo(0.5, 5);
+    expect(openingTrackAlphaAt(6.75)).toBeCloseTo(1, 6);
+    expect(openingTrackAlphaAt(8)).toBe(1);
   });
 });
 
@@ -122,7 +139,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
     const coverAt = calls.findIndex(([k]) => k === 'drawImage');
-    const stackAt = calls.findIndex(([k, a]) => k === 'fillRect' && (a as number[])[2] === 12);
+    const stackAt = calls.findIndex(([k, a]) => k === 'fillRect' && (a as number[])[2] === STACK_D);
     expect(coverAt).toBeGreaterThan(0);
     expect(stackAt).toBeGreaterThan(0);
     expect(stackAt).toBeLessThan(coverAt);
@@ -131,7 +148,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
   it('垫层**只画露出来的 L 形**（第五轮）：不出现一整块纯色方形', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
-    const stackSize = 518 + 12 - 11; // 封面 + t − i
+    const stackSize = 486 + STACK_D - 11; // 封面 + t − i
     const full = fillRects(calls).filter((r) => r[2] === stackSize && r[3] === stackSize);
     expect(full).toEqual([]);
   });
@@ -145,7 +162,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
     expect(t).toContain('Roselia');
   });
 
-  it('三项全关 ⇒ 只剩封面（不画徽章 / 白条 / 艺人行，且整块重新垂直居中）', () => {
+  it('七项全关 ⇒ 只剩封面（不画徽章 / 白条 / 艺人行 / credits，且整块重新垂直居中）', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput({ items: [] }), 1);
     expect(texts(calls)).toEqual([]);
@@ -210,6 +227,17 @@ describe('chart-preview 30 · 场地的两层（③ 背景 / ④ 轨道）', () 
     expect(propValues(calls, 'globalAlpha')).toEqual([1]);
   });
 
+  // 票 84 第四轮：用户"有点快" ⇒ 0.7 → 1.1 → **2.0s**（原型定档）；原型可按 `coverIntroDur` 覆盖
+  it('④ 相框封面登场：④ 起点起算、缺省 2.0s 走完；时长可覆盖（原型调参）', () => {
+    expect(OPENING_COVER_INTRO_SECONDS).toBe(2);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT - 0.01)).toBe(0);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT)).toBe(0);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT + 1)).toBeCloseTo(0.5, 6);
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT + 2.1)).toBe(1);
+    // 覆盖时长 1.2s：同一时刻只走到 0.5
+    expect(openingCoverIntroAt(OPENING_TRACK_IN_AT + 0.6, undefined, 1.2)).toBeCloseTo(0.5, 6);
+  });
+
   it('④ 的 alpha 渐显；alpha ≤ 0 时整层不画', () => {
     const half = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningTrack(half.proxy, m, imgs, 0.5);
@@ -221,11 +249,94 @@ describe('chart-preview 30 · 场地的两层（③ 背景 / ④ 轨道）', () 
   });
 });
 
+// 50：堆叠缓出（定案 A 轻推）—— 垫层从封面正后方向右上推出，单层、小位移、缓出曲线
+describe('chart-preview 50 · 堆叠 A 轻推', () => {
+  it('缓出曲线：0.4s 起推 2.5s 到位（2026-10-27 定稿）；缺省（Infinity）= 已推完', () => {
+    expect(OPENING_STACK_DRIFT_AT).toBe(0.4);
+    expect(OPENING_STACK_DRIFT_SECONDS).toBe(2.5);
+    expect(openingStackDriftAt(0)).toBe(0);
+    expect(openingStackDriftAt(0.4)).toBe(0);
+    expect(openingStackDriftAt(-1)).toBe(0);
+    expect(openingStackDriftAt(1.65)).toBeCloseTo(0.875, 6); // 缓出三次：过半时已推 87.5%
+    expect(openingStackDriftAt(2.9)).toBe(1);
+    expect(openingStackDriftAt(6.7)).toBe(1);
+    expect(openingStackDriftAt(Number.POSITIVE_INFINITY)).toBe(1);
+  });
+
+  it('没推出来时垫层不画（厚度 0）；推完后顶条露出的厚度 = stackD', () => {
+    const m = openingStackMetrics(1920, 1080, [...OPENING_ITEM_IDS], 0, OPENING_STACK.distance);
+    const thickness = (seconds?: number) => {
+      const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+      if (seconds === undefined) drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
+      else drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1, seconds);
+      // 顶条：起点在封面左缘之内、y 在封面上方
+      const band = fillRects(calls)
+        .filter((r) => Math.abs(r[0] - (m.coverX + m.stackInset)) < 1.5 && r[1] < m.top)
+        .sort((a, b) => a[1] - b[1])[0];
+      return band ? m.top - band[1] : 0;
+    };
+    expect(thickness(0)).toBe(0);
+    expect(thickness(2.9)).toBe(m.stackD);
+    expect(thickness()).toBe(m.stackD); // 缺省 = 最终版式（返回类型：number）
+  });
+
+});
+
 describe('chart-preview 30 · 信息项的有序列表', () => {
-  it('只留开着的项，顺序照 `OPENING_ITEM_IDS`', () => {
+  it('只留开着的项，顺序照 `OPENING_ITEM_IDS`（票 79 起共 7 项）', () => {
     const items = { ...DEFAULT_OPENING_ITEMS, title: false } as Record<OpeningItemId, boolean>;
-    expect(openingItemOrder(items)).toEqual(['difficulty', 'artist']);
+    expect(openingItemOrder(items)).toEqual([
+      'difficulty', 'artist', 'lyricist', 'composer', 'arranger', 'charter',
+    ]);
     expect(openingItemOrder({ ...DEFAULT_OPENING_ITEMS })).toEqual([...OPENING_ITEM_IDS]);
+  });
+});
+
+describe('票 79 · 附加字段逐项 gate + i18n 标签', () => {
+  const allCredits = {
+    lyricist: '織田あすか',
+    composer: '都丸椋太',
+    arranger: '堀川大翼',
+    charter: 'A、B',
+  };
+
+  it('extractCreditLines 只取开着的项；关掉的两行不画也不占位', () => {
+    expect(extractCreditLines(allCredits, ['composer', 'charter'])).toEqual([
+      '作曲：都丸椋太', '谱师：A、B',
+    ]);
+    expect(extractCreditLines(allCredits, [])).toEqual([]);
+    expect(extractCreditLines(null, [...OPENING_ITEM_IDS])).toEqual([]);
+  });
+
+  it('drawOpeningFrameAt：开 2 关 2 只画 2 行，且栈高按 2 行算', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
+      credits: allCredits,
+      items: ['difficulty', 'title', 'artist', 'composer', 'charter'],
+    }), 1);
+    const t = texts(calls).filter((s) => /作词|作曲|编曲|谱师/.test(s));
+    expect(t).toEqual(['作曲：都丸椋太', '谱师：A、B']);
+  });
+
+  it('联合创作的名字原样一行输出（不解析、不拆行）', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
+      credits: { charter: 'A、B / C' },
+      items: [...OPENING_ITEM_IDS],
+    }), 1);
+    expect(texts(calls).filter((s) => /谱师/.test(s))).toEqual(['谱师：A、B / C']);
+  });
+
+  it('英文界面：Lyricist / Composer / Arranger / Charter + 半角冒号空格', () => {
+    const prev = getActiveUiLanguage();
+    setActiveUiLanguage('en');
+    try {
+      expect(extractCreditLines(allCredits, [...OPENING_ITEM_IDS])).toEqual([
+        'Lyricist: 織田あすか', 'Composer: 都丸椋太', 'Arranger: 堀川大翼', 'Charter: A、B',
+      ]);
+    } finally {
+      setActiveUiLanguage(prev);
+    }
   });
 });
 
@@ -261,8 +372,19 @@ describe('chart-preview 39 · 可选附加字段（作词/作曲/编曲/谱师�
     expect(t.filter((s) => /作词|作曲|编曲/.test(s))).toEqual([]);
   });
 
-  it('方案 B 首字对齐块居中：多个字段时，首字 X 坐标完全一致（严格垂直对齐）', () => {
-    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+  it('2026-11-22 逐行墨迹居中：多行各自按墨迹框居中（推翻票 39 方案 B 的首字对齐）', () => {
+    // 每行按字数给不同墨迹宽，才能把"逐行居中"和"统一 x 落笔"区分开
+    const measureByLength = (text: unknown) => {
+      const width = String(text).length * 20;
+      return {
+        width,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxRight: width,
+        actualBoundingBoxAscent: 30,
+        actualBoundingBoxDescent: 8,
+      };
+    };
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureByLength });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
       credits: {
         lyricist: '織田あすか（Elements Garden）',
@@ -272,18 +394,15 @@ describe('chart-preview 39 · 可选附加字段（作词/作曲/编曲/谱师�
       },
     }), 1);
 
-    // 过滤出 credits 字段绘制的 fillText 调用
-    const creditCalls = calls.filter(
-      ([k, a]) => k === 'fillText' && /作词|作曲|编曲|谱师/.test(String((a as unknown[])[0])),
-    );
-    expect(creditCalls.length).toBe(4);
+    const creditTexts = fillTexts(calls)
+      .filter(([, args]) => /作词|作曲|编曲|谱师/.test(String(args[0])))
+      .map(([, args]) => [String(args[0]), args[1], args[2]] as const);
+    expect(creditTexts).toHaveLength(4);
+    for (const [text, x] of creditTexts) {
+      expect(x).toBeCloseTo(960 - text.length * 10, 5);
+    }
 
-    // 方案 B 不变量：所有 credits 行的 x 坐标必须相同（首字对齐）
-    const xPositions = creditCalls.map(([, a]) => (a as number[])[1]);
-    expect(new Set(xPositions).size).toBe(1);
-
-    // y 坐标单调递增
-    const yPositions = creditCalls.map(([, a]) => (a as number[])[2]);
+    const yPositions = creditTexts.map(([, , y]) => y);
     for (let i = 1; i < yPositions.length; i++) {
       expect(yPositions[i]).toBeGreaterThan(yPositions[i - 1]);
     }

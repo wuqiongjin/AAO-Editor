@@ -3,6 +3,7 @@
 // 切工程时编辑态整体换成新工程，剪贴板不清空。
 import { DEFAULT_BPM } from '../audio/AudioTiming';
 import { DEFAULT_CHART_DURATION_SECONDS } from '../audio/chartDuration';
+import { defaultCharterCredit } from './charterCredit';
 import { createHistory, type HistoryState } from '../chart/editing/History';
 import type { ChartNote, SelectionItem } from '../chart/types';
 import type { ChartProject, ChartUploadRecord, PendingChartPublish, ProjectChart } from './ChartProject';
@@ -70,6 +71,8 @@ export function createUnnamedProject(opts: { id: string; chartId: string; now: n
     lastModified: opts.now,
     appliedChartCodeText: null,
     chartCodePristine: false,
+    // 票 79：只在新建谱面这一刻落值；换账号 / 登出都不回写已有谱面
+    charterCredit: defaultCharterCredit(),
   };
   return {
     id: opts.id,

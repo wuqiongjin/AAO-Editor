@@ -299,6 +299,10 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
 }) {
   const [name, setName] = useState(project.name ?? '');
   const [artist, setArtist] = useState(project.artist ?? '');
+  // 曲目署名（票 79）：工程级 3 项；谱师署名在谱面信息弹窗（谱面级）
+  const [lyricist, setLyricist] = useState(project.lyricist ?? '');
+  const [composer, setComposer] = useState(project.composer ?? '');
+  const [arranger, setArranger] = useState(project.arranger ?? '');
   // 封面三态：null 沿用既有 / File 新选 / 'clear' 清除（保存时按此推导 patch 出参）
   const [cover, setCover] = useState<CoverValue>(null);
   // 只管既有封面的 URL：新选的 File 由 CoverField 自己开，同一张图不建两次 objectURL。
@@ -339,6 +343,9 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
   const buildPatch = () => ({
     name,
     artist,
+    lyricist,
+    composer,
+    arranger,
     source: project.source,
     coverName: cover instanceof File ? cover.name : undefined,
     coverBlob: cover instanceof File ? cover : undefined,
@@ -352,6 +359,7 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
 
   return (
     <Dialog
+      size="xl"
       title={t('projects.editTitle')}
       onClose={handleDialogClose}
       footer={(
@@ -366,24 +374,49 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
         </>
       )}
     >
-      {/* 封面在左：它是工程在启动台的门面，不该缩成字段流里的一小块 */}
-      <div className="dialog-edit-grid">
-        <CoverField
-          label={t('projects.cover')}
-          value={cover}
-          previewUrl={existingPreview}
-          onChange={setCover}
-        />
-        <div className="dialog-edit-fields">
-          <label className="dialog-field">
-            <span>{t('projects.name')}</span>
-            <input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label className="dialog-field">
-            <span>{t('projects.artist')}</span>
-            <input value={artist} placeholder={t('projects.artistMissing')} onChange={(e) => setArtist(e.target.value)} />
-          </label>
+      {/* 上半区：封面放大成 200px 方块，右栏只放工程名 + 曲目署名，两边高度基本齐平。
+          下半区的音频 / 曲目归属改为整行铺满，不再挤在右栏底部（票 79 二次 UI 回修）。 */}
+      <div className="dialog-edit-main">
+        <div className="dialog-edit-grid">
+          <CoverField
+            label={t('projects.cover')}
+            value={cover}
+            previewUrl={existingPreview}
+            onChange={setCover}
+          />
+          <div className="dialog-edit-fields">
+            <label className="dialog-field">
+              <span>{t('projects.name')}</span>
+              <input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} />
+            </label>
 
+            {/* 曲目署名（票 79 / ADR-0024 §2）：四项同属工程级，收进一张紧凑分组卡、2×2 排布，
+                别再把四个输入框竖着堆成一条长龙；空着即不画，不需要「可稍后填写」占位提示。 */}
+            <section className="dialog-credits-section" aria-label={t('projects.credit.group')}>
+              <div className="dialog-credits-section__title">{t('projects.credit.group')}</div>
+              <div className="dialog-credits-section__grid">
+                <label className="dialog-field">
+                  <span>{t('projects.artist')}</span>
+                  <input value={artist} placeholder={t('projects.artistMissing')} onChange={(e) => setArtist(e.target.value)} />
+                </label>
+                <label className="dialog-field">
+                  <span>{t('projects.credit.lyricist')}</span>
+                  <input value={lyricist} onChange={(e) => setLyricist(e.target.value)} />
+                </label>
+                <label className="dialog-field">
+                  <span>{t('projects.credit.composer')}</span>
+                  <input value={composer} onChange={(e) => setComposer(e.target.value)} />
+                </label>
+                <label className="dialog-field">
+                  <span>{t('projects.credit.arranger')}</span>
+                  <input value={arranger} onChange={(e) => setArranger(e.target.value)} />
+                </label>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="dialog-edit-meta-row">
           {/* 音频信息与管理跳转：整合为通栏音轨条，设置按钮内嵌在右侧；长文件名支持动态往返走马灯 */}
           <div className="dialog-field">
             <span>{t('projects.audio')}</span>
@@ -410,8 +443,8 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
           </div>
 
           {/* 曲目归属（chart-projects 票 30）：工程出生属性，只读胶囊徽标展示，问号气泡按需展开说明。
-              放置在最末作为元数据底注，官方曲用 Disc3 唱片图标，自定义用 Tag 标签图标，与音频声波图标彻底区隔。 */}
-          <div className="dialog-field">
+              官方曲用 Disc3 唱片图标，自定义用 Tag 标签图标，与音频声波图标彻底区隔。 */}
+          <div className="dialog-field dialog-source-field">
             <div className="dialog-field__label-row">
               <div className="dialog-field__label-left" ref={helpRef}>
                 <span>{t('projects.source')}</span>

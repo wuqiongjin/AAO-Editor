@@ -83,6 +83,7 @@ function snapshot(p: ChartProject): Record<string, unknown> {
   const out: Record<string, unknown> = { ...p };
   delete out.audioBlob;
   delete out.coverBlob;
+  delete out.liveBgBlob;
   return out;
 }
 

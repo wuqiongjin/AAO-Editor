@@ -20,6 +20,10 @@ describe('06 · 唯一写入口接线', () => {
     }
   });
 
+  it('票 42 · 复制工程把 liveBg sidecar 交给存储层拷（字节不过渲染进程）', () => {
+    expect(readStripped('src/pages/projects/ProjectsPage.tsx')).toMatch(/liveBgCopyFrom:\s*src\.id/);
+  });
+
   it('mutateProject 只在记录模块定义（调用点不得自造同名入口）', () => {
     const definition = /export async function mutateProject/;
     expect(readSource('src/project/ChartProjectRecord.ts')).toMatch(definition);

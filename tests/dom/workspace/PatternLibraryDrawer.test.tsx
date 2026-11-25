@@ -258,7 +258,7 @@ describe('issue 185 · 卡片', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
 
     openCardMenu(0);
-    fireEvent.click(document.querySelector('.pld-menu__scrim')!);
+    fireEvent.pointerDown(document.body);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });

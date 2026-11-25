@@ -14,6 +14,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 import { t } from '@/src/i18n';
 import VideoExportControl from '@/src/pages/preview/VideoExportControl';
 import { useVideoExport, type UseVideoExportArgs } from '@/src/pages/preview/useVideoExport';
+import { OPENING_SECONDS } from '@/src/preview';
 import type { VideoExportOutcome, VideoExportRequest, VideoExportSupport } from '@/src/preview';
 import type { VideoExportSpec } from '@/src/pages/preview/useVideoExport';
 
@@ -584,13 +585,15 @@ describe('失败态 · 明确文案，不静默', () => {
     // 开场标题
     expect(screen.getByText(t('preview.video.export.opening'))).toBeInTheDocument();
     // 问号帮助图标包含描述 tooltip，且点击能弹出 popover 气泡
-    const help = screen.getByLabelText(t('preview.video.export.opening.note', { seconds: 5 }));
+    const help = screen.getByLabelText(t('preview.video.export.opening.note', { seconds: OPENING_SECONDS }));
     expect(help).toBeInTheDocument();
     expect(screen.queryByRole('tooltip')).toBeNull();
 
     // 点击弹出说明气泡
     fireEvent.click(help);
-    expect(screen.getByRole('tooltip')).toHaveTextContent(t('preview.video.export.opening.note', { seconds: 5 }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      t('preview.video.export.opening.note', { seconds: OPENING_SECONDS }),
+    );
 
     // 再次点击收起
     fireEvent.click(help);
@@ -598,5 +601,62 @@ describe('失败态 · 明确文案，不静默', () => {
 
     // 独立的大段描述段落不再出现
     expect(document.querySelector('.pvex__group--sub .pvex__note')).toBeNull();
+  });
+
+  // 52：结尾画面与开场同一形制（总开关 + 缩进子项），子项是「结算形态」三档下拉
+  it('52 · 结尾画面组：总开关 + 结算形态（ALL PERFECT / FULL COMBO / CLEAR）', () => {
+    const onEndingChange = vi.fn();
+    const view = (over: Partial<{ enabled: boolean; stamp: 'ap' | 'fc' | 'clear' }> = {}) => (
+      <VideoExportControl
+        spec={spec}
+        ending={{ enabled: true, stamp: 'ap', ...over }}
+        onEndingChange={onEndingChange}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={() => undefined}
+        progress={null}
+        notice={null}
+      />
+    );
+
+    const { rerender } = render(view());
+    fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.open') }));
+
+    expect(screen.getByText(t('preview.video.export.ending'))).toBeInTheDocument();
+    // 说明走问号气泡，不单独占行
+    const help = screen.getByLabelText(t('preview.video.export.ending.note', { seconds: 7.5 }));
+    fireEvent.click(help);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      t('preview.video.export.ending.note', { seconds: 7.5 }),
+    );
+
+    // 形态三档都可改（2026-11-09 用户验收：CLEAR 正式支持）
+    const stampSelect = screen.getByLabelText(t('preview.video.export.ending.stamp'));
+    expect(stampSelect).toBeInTheDocument();
+    expect([...stampSelect.querySelectorAll('option')].map((o) => o.getAttribute('value'))).toEqual([
+      'ap',
+      'fc',
+      'clear',
+    ]);
+
+    // 关掉后子项置灰（与开场那组同一套行为）
+    fireEvent.click(screen.getByRole('switch', { name: t('preview.video.export.ending') }));
+    expect(onEndingChange).toHaveBeenCalledWith({ enabled: false });
+
+    rerender(view({ enabled: false }));
+    expect(screen.getByLabelText(t('preview.video.export.ending.stamp'))).toBeDisabled();
+
+    // 选 FC 写回 stamp
+    rerender(view());
+    fireEvent.change(screen.getByLabelText(t('preview.video.export.ending.stamp')), {
+      target: { value: 'fc' },
+    });
+    expect(onEndingChange).toHaveBeenCalledWith({ stamp: 'fc' });
+
+    // 选 CLEAR 也写回 stamp（无章形态，渲染层已支持）
+    fireEvent.change(screen.getByLabelText(t('preview.video.export.ending.stamp')), {
+      target: { value: 'clear' },
+    });
+    expect(onEndingChange).toHaveBeenCalledWith({ stamp: 'clear' });
   });
 });

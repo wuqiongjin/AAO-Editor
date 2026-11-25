@@ -24,6 +24,10 @@ export type PlaybackState = 'idle' | 'ready' | 'playing' | 'paused';
 const KEY_SCHEDULE_AHEAD = 2.0;
 /** 调度器驱动间隔（秒）：不依赖 rAF（页面切后台 rAF 会被浏览器暂停），用 setInterval 脱离 rAF 持续推进按键音调度 */
 const SCHEDULE_INTERVAL = 0.2;
+/** 视觉插值相对音频的最大墙钟偏差；仅供画面，不改变键音调度与播放位置。 */
+const VISUAL_CLOCK_MAX_ERROR = 0.020;
+/** 持续向音频校准的时间常数（秒），避免每个音频块的边界变成画面跳步。 */
+const VISUAL_CLOCK_SETTLE = 0.5;
 /** 播放速率钳制（chart-preview 20）：倍速是**连续值**（滑到哪算哪），这个区间既是上下限也是回收区间 */
 export const PLAYBACK_RATE_RANGE = { min: 0.1, max: 4 } as const;
 
@@ -44,6 +48,7 @@ export class AudioEngine {
   /** 播放速率（chart-preview 20）：BGM（`playbackRate`）与两条时钟一起缩放，键音经同一份时钟换算 */
   private rate = 1;
   private clock: 'audio' | 'synthetic' = 'synthetic';
+  private visualSample: { now: number; seconds: number; advancing: boolean } | null = null;
   private state: PlaybackState = 'idle';
   private loadGen = 0;
 
@@ -66,6 +71,8 @@ export class AudioEngine {
   private lastPrimePerfMs: number | null = null;
   /** 空闲挂起定时器（issue 210：非播放态下连续 30s 无交互/音效则优雅 suspend AudioContext，释放 macOS PreventUserIdleSystemSleep 电源锁） */
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private keepPausedAudioReady = false;
+  private pausedAnalyser: AnalyserNode | null = null;
   private static readonly IDLE_SUSPEND_DELAY_MS = 30_000;
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
@@ -89,6 +96,42 @@ export class AudioEngine {
       return this.offsetSeconds + (performance.now() / 1000 - this.startPerfSecond) * this.rate;
     }
     return this.offsetSeconds;
+  }
+
+  /**
+   * 实时画面的连续取时：音频仍是主时钟，performance 只插值相邻帧。
+   * 每帧按经过时间校准，误差限为 20ms × 倍速的谱面秒，不能独立漂移。
+   * 大幅降速时若画面已领先，先停住等音频追上新限幅，避免倒退。
+   * 暂停或音频挂起保留末画面，恢复时续接；无音频直接读原时间。
+   * seek 等离散操作丢弃旧锚点。
+   * 不补偿输出设备延迟，保持既有音画基准；键音继续使用 getSeconds()。
+   */
+  getVisualSeconds(): number {
+    if (this.state === 'paused' && this.visualSample) return this.visualSample.seconds;
+    const seconds = this.getSeconds();
+    if (!this.isPlaying || this.clock !== 'audio') {
+      this.visualSample = null;
+      return seconds;
+    }
+    if (this.ctx?.state !== 'running') {
+      if (this.visualSample) {
+        this.visualSample.advancing = false;
+        return this.visualSample.seconds;
+      }
+      return seconds;
+    }
+    const now = performance.now() / 1000;
+    const previous = this.visualSample;
+    let visual = seconds;
+    if (previous) {
+      const elapsed = previous.advancing ? Math.max(0, now - previous.now) : 0;
+      const predicted = previous.seconds + elapsed * this.rate;
+      const corrected = predicted + (seconds - predicted) * (1 - Math.exp(-elapsed / VISUAL_CLOCK_SETTLE));
+      const limit = VISUAL_CLOCK_MAX_ERROR * this.rate;
+      visual = Math.max(previous.seconds, Math.min(seconds + limit, Math.max(seconds - limit, corrected)));
+    }
+    this.visualSample = { now, seconds: visual, advancing: true };
+    return visual;
   }
 
   /** 有音频时的总时长（秒）；无音频返回 null（由调用方按谱面末端/默认给时长） */
@@ -167,6 +210,8 @@ export class AudioEngine {
     if (!Number.isFinite(rate)) return;
     const next = Math.min(PLAYBACK_RATE_RANGE.max, Math.max(PLAYBACK_RATE_RANGE.min, rate));
     if (next === this.rate) return;
+    // 在切速当刻按旧速率结算视觉时间，保留连续位置；不能把插值画面拉回音频块边界。
+    if (this.visualSample) this.getVisualSeconds();
     if (this.state === 'playing') {
       // 先按**旧**速率把当前位置定下来，再用新速率从那里续跑
       this.offsetSeconds = this.getSeconds();
@@ -301,20 +346,46 @@ export class AudioEngine {
     }
   }
 
+  /** 前台预览可保留暂停时已打开的音频流。退出该状态后重新开始空闲计时。 */
+  setKeepPausedAudioReady(keep: boolean): void {
+    if (this.keepPausedAudioReady === keep) return;
+    this.keepPausedAudioReady = keep;
+    if (this.state === 'paused') this.scheduleIdleSuspend();
+  }
+
   private scheduleIdleSuspend(): void {
+    if (this.state === 'paused' && this.keepPausedAudioReady && this.pausedAnalyser) return;
     this.clearIdleSuspend();
     if (this.state === 'playing' || !this.ctx) return;
+    if (this.state === 'paused' && this.keepPausedAudioReady && this.masterGain) {
+      // Chromium 140 会在持续静音时把设备时钟切到替代时钟。无输出的 analyser
+      // 让混音图继续由设备拉取；暂停期间不发声，也不需要 JS 定时器。
+      this.pausedAnalyser = this.ctx.createAnalyser();
+      this.masterGain.connect(this.pausedAnalyser);
+      this.resumePausedDeviceIfNeeded(this.ctx);
+      return;
+    }
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
-      if (this.ctx && this.state !== 'playing' && this.ctx.state === 'running') {
-        if (typeof this.ctx.suspend === 'function') {
-          void Promise.resolve(this.ctx.suspend()).catch(() => undefined);
-        }
+      const ctx = this.ctx;
+      if (ctx?.state === 'running' && this.state !== 'playing' && typeof ctx.suspend === 'function') {
+        // 切回全屏时，后台的挂起请求可能还在由音频线程处理。
+        void Promise.resolve(ctx.suspend()).then(() => this.resumePausedDeviceIfNeeded(ctx)).catch(() => undefined);
       }
     }, AudioEngine.IDLE_SUSPEND_DELAY_MS);
   }
 
+  private resumePausedDeviceIfNeeded(ctx: AudioContext): void {
+    if (ctx === this.ctx && this.pausedAnalyser && ctx.state === 'suspended') {
+      void ctx.resume().catch(() => undefined);
+    }
+  }
+
   private clearIdleSuspend(): void {
+    if (this.pausedAnalyser) {
+      this.masterGain?.disconnect(this.pausedAnalyser);
+      this.pausedAnalyser = null;
+    }
     if (this.idleTimer !== null) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
@@ -365,13 +436,16 @@ export class AudioEngine {
       return;
     }
 
+    this.visualSample = null;
     this.offsetSeconds = 0;
     this.cancelScheduled();
     this.state = 'ready';
+    if (this.pausedAnalyser) this.scheduleIdleSuspend();
   }
 
   /** 清除当前音频（切换到无歌曲模式） */
   clear(): void {
+    this.visualSample = null;
     ++this.loadGen;
     this.cancelScheduled();
     this.stopCurrent();
@@ -453,12 +527,15 @@ export class AudioEngine {
       this.clock = 'synthetic';
     }
     this.state = 'playing';
+    // 暂停经过的墙钟不能算作播放时间；恢复时保留末画面相对音频块的相位。
+    if (this.visualSample) this.visualSample.now = performance.now() / 1000;
     this.rewindKeyIndex();
     this.startScheduler();
   }
 
   pause(): void {
     if (this.state !== 'playing') return;
+    if (this.visualSample) this.getVisualSeconds();
     this.offsetSeconds = this.getSeconds();
     this.stopCurrent();
     this.cancelScheduled();
@@ -470,6 +547,7 @@ export class AudioEngine {
 
   /** 停止并回到开头 */
   stop(): void {
+    this.visualSample = null;
     this.offsetSeconds = 0;
     this.stopCurrent();
     this.cancelScheduled();
@@ -499,6 +577,7 @@ export class AudioEngine {
 
   /** 精确 seek：暂停时直接改游标；播放中重建 source 从新位置续播（含合成时间线） */
   seek(seconds: number): void {
+    this.visualSample = null;
     const max = this.buffer ? this.buffer.duration : Infinity;
     this.offsetSeconds = Math.min(max, Math.max(0, seconds));
     if (this.state === 'playing' && this.ctx) {

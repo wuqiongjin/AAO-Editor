@@ -10,6 +10,7 @@ import {
 import {
   buildActiveNoteIcons,
   normalizeNoteSkinSelection,
+  FLAT_LANE,
   NOTE_SKIN_ITEM_IDS,
   NOTE_SKIN_GEOMETRY,
 } from '@/src/rendering/skin/noteSkin';
@@ -166,19 +167,18 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(icons.dirFor('L', 0).x).toBe(dirPack.dirL[3]!.x);
   });
 
-  it('slideEndpointLaneFor 逐轨 note_long（票 25 #2：按住端点随插值轨位换图）', () => {
-    for (const lane of [0, 2, 6]) {
-      const cfg = icons.slideEndpointLaneFor(lane);
+  it('slideEndpointFor 全轨扁平（票 77：按住端帽不随插值轨位换图）', () => {
+    const flat = skin00.long[FLAT_LANE]!;
+    // 含小数 / 越界轨位：一律恒回中间轨那张（编辑器端点同口径）
+    for (const lane of [0, 2, 3, 6, -1, 2.6, 9]) {
+      const cfg = icons.slideEndpointFor(lane);
       expect(cfg.src).toBe(skin00.atlas);
-      expect(cfg.x).toBe(skin00.long[lane]!.x);
-      expect(cfg.y).toBe(skin00.long[lane]!.y);
+      expect(cfg.x).toBe(flat.x);
+      expect(cfg.y).toBe(flat.y);
     }
-    // 插值轨位是小数：就近取整（bundle 的 Math.round）+ 钳到 0..6
-    expect(icons.slideEndpointLaneFor(2.4).x).toBe(skin00.long[2]!.x);
-    expect(icons.slideEndpointLaneFor(2.6).x).toBe(skin00.long[3]!.x);
-    expect(icons.slideEndpointLaneFor(-1).x).toBe(skin00.long[0]!.x);
-    // 编辑器那条扁平口径没被改
-    expect(icons.slideEndpointFor(0).x).toBe(skin00.long[3]!.x);
+    // 逐轨七张确实各自带不同轨位的舞台透视倾角 ⇒ 这正是不能按轨取图的理由
+    const rects = [0, 1, 2, 3, 4, 5, 6].map((l) => `${skin00.long[l]!.x},${skin00.long[l]!.y}`);
+    expect(new Set(rects).size).toBe(7);
   });
 
   // 钉的是构建期对真实图集实测的墨迹值（note_flick_l_3 left 42 / right 56），

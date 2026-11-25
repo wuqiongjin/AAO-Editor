@@ -21,7 +21,7 @@ describe('14 · 设置对象唯一写回入口', () => {
     expect(JSON.parse(storage.raw() ?? 'null')).toEqual(next);
   });
 
-  it('归一化仍生效：改 export.enabled 不抹掉 opening.items 的三项开关', () => {
+  it('归一化仍生效：改 export.enabled 不抹掉 opening.items 的七项开关', () => {
     const storage = settingsMemStorage();
     const prev = defaultSettings();
 

@@ -2,7 +2,7 @@
 //
 // 视觉定案 C（2026-09-28 用户）：头尾都是 --bg-inset 色带，**色带自己就是分界**（不再加 hairline）；
 // 面板 overflow: hidden 把色带裁进圆角里 —— 不裁的话头尾的矩形底会盖掉圆角（方角 bug）。
-// 尺寸三档：确认 sm 440 / 表单 md 560 / 谱面代码 lg 920×640。
+// 尺寸四档：确认 sm 440 / 表单 md 560 / 宽表单 xl 640 / 谱面代码 lg 920×640。
 //
 // 行为也收在这儿：Esc 关闭、Tab 只在弹窗内循环（aria-modal 的承诺）、关掉后焦点还给打开它的元素。
 // 层次（面板宽度 / 圆角 / 阴影 / 动效 / 遮罩）全在 ui.css，组件只管结构与行为。
@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import './ui.css';
 
-export type DialogSize = 'sm' | 'md' | 'lg';
+export type DialogSize = 'sm' | 'md' | 'lg' | 'xl';
 
 /** Tab 的落点：按钮之外，输入框 / 链接 / 显式 tabindex 也算一站（issue 16 随壳补齐） */
 const FOCUSABLE = [

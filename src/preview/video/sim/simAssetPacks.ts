@@ -1,7 +1,9 @@
 // 仿真场素材包清单的**消费侧**（chart-preview 41 · ADR-0018）：
 // 包清单由素材取件侧产出（`./gen/simAssetPacks.gen`，与 `public/assets/sim/` 二进制同版本、
-// 一起取件；应用仓不自己生成），本模块只做「按包 ID 查清单 + 非法 ID 静默回落默认 `skin00`」
+// 一起取件；应用仓不自己生成），本模块只做「按包 ID 查清单 + 非法 ID 静默回落默认包」
 // —— 照 `rendering/skin/noteSkin.ts` 的 `normalizeNoteSkinSelection` 回落写法。
+// 背景的默认包是**应用自带**的「AAO 舞台」（`./appAssetPacks`，票 84 前置合并进清单），
+// 轨道的默认包仍是取件侧的 `skin00`。
 //
 // **列表即真相**（ADR-0018 §1）：清单只列实际取到的包；选中的包不在清单里（快照缩水 /
 // 脏设置值）时静默回落默认包，不弹错、不做"缺失"占位。
@@ -10,15 +12,22 @@ import {
   type SimBackgroundPackEntry,
   type SimFieldPackEntry,
 } from './gen/simAssetPacks.gen';
+import { APP_BACKGROUND_PACKS, AAO_STAGE_PACK_ID, isAppBackgroundPack } from './appAssetPacks';
 import { packDisplayName, pickBackgroundSkinName, readPackSkinName } from '../../../rendering/skin/skinDisplayName';
+
+export { AAO_STAGE_PACK_ID, isAppBackgroundPack };
 
 /** 两个独立选择器（ADR-0018 §1：背景 / 轨道各自独立选择，不做成对整包） */
 export type SimAssetPackKind = 'field' | 'background';
 
-/** 默认包 ID：两个选择器各自默认 `skin00`（用户 2026-10-11 定案） */
+/**
+ * 默认包 ID：轨道取件侧默认 `skin00`（用户 2026-10-11 定案）；背景是**应用自带**的
+ * 「AAO 舞台」（chart-preview 84 · ADR-0018 §7，2026-11-23 起取代 `skin00` 作出厂默认）。
+ * **老设置不迁移**：已存 `skin00` 的照旧显示 Bestdori 包，这里只影响"没存过值"的新用户。
+ */
 export const SIM_DEFAULT_PACK_IDS: Record<SimAssetPackKind, string> = {
   field: 'skin00',
-  background: 'skin00',
+  background: AAO_STAGE_PACK_ID,
 };
 
 /**
@@ -51,9 +60,18 @@ export function listSimFieldPacks(): readonly SimFieldPackEntry[] {
   return [...SIM_ASSET_PACKS.field].sort(compareForDisplay);
 }
 
-/** 表演背景包清单（口径同上） */
+/**
+ * 表演背景包清单（口径同上）+ **应用自带包前置合并**（ADR-0018 §7）：
+ * 自带包恒占最前第一格，取件侧清单照展示序排在它后面。
+ * 自带包不是取件侧的产物，`background` 字段放的是**相对 public/ 的路径**，
+ * 取 URL 时由 `simAssets` 按 `isAppBackgroundPack` 分叉，不会拼成 `bgskin/<server>_rip/…`。
+ */
 export function listSimBackgroundPacks(): readonly SimBackgroundPackEntry[] {
-  return [...SIM_ASSET_PACKS.background].sort(compareForDisplay);
+  const app: SimBackgroundPackEntry[] = APP_BACKGROUND_PACKS.map((pack) => ({
+    id: pack.id,
+    background: pack.file,
+  }));
+  return [...app, ...[...SIM_ASSET_PACKS.background].sort(compareForDisplay)];
 }
 
 /** 按包 ID 查场地皮肤包；不在清单里（含空清单）→ undefined */
@@ -67,9 +85,10 @@ export function findSimBackgroundPack(id: string): SimBackgroundPackEntry | unde
 }
 
 /**
- * 包 ID 归一化（设置读写 + URL 解析共用）：非字符串 / 清单里没有 → 静默回落默认 `skin00`
- * （照 noteSkin.ts：默认值原样返回，不因清单内容改道；连默认包都没取到时 URL 自然 404
- * → 缺素材空态，调用方不抛错）。
+ * 包 ID 归一化（设置读写 + URL 解析共用）：非字符串 / 清单里没有 → 静默回落 `SIM_DEFAULT_PACK_IDS`
+ * （轨道 `skin00` / 背景 `aao-stage`）。
+ * 照 noteSkin.ts：默认值原样返回，不因清单内容改道；连默认包都没取到时 URL 自然 404
+ * → 缺素材空态，调用方不抛错。**已存的合法值一律不动** —— 老设置的 `skin00` 不会被迁到自带包。
  */
 export function normalizeSimAssetPackId(kind: SimAssetPackKind, raw: unknown): string {
   if (typeof raw !== 'string' || raw === '') return SIM_DEFAULT_PACK_IDS[kind];

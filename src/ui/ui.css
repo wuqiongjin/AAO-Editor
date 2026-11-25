@@ -210,6 +210,8 @@
 }
 .dialog--sm { width: min(440px, 92vw); }
 .dialog--md { width: min(560px, 92vw); height: auto; }
+/* 宽表单：编辑工程信息需要容下 200px 封面 + 右侧署名卡 + 全宽底部元数据 */
+.dialog--xl { width: min(640px, 92vw); height: auto; }
 .dialog--lg { width: min(920px, 92vw); height: min(640px, 86vh); }
 
 /* ---- 头：标题 + 一行说明（色带） ---- */
@@ -532,14 +534,54 @@
 }
 .dialog-tabs button:disabled svg { color: var(--text-subtle); }
 
-/* 编辑工程信息：左封面方块区 / 右文字字段（适度舒展，32px 规范高度，留白舒适自然） */
-.dialog-edit-grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+/* 编辑工程信息（票 79 二次 UI 回修）：200px 封面 + 工程名 / 曲目署名上半区，
+   音频 / 曲目归属单独铺满下半区。封面与右栏高度相近，底部元数据不再挤成窄条。 */
+.dialog-edit-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dialog-edit-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .dialog-edit-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.dialog-edit-fields .dialog-field { gap: 5px; }
+.dialog-edit-fields .dialog-field { gap: 5px; min-width: 0; }
 .dialog-edit-fields input { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
-/* 弹窗被压到很窄（小窗 / 92vw）时右栏挤不下两个并排字段，退回单栏 */
-@media (max-width: 420px) {
+.dialog-edit-meta-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.dialog-edit-meta-row .dialog-field { min-width: 0; }
+
+/* 曲目署名分组卡：标题只是分区名，不是输入框；四项 2×2 紧凑排布 */
+.dialog-credits-section {
+  min-width: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+}
+.dialog-credits-section__title {
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+.dialog-credits-section__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+/* 曲目归属在底部右半列，帮助气泡向右贴齐，避免被弹窗的 overflow-x 裁掉 */
+.dialog-source-field .dialog-field__popover { left: auto; right: 0; }
+.dialog-source-field .dialog-field__popover::after,
+.dialog-source-field .dialog-field__popover::before { left: auto; right: 14px; }
+
+/* 弹窗被压到很窄（小窗 / 92vw）时两列字段都退回单栏 */
+@media (max-width: 520px) {
   .dialog-edit-grid { grid-template-columns: 1fr; }
+  .dialog-edit-meta-row,
+  .dialog-credits-section__grid { grid-template-columns: 1fr; }
+  .dialog-source-field .dialog-field__popover { left: 0; right: auto; }
+  .dialog-source-field .dialog-field__popover::after,
+  .dialog-source-field .dialog-field__popover::before { left: 60px; right: auto; }
 }
 
 @keyframes dialog-in {
@@ -1089,4 +1131,98 @@
 @keyframes off-thumb-shimmer {
   from { transform: translateX(-100%); }
   to { transform: translateX(100%); }
+}
+
+/* ---- SegmentedControl（src/ui/SegmentedControl.tsx）----
+   滑块跟选：首帧不过渡（避免从 0 滑进来），之后 transform + width 180ms。
+   `.settings-row > div` 会把直系 div 竖排，`.settings-row > .seg` 必须再扳回横排。 */
+.seg {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  vertical-align: middle;
+}
+
+.seg__thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  border-radius: 6px;
+  background: var(--accent-btn);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent-btn) 28%, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.seg.is-ready .seg__thumb {
+  transition:
+    transform 180ms var(--ease),
+    width 180ms var(--ease);
+}
+
+.seg__opt {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.seg--sm .seg__opt {
+  min-height: 24px;
+  font-size: var(--text-2xs);
+}
+
+.seg--md .seg__opt {
+  min-height: 28px;
+  font-size: var(--text-2xs);
+}
+
+.seg__opt:hover:not(:disabled):not(.is-active) {
+  color: var(--text);
+}
+
+.seg__opt.is-active,
+.seg__opt.is-active:hover {
+  color: var(--accent-btn-text);
+}
+
+.seg__opt:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.seg.is-disabled {
+  opacity: 0.55;
+}
+
+.seg.is-disabled,
+.seg__opt:disabled {
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg.is-ready .seg__thumb {
+    transition: none;
+  }
 }

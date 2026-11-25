@@ -321,6 +321,8 @@
   inset: 0;
   opacity: 0;
   visibility: hidden;
+  content-visibility: hidden;
+  contain: size layout style;
   pointer-events: none;
   min-width: 0;
   min-height: 0;
@@ -330,6 +332,7 @@
 .app-page.is-active {
   opacity: 1;
   visibility: visible;
+  content-visibility: visible;
   pointer-events: auto;
 }
 
@@ -2443,8 +2446,16 @@ button.skin-pill {
 .settings-row .number-control,
 .settings-row .switch,
 .settings-row .inline-actions,
-.settings-row .update-source-options {
+.settings-row .update-source-options,
+.settings-row .seg {
   flex: 0 0 auto;
+}
+
+/* 覆盖 `.settings-row > div { flex-direction: column }`：分段控件必须横排 */
+.settings-row > .seg {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
 }
 
 /* 覆盖 `.settings-row > div { flex-direction: column }`：两个源并排成一段控件 */

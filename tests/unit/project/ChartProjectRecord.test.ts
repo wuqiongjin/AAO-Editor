@@ -26,6 +26,8 @@ function chart(overrides: Partial<ProjectChart> = {}): ProjectChart {
     lastModified: 1_700_000_000_000,
     appliedChartCodeText: null,
     chartCodePristine: false,
+    // 票 79：谱面级谱师署名也要走记录往返
+    charterCredit: '千石抚子',
     ...overrides,
   };
 }
@@ -112,6 +114,54 @@ describe('谱面工程记录往返', () => {
     const t = makeMemoryProjectBridge();
     await new ElectronFileProjectBackend(t.bridge).save(project());
     expect(t.puts[0].doc.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
+  });
+});
+
+describe('票 42 · 自定义表演背景元数据', () => {
+  it('名称 / MIME / 启用 / fit 往返；get 不带回像素', async () => {
+    const saved = project({
+      liveBgName: 'stage.png',
+      liveBgMime: 'image/png',
+      liveBgUseCustom: true,
+      liveBgFit: 'contain',
+      liveBgBlob: blobOf([7, 7, 7, 7]),
+    });
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    await b.save(saved);
+    const got = await b.get(saved.id);
+    expect(got).not.toBeNull();
+    expect(got!.liveBgName).toBe('stage.png');
+    expect(got!.liveBgMime).toBe('image/png');
+    expect(got!.liveBgUseCustom).toBe(true);
+    expect(got!.liveBgFit).toBe('contain');
+    expect(got!.liveBgBlob).toBeUndefined();
+    const bytes = await b.getLiveBg(saved.id);
+    expect(bytes).toBeInstanceOf(Blob);
+    expect(Array.from(new Uint8Array(await bytes!.arrayBuffer()))).toEqual([7, 7, 7, 7]);
+  });
+
+  it('list 不带像素；老记录缺字段回落未启用 cover', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    await b.save(project({
+      liveBgName: 'a.webp',
+      liveBgMime: 'image/webp',
+      liveBgUseCustom: true,
+      liveBgFit: 'cover',
+      liveBgBlob: blobOf([1]),
+    }));
+    const listed = await b.list();
+    expect(listed[0].liveBgName).toBe('a.webp');
+    expect(listed[0].liveBgBlob).toBeUndefined();
+    expect(listed[0].liveBgUseCustom).toBe(true);
+
+    const got = await roundtrip(project());
+    expect(got.liveBgName).toBeNull();
+    expect(got.liveBgMime).toBeNull();
+    expect(got.liveBgUseCustom).toBe(false);
+    expect(got.liveBgFit).toBe('cover');
+    expect(got.liveBgBlob).toBeUndefined();
   });
 });
 

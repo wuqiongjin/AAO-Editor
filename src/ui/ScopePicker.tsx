@@ -14,8 +14,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, FolderOpen, Lock, Search } from 'lucide-react';
 import { t } from '../i18n';
+import { useDismissOnOutside } from './useDismissOnOutside';
 import { displayProjectName } from '../project/ui/projectUi';
-// 浮层复用菜单壳（`.pp-menu__scrim` / `.pp-menu__panel.is-portaled`）。它目前定义在
+// 浮层复用菜单壳（`.pp-menu__panel.is-portaled`）。它目前定义在
 // ProjectsPage.css 里，所以显式 import 进来——照 ChartSwitcher 的做法，别指望"反正工程管理页
 // 一定先挂载"。把菜单壳摘进 ui.css 才是正解，属另一次清理。
 import '../pages/projects/ProjectsPage.css';
@@ -83,6 +84,7 @@ export default function ScopePicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: PANEL_TARGET_W });
 
@@ -156,6 +158,8 @@ export default function ScopePicker({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, close]);
 
+  useDismissOnOutside(open, close, [btnRef, panelRef]);
+
   // 过滤：匹配显示名 + 歌手。**必须用显示名**——`name === null` 的工程显示为「未命名工程」，
   // 只匹配原始字段的话自动新建的工程全都搜不到。不做拼音（本仓没有拼音索引基建）。
   const { pinnedCurrent, rest } = useMemo(() => {
@@ -224,11 +228,11 @@ export default function ScopePicker({
 
       {open && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={close} />
           {/* portal 是硬要求：AppPageShell.Body 的直系子元素带 .app-stagger 进场动画
               （终止态 transform: translateY(0) + fill: both），会给它们各建一个常驻 stacking
               context，把浮层的 z-index 困在里面；卡片还有 overflow: clip 会裁掉长列表。 */}
           <div
+            ref={panelRef}
             className="pp-menu__panel is-portaled scope-panel"
             style={{ top: pos.top, left: pos.left, width: pos.width, minWidth: 0, boxSizing: 'border-box' }}
             role="listbox"

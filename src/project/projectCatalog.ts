@@ -10,6 +10,7 @@ import type { ChartNote } from '../chart/types';
 import type { ChartDifficulty, ChartProject, ChartTag, ChartUploadRecord, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
 import { getBpmEvents, maxNoteEndSeconds } from '../audio/AudioTiming';
+import { defaultCharterCredit } from './charterCredit';
 import { clampChartDuration } from '../audio/chartDuration';
 import { t } from '../i18n';
 
@@ -148,6 +149,8 @@ export type AddChartInput = {
   diff: ChartDifficulty;
   level: number | null;
   codeText: string;
+  /** 谱师署名（票 79）：给了就用手填值，没给才落登录账号名 */
+  charterCredit?: string | null;
 };
 
 export type AddChartResult =
@@ -173,6 +176,10 @@ export function addChartToProject(
     lastModified: ids.now,
     appliedChartCodeText: applied.appliedChartCodeText,
     chartCodePristine: applied.chartCodePristine,
+    // 票 79：手动填写 > 登录账号名 > 空，只在新建这一刻定下来
+    charterCredit: input.charterCredit === undefined
+      ? defaultCharterCredit()
+      : (input.charterCredit?.trim() || null),
   };
   return { ok: true, project: { ...project, charts: [...project.charts, chart] }, chart };
 }
@@ -355,6 +362,23 @@ export function updateChartTags(
 }
 
 /**
+ * 更新谱师署名（票 79 / ADR-0024 §6）。**已上传谱面也可改**：它是导出画面用的元数据，
+ * 与难度 / 等级 / 标签同档，不碰音符、不改谱面本体只读规则；也不戳 `lastModified`
+ * （口径同 `updateChartTags`，改署名不算"谱面被写过"）。
+ */
+export function updateChartCharterCredit(
+  project: ChartProject,
+  chartId: string,
+  credit: string | null,
+): ChartProject {
+  const clean = credit?.trim() || null;
+  return {
+    ...project,
+    charts: project.charts.map((c) => (c.id === chartId ? { ...c, charterCredit: clean } : c)),
+  };
+}
+
+/**
  * 已发谱面在 `post/edit` 成功后对齐本地 diff / level / tags（票 51）。
  * 未发谱面原样返回——不要用这条给未发谱面开写，那是 updateChartInfo / updateChartTags 的事。
  */
@@ -411,12 +435,39 @@ export function updateChartInfo(
   };
 }
 
+/**
+ * 谱面信息弹窗的一次保存（票 79）：名称 / 难度 / 等级走 `updateChartInfo`（已上传会跳过），
+ * 谱师署名是元数据、一律可写 —— 两条各管各的，不把「已上传谱面本体只读」的闸门撬开。
+ * 工程页与工作台的切换器共用这一份，免得两处各写一遍次序。
+ */
+export function applyChartInfoPatch(
+  project: ChartProject,
+  chartId: string,
+  patch: { title: string | null; diff: ChartDifficulty; level: number | null; charterCredit: string | null },
+  now: number,
+): ChartProject {
+  return updateChartCharterCredit(
+    updateChartInfo(project, chartId, patch, now),
+    chartId,
+    patch.charterCredit,
+  );
+}
+
+/** 曲目署名逐项归一：没给 = 沿用原值；空白 = 清空（null）。 */
+function creditPatch(raw: string | null | undefined, prev: string | null | undefined): string | null {
+  return raw === undefined ? (prev ?? null) : (raw?.trim() || null);
+}
+
 export function updateProjectInfo(
   project: ChartProject,
   patch: {
     name: string | null;
     artist: string | null;
     source: SongSource;
+    /** 曲目署名（票 79）：工程级 3 项，可选以兼容其它调用点 */
+    lyricist?: string | null;
+    composer?: string | null;
+    arranger?: string | null;
     coverName?: string | null;
     coverBlob?: Blob;
     clearCover?: boolean;
@@ -426,6 +477,9 @@ export function updateProjectInfo(
     ...project,
     name: patch.name?.trim() || null,
     artist: patch.artist?.trim() || null,
+    lyricist: creditPatch(patch.lyricist, project.lyricist),
+    composer: creditPatch(patch.composer, project.composer),
+    arranger: creditPatch(patch.arranger, project.arranger),
     source: patch.source,
   };
   if (patch.clearCover) {

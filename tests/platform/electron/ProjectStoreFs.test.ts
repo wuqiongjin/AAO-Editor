@@ -7,6 +7,7 @@ import { cacheDir, ensureDataRootLayoutSync, legacyDownloadsDir } from '@/electr
 import {
   SCHEMA_VERSION,
   deleteProject,
+  getLiveBg,
   getProject,
   listProjects,
   putProject,
@@ -41,6 +42,7 @@ function doc(overrides: Record<string, unknown> = {}) {
     coverName: null,
     audioIntent: 'cleared' as const,
     coverIntent: 'cleared' as const,
+    liveBgIntent: 'cleared' as const,
     ...overrides,
   };
 }
@@ -110,6 +112,7 @@ describe('electron/projectStore · 真文件往返', () => {
       expect(Buffer.from(got.cover ?? [])).toEqual(Buffer.from([9, 9, 9]));
       expect(existsSync(join(root, 'projects', 'pA', 'audio.bin'))).toBe(true);
       expect(existsSync(join(root, 'projects', 'pA', 'cover.bin'))).toBe(true);
+      expect(existsSync(join(root, 'projects', 'pA', 'liveBg.bin'))).toBe(false);
 
       await deleteProject(root, 'pA');
       expect(existsSync(join(root, 'projects', 'pA'))).toBe(false);
@@ -287,6 +290,8 @@ describe('electron/projectStore · 真文件往返', () => {
       });
 
       // 没有的素材是 null（不是「有路径没字节」）
+      expect(refs).not.toHaveProperty('liveBg');
+
       const bare = await uploadRefs(root, 'pBare');
       expect(bare).toEqual({ audio: null, cover: null });
 
@@ -306,6 +311,45 @@ describe('electron/projectStore · 真文件往返', () => {
 
       const refs = await uploadRefs(root, 'pGone');
       expect(refs).toEqual({ audio: null, cover: null });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('票 42 · liveBg.bin 独立落盘，getProject 不带像素，getLiveBg 才读字节', async () => {
+    const root = tmpDir('aao-proj-livebg-');
+    try {
+      const pixels = Buffer.from([1, 2, 3, 4, 5]);
+      await putProject(root, {
+        id: 'pLive',
+        doc: doc({ name: 'Live', liveBgIntent: 'set', liveBgName: 'bg.png', liveBgMime: 'image/png', liveBgUseCustom: true }),
+        liveBg: pixels,
+      });
+      expect(existsSync(join(root, 'projects', 'pLive', 'liveBg.bin'))).toBe(true);
+
+      const got = await getProject(root, 'pLive');
+      expect(got?.doc.liveBgPresent).toBe(true);
+      expect(got?.doc.liveBgName).toBe('bg.png');
+      expect(got).not.toHaveProperty('liveBg');
+
+      const bytes = await getLiveBg(root, 'pLive');
+      expect(Buffer.from(bytes ?? []).equals(pixels)).toBe(true);
+
+      await putProject(root, {
+        id: 'pCopy',
+        doc: doc({ name: 'Copy', liveBgIntent: 'set', liveBgName: 'bg.png', liveBgMime: 'image/png', liveBgUseCustom: true }),
+        liveBgCopyFrom: 'pLive',
+      });
+      expect(existsSync(join(root, 'projects', 'pCopy', 'liveBg.bin'))).toBe(true);
+      const copied = await getLiveBg(root, 'pCopy');
+      expect(Buffer.from(copied ?? []).equals(pixels)).toBe(true);
+
+      await putProject(root, {
+        id: 'pLive',
+        doc: doc({ name: 'Live', liveBgIntent: 'cleared' }),
+      });
+      expect(existsSync(join(root, 'projects', 'pLive', 'liveBg.bin'))).toBe(false);
+      expect(await getLiveBg(root, 'pLive')).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

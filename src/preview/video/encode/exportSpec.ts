@@ -16,7 +16,9 @@
 //   - **H.264 的边长必须偶数**：`fitDesignSurface(1920, 1080)` 给的是 1920×1079 →
 //     `isConfigSupported` = false；场地尺寸要自己向下取偶（不是画布尺寸 —— 画布按档位走）。
 //   - 帧率 60；码率按档位给（编码不是瓶颈，别指望降码率提速）。
-import { fitDesignSurface } from '../sim';
+import { fitDesignSurface, type SimChart } from '../sim';
+import { SIM_SPRITE_EFFECT_DURATION } from '../sim/simGeometry';
+import { SIM_JUDGE } from '../sim/simHud';
 
 /** 导出帧率（票面规格默认 60fps） */
 export const EXPORT_FPS = 60;
@@ -204,6 +206,174 @@ export interface ExportTimeline {
 
 /** 浮点收味：`duration × fps` 正好落在整数上时（30 × 60）不该被尾数顶到 +1 帧 */
 const FRAME_EPS = 1e-9;
+
+/**
+ * 谱面前导补偿的封顶（秒，票 74 定案）。
+ *
+ * 单独留一个常量 = 成片验收后调参只改这一处：帧循环 / `drawSimFrameAt` / 开场四段 / 素材都不动。
+ * 不取满 `T` 的原因：`approachA` 是指数曲线，T 的前 ~80% 里 A < 0.14 几乎贴在渐近位置，
+ * 慢速档（T = 5.5s）补满只会多出约 4s 近乎静态的画面。
+ */
+export const LEAD_IN_CAP_SECONDS = 2;
+
+/**
+ * 一次导出要在谱面 0 秒之前补多少秒（票 74）。
+ *
+ * `T = chart.approachS`（与 `buildSimChart` / 实时回放同源），取 `min(T, 2s)` 后**向上取整到
+ * `1/fps` 的整数倍**，保证 `simStartSeconds` 与首帧都恰好落在帧边界上。
+ * 关掉开场时这段同样存在：第 0 帧就是 `seconds = -leadIn`。
+ */
+export function leadInSeconds(
+  chart: Pick<SimChart, 'approachS'>,
+  fps: number = EXPORT_FPS,
+): number {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const approach = Number.isFinite(chart.approachS) ? Math.max(0, chart.approachS) : 0;
+  const wanted = Math.min(approach, LEAD_IN_CAP_SECONDS);
+  return Math.max(0, Math.ceil(wanted * safeFps - FRAME_EPS) / safeFps);
+}
+
+/**
+ * 前导首帧收味（票 74 成片验收回修）：封顶生效时给音符层一段肉眼可见的淡入。
+ *
+ * 只在 `leadIn < T`（慢速档）时启用 —— `leadIn == T` 时首音符本来就从 `A≈0.058` 起步，
+ * 不需要淡入。帧数常量单独留口，成片若还嫌突兀只改这里，不动帧循环 / 渲染纯函数。
+ * 初版 2 帧（33ms）用户反馈「肉眼基本不可见」⇒ 2026-11-15 加长到 15 帧（0.25s @60fps）。
+ */
+export const LEAD_IN_NOTE_FADE_FRAMES = 15;
+
+/**
+ * 前导段第 N 帧的音符层 alpha（`1/N → 1` 线性，只走头 `LEAD_IN_NOTE_FADE_FRAMES` 帧）。
+ * **整层** alpha：这 0.25s 里所有已进入可见窗口的音符 / 带体 / 双押线一起渐显；
+ * 谱面正片（`t ≥ simStart`）、前导段其余帧与实时回放恒为 1，不受影响。
+ */
+export function leadInNoteAlphaAt(
+  elapsedSeconds: number,
+  leadIn: number,
+  approachS: number,
+  fps: number = EXPORT_FPS,
+): number {
+  if (!(leadIn > 0) || !(approachS > leadIn + FRAME_EPS)) return 1;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const frame = Math.max(0, Math.floor(elapsedSeconds * safeFps + FRAME_EPS));
+  if (frame >= LEAD_IN_NOTE_FADE_FRAMES) return 1;
+  return Math.max(0, Math.min(1, (frame + 1) / LEAD_IN_NOTE_FADE_FRAMES));
+}
+
+// ---------------------------------------------------------------- 末击收尾补偿（票 75）
+//
+// 谱面段末尾按「最后一个可击打物的绝对秒 + 特效 / 判定字寿命」补一段真实时长，让末击
+// 自然播完再切结算。与开头的 lead-in 不同：tail 是连续量且可能为 0（谱面比音频短就不补），
+// BGM 已结束所以尾段静音，但画面继续推进（特效在衰减）。
+// **公式与 life 只在这里定义一次**：`endingAt` / 总长 / `stage.seconds` / 轨长都由它派生，
+// 成片验收后若仍有残留或尾段偏长，只改 life 或公式，不动帧循环 / 结算三段 / 素材。
+
+/** 末击之后要留的寿命（秒）：打击特效 0.6 与判定字 1.0 取长者 */
+export const ENDING_HIT_LIFE_SECONDS = Math.max(SIM_SPRITE_EFFECT_DURATION, SIM_JUDGE.life);
+
+/** 尾段只需要谱面派生表的这三张表（与 `buildSimChart` 同源，不另折一遍 beat→秒） */
+type TailChart = Pick<SimChart, 'elements' | 'bands' | 'simultaneous'>;
+
+/**
+ * 最后一个可击打物的**绝对秒**：元素表末尾（已按 time 升序）、带体两端点、双押线时刻取最大。
+ * 空谱 / 无有限时刻 ⇒ `null`（没有末击，自然没有要收的尾）。
+ */
+export function lastHitSeconds(chart: TailChart): number | null {
+  let last: number | null = null;
+  const take = (time: number): void => {
+    if (!Number.isFinite(time)) return;
+    if (last === null || time > last) last = time;
+  };
+  const elements = chart.elements;
+  if (elements.length > 0) take(elements[elements.length - 1]!.time);
+  for (const band of chart.bands) {
+    take(band.t0);
+    take(band.t1);
+  }
+  const simultaneous = chart.simultaneous;
+  if (simultaneous.length > 0) take(simultaneous[simultaneous.length - 1]!.time);
+  return last;
+}
+
+/**
+ * 末击收尾补偿 `tail = ceilToFrame(max(0, lastHit + life − D))`（`D` = 谱面长度 = 音频时长）。
+ *
+ * 向上取整到 `1/fps` 整数倍，保证 `endingAt` 与结算第一帧都落在帧边界上；
+ * `lastHit ≤ D − life` 时返回 0（不无条件补时长）。`life` 取 `ENDING_HIT_LIFE_SECONDS`。
+ */
+export function endingTailSeconds(
+  chart: TailChart,
+  durationSeconds: number,
+  fps: number = EXPORT_FPS,
+): number {
+  if (!Number.isFinite(durationSeconds)) return 0;
+  const lastHit = lastHitSeconds(chart);
+  if (lastHit === null) return 0;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const wanted = Math.max(0, lastHit + ENDING_HIT_LIFE_SECONDS - Math.max(0, durationSeconds));
+  if (wanted <= 0) return 0;
+  return Math.max(0, Math.ceil(wanted * safeFps - FRAME_EPS) / safeFps);
+}
+
+// ---------------------------------------------------------------- 跨段 HUD 时序
+//
+// 票 76（原型第四版默认档 2026-11-15）：分数条 / 生命条不再是「谱面段内部的一个布尔开关」，
+// 而是**跨段独立层**。入 / 出锚点挂在两个转场上，与谱面 0 秒 / `endingAt` 解耦：
+// 开场四段恒 0 → 转场后淡入 → 穿过前导 / 正片 / 中央章恒 1 → 黑幕转场淡出 → 结算 0。
+// 生产只落 `fixed`（修正后）这一条口径；原型里的 `legacy` / `aboveFx` 只供对比，不进生产。
+
+/** 一次导出里 HUD 要挂靠的绝对秒（由 `frameDriver` 按生产常量拼好喂进来） */
+export interface VideoHudTimeline {
+  /** 开场四段结束（`OPENING_SECONDS`）；关开场 = 0 */
+  openEnd: number;
+  /** 结尾段起点（谱面 + 末击尾段之后）；关结尾时落在总长之外 */
+  endingAt: number;
+  /** 中央章时长（`ENDING_SPEC.stampDur`） */
+  stampDur: number;
+}
+
+/** 原型第四版默认档：入场锚 = 开场转场终点前 2s、淡入 1s；退场锚 = 中央章结束、淡出 0.34s。
+ *  锚点可换的滑杆只属于原型调参 UI，生产只落定案这两个。 */
+export const VIDEO_HUD_TIMING = {
+  inOffset: -2,
+  inDur: 1,
+  outOffset: 0,
+  /** = 黑幕涨满 0.22 × transDur(1.55)，在结算组件入场前彻底归零 */
+  outDur: 0.34,
+} as const;
+
+export interface VideoHudWindows {
+  inAt: number;
+  inEnd: number;
+  outAt: number;
+  outEnd: number;
+}
+
+const hudClamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+const hudSmooth = (x: number): number => x * x * (3 - 2 * x);
+
+/** 淡入 / 淡出两个窗口（绝对秒）：`openEnd` 与 `endingAt + stampDur` 就是两个锚点 */
+export function videoHudWindows(tl: VideoHudTimeline): VideoHudWindows {
+  const inAt = Math.max(0, tl.openEnd + VIDEO_HUD_TIMING.inOffset);
+  const outAt = Math.max(inAt, tl.endingAt + tl.stampDur + VIDEO_HUD_TIMING.outOffset);
+  return {
+    inAt,
+    inEnd: inAt + VIDEO_HUD_TIMING.inDur,
+    outAt,
+    outEnd: outAt + VIDEO_HUD_TIMING.outDur,
+  };
+}
+
+/** 整层 alpha：开场 0 → 淡入 → 常驻（含前导 / 正片 / 中央章）→ 淡出 → 结算 0 */
+export function videoHudAlphaAt(t: number, tl: VideoHudTimeline): number {
+  const w = videoHudWindows(tl);
+  if (t <= w.inAt || t >= w.outEnd) return 0;
+  const rise = w.inEnd > w.inAt
+    ? hudSmooth(hudClamp01((t - w.inAt) / (w.inEnd - w.inAt))) : 1;
+  const fall = w.outEnd > w.outAt
+    ? 1 - hudSmooth(hudClamp01((t - w.outAt) / (w.outEnd - w.outAt))) : 0;
+  return hudClamp01(Math.min(rise, fall));
+}
 
 /**
  * 建导出时间线。

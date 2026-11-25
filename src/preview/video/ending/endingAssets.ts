@@ -1,0 +1,115 @@
+// 结尾段的**游戏 UI 素材**（票 52；清单见 `docs/research/gbp-ui-assets.md`）。
+//
+// 全部是游戏原图 / 从真截图抠的派生件，**不入 git**（ADR-0016 §6 的「不进安装包」口径
+// 已于 2026-11-15 变更：由 `npm run assets:sync` 随其它运行时素材一起取件）：
+// 按票 52 Q12 —— **缺件留空或纯字，不画假徽章**。
+// 因此本模块**从不抛错**：读不到就是 null，绘制侧据此降级（纯字 / 不画）。
+//
+// **票 83 起不再读图集**：徽章三件、星徽三态、Score 行圆星章都是一格的独立小图，
+// 由官方图集裁出（坐标对照表见 `docs/research/gbp-ui-assets.md` §12；生成器随快照仓，主仓不存放）
+// ⇒ 绘制侧 `drawImage` 的源矩形一律从 `(0,0)` 起，2048² 的 `MenuAtlas.png` 不再进包体。
+//
+// **AP / FC 是两套材质**（2026-10-27 用户指认）：
+//   - `stamp*` = 中央章用的**大号**（章宽 62.2%W，最大最清的那张）；
+//   - `mark*`  = 结算白卡右下角用的**小号**（高 5%H，另有一张小的）。
+// 两处**不共用同一张图** —— 大图缩到小标会糊，小图放到章上会糊。
+//
+// 目录与仿真场素材同一套规则：`public/` 挂站点根，Electron 打包态是 `file://` +
+// `base: './'` ⇒ 必须拼 `import.meta.env.BASE_URL`，不能写死绝对路径。
+/** 结尾段素材根（`<站点根>/assets/game-ui`） */
+export const ENDING_ASSET_BASE = `${import.meta.env.BASE_URL}assets/game-ui`;
+
+/** 已就绪的结尾段素材；**缺件 = null**（每件各自降级，不整组作废） */
+export interface EndingAssets {
+  /** 中央章 AP（大）：`result/stamp-ap.png` 1028×187（用户自抠，与 `结尾中央徽章.mov` 同一套） */
+  stampAp: HTMLImageElement | null;
+  /** 中央章 FC（大）：`result/stamp-fc.png` —— **暂缺**（等用户截图抠图），缺件走纯字 */
+  stampFc: HTMLImageElement | null;
+  /** 结算 AP 标（小）：`result/mark-ap.png` —— **暂缺**，缺件走纯字 */
+  markAp: HTMLImageElement | null;
+  /** 结算 FC 标（小）：`result/mark-fc.png` 221×40（官方图集 `527,737` 的派生件） */
+  markFc: HTMLImageElement | null;
+  /** `judgeskin/skin00/judge.png`：结算白卡的判定五档标签 */
+  judge: HTMLImageElement | null;
+  /** `result/star-particle.png` 79×76：章粒子的实心五角星（派生自官方粒子图集） */
+  particles: HTMLImageElement | null;
+  /** `result/max-combo.png`：MAX / COMBO 两行白字（官方图集 `940,718` 112×59 的派生件） */
+  maxCombo: HTMLImageElement | null;
+  /** 顶栏星徽三态（整图，尺寸见 `endingFrame.BADGE_INK`）：虹彩 / 粉 / 金 */
+  badgeAp: HTMLImageElement | null;
+  badgeFc: HTMLImageElement | null;
+  badgeClear: HTMLImageElement | null;
+  /** 结算 SCORE RANK 徽章三层（票 82 分层入场）：太阳纹圆盘 / 大号字母 / 缎带 */
+  rankDisc: HTMLImageElement | null;
+  /** 大号字母**只有 SS 一档**切片（其余 9 档走纯字）⇒ 名字带档位，文件名同 */
+  rankLetterSs: HTMLImageElement | null;
+  rankRibbon: HTMLImageElement | null;
+  /** `result/score-medal.png` 29×30：结算 Score 行左侧的官方圆星章 */
+  scoreMedal: HTMLImageElement | null;
+}
+
+/** 素材一个都没有（缺件常态：素材不在安装包里） */
+export const EMPTY_ENDING_ASSETS: EndingAssets = {
+  stampAp: null,
+  stampFc: null,
+  markAp: null,
+  markFc: null,
+  judge: null,
+  particles: null,
+  maxCombo: null,
+  badgeAp: null,
+  badgeFc: null,
+  badgeClear: null,
+  rankDisc: null,
+  rankLetterSs: null,
+  rankRibbon: null,
+  scoreMedal: null,
+};
+
+/** 十四件素材的 URL（路径形状只在这里拼一次） */
+export function endingAssetUrls(): Record<keyof EndingAssets, string> {
+  return {
+    stampAp: `${ENDING_ASSET_BASE}/result/stamp-ap.png`,
+    stampFc: `${ENDING_ASSET_BASE}/result/stamp-fc.png`,
+    markAp: `${ENDING_ASSET_BASE}/result/mark-ap.png`,
+    markFc: `${ENDING_ASSET_BASE}/result/mark-fc.png`,
+    judge: `${ENDING_ASSET_BASE}/judgeskin/skin00/judge.png`,
+    particles: `${ENDING_ASSET_BASE}/result/star-particle.png`,
+    maxCombo: `${ENDING_ASSET_BASE}/result/max-combo.png`,
+    badgeAp: `${ENDING_ASSET_BASE}/result/badge-ap.png`,
+    badgeFc: `${ENDING_ASSET_BASE}/result/badge-fc.png`,
+    badgeClear: `${ENDING_ASSET_BASE}/result/badge-clear.png`,
+    rankDisc: `${ENDING_ASSET_BASE}/result/rank-disc.png`,
+    rankLetterSs: `${ENDING_ASSET_BASE}/result/rank-letter-ss.png`,
+    rankRibbon: `${ENDING_ASSET_BASE}/result/rank-ribbon.png`,
+    scoreMedal: `${ENDING_ASSET_BASE}/result/score-medal.png`,
+  };
+}
+
+export interface EndingAssetLoadOptions {
+  /** 图片加载（测试注入替身；缺省 `new Image()`） */
+  loadImage?: (src: string) => Promise<HTMLImageElement>;
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`图片加载失败: ${src}`));
+    img.src = src;
+  });
+}
+
+/**
+ * 读十四件素材。**并发、逐件兜底**：某一件读不到只等于"那一处不画 / 走纯字"，
+ * 不影响其它件，也不阻断导出（票 52 Q12）。
+ */
+export async function loadEndingAssets(opts: EndingAssetLoadOptions = {}): Promise<EndingAssets> {
+  const { loadImage = loadImageElement } = opts;
+  const urls = endingAssetUrls();
+  const keys = Object.keys(urls) as Array<keyof EndingAssets>;
+  const loaded = await Promise.all(keys.map((key) => loadImage(urls[key]).catch(() => null)));
+  const out = { ...EMPTY_ENDING_ASSETS };
+  keys.forEach((key, i) => { out[key] = loaded[i] ?? null; });
+  return out;
+}

@@ -258,7 +258,7 @@ export default function PlayBar({
               rAF 16.7ms 间隔本身已足够平滑） */}
           <div
             className="play-bar__seek-fill"
-            style={{ width: `${ratio * 100}%` }}
+            style={{ transform: `scaleX(${ratio})` }}
           />
           <div
             className="play-bar__seek-dot"

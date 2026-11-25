@@ -187,6 +187,35 @@ describe('buildSimChart · 倒流区（ADR-0010）', () => {
     expect(simComboAt(c, 1.2)).toBe(3);
     expect(simComboAt(c, 1.6)).toBe(4);
   });
+
+  it('按住帽款式按玩家游玩顺序：倒流区取播放秒更小的那一端（票 78）', () => {
+    const c = chartOf(backflow);
+    // 玩家顺序 = beat7(0.5s, 尾端点) → beat6(1s, 中间结点) → beat5(1.5s, 头端点)；
+    // 带表仍按数组序 [[1.5,1],[1,0.5]] ⇒ (0.5,1] 刚过端点、(1,1.5] 刚过中间结点。
+    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[1.5, 1], [1, 0.5]]);
+    expect(c.bands.map((b) => b.holdAmong)).toEqual([true, false]);
+  });
+});
+
+describe('buildSimChart · 按住帽款式（票 78）', () => {
+  it('三点滑条：头端点段端点款，经过中间结点后中间款', () => {
+    const c = chartOf([slide([
+      { beat: 2, lane: 0 }, { beat: 4, lane: 2 }, { beat: 8, lane: 6 },
+    ])]);
+    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[1, 2], [2, 4]]);
+    expect(c.bands.map((b) => b.holdAmong)).toEqual([false, true]);
+  });
+
+  it('hidden 采样点不触发换款：一个逻辑段里的小段共用同一款', () => {
+    const c = chartOf([slide([
+      { beat: 2, lane: 0 },
+      { beat: 3, lane: 1, hidden: true },
+      { beat: 4, lane: 2 },
+      { beat: 5, lane: 3, hidden: true },
+      { beat: 8, lane: 4 },
+    ])]);
+    expect(c.bands.map((b) => b.holdAmong)).toEqual([false, false, true, true]);
+  });
 });
 
 describe('buildSimChart · 同时点击线', () => {
@@ -217,7 +246,7 @@ describe('drawSimFrameAt · 一帧绘制', () => {
     const f = frameOf([single(2, 3), slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5, hidden: true }, { beat: 6, lane: 1 }])]);
     const { proxy, calls } = recordingCtx();
     for (const seconds of [0, 0.5, 1.2, 2, 2.05, 3, 3.2, 10]) {
-      expect(() => drawSimFrameAt(proxy, f, seconds)).not.toThrow();
+      expect(() => drawSimFrameAt(proxy, f, seconds, { hud: false })).not.toThrow();
     }
     expect(propValues(calls, 'fillStyle')).toContain(SIM_FALLBACK_BG); // 场地底色铺满
     expect(fillTexts(calls).map(([, [text]]) => text)).toContain('COMBO'); // HUD 是自绘文本
@@ -226,11 +255,12 @@ describe('drawSimFrameAt · 一帧绘制', () => {
   it('combo 只数已过线的：命中前不写，命中后写当前值', () => {
     const f = frameOf([single(1, 3), single(2, 0)]);
     const before = recordingCtx();
-    drawSimFrameAt(before.proxy, f, 0.4);
+    drawSimFrameAt(before.proxy, f, 0.4, { hud: false });
     expect(fillTexts(before.calls)).toHaveLength(0);
 
     const after = recordingCtx();
-    drawSimFrameAt(after.proxy, f, 1.6);
+    // 判定字停留 1s（2026-10-27 定稿）⇒ 取 2.0s，判定字已经收掉，只剩 combo 两件
+    drawSimFrameAt(after.proxy, f, 2.0, { hud: false });
     expect(fillTexts(after.calls).map(([, [text]]) => text)).toEqual(['2', 'COMBO']);
   });
 });

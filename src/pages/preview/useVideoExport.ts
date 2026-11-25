@@ -16,6 +16,7 @@ import {
   probeVideoExportSupport,
   runVideoExport,
   waitForPaint,
+  type EndingInput,
   type OpeningInput,
   type SimPlaybackAudio,
   type SimScene,
@@ -49,13 +50,23 @@ export interface UseVideoExportArgs {
   seVolume: number;
   volume: number;
   noteSkin: AppSettings['visual']['noteSkin'];
+  /**
+   * 作用域工程的封面（票 84）：背景是「AAO 舞台」时它填进相框；`null` = 没有封面（相框留空）。
+   * 与开场 / 结算各自的 `cover` 同源（都由页面按作用域工程给）。
+   */
+  cover?: Blob | null;
   /** 文件名基础名（不含扩展名） */
   suggestedBaseName: string;
   /**
-   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长（结尾段另加 7.5s））。
    * 由页面按 `settings.export.opening` 组装（难度色由页面传，preview 域不 import 工程域）。
    */
   opening?: OpeningInput | null;
+  /**
+   * 结尾画面（chart-preview 52）：`null` = 关掉（末击尾段播完切末帧、总长 = 开场 + 前导 + 谱面 + 尾段）。
+   * 由页面按 `settings.export.ending` 组装（封面 / 判定计数都由页面给）。
+   */
+  ending?: EndingInput | null;
 }
 
 export interface VideoExportController {
@@ -189,6 +200,7 @@ export function useVideoExport(
         scene: args.scene,
         audio: args.audio,
         durationSeconds: args.durationSeconds,
+        cover: args.cover ?? null,
         keySetId: args.keySetId,
         seVolume: args.seVolume,
         volume: args.volume,
@@ -198,6 +210,7 @@ export function useVideoExport(
         muted: spec.muted,
         suggestedBaseName: args.suggestedBaseName,
         opening: args.opening ?? null,
+        ending: args.ending ?? null,
         onProgress: setProgress,
         isCancelled: () => cancelledRef.current,
       });

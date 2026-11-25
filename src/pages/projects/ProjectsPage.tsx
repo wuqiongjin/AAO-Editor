@@ -10,7 +10,7 @@ import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ChartSummary, type ProjectSummary } from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
-  addChartToProject, createBlankProject, deleteChartFromProject, duplicateProject, updateChartInfo, updateProjectInfo,
+  addChartToProject, applyChartInfoPatch, createBlankProject, deleteChartFromProject, duplicateProject, updateProjectInfo,
 } from '../../project/projectCatalog';
 import { mostRecentlyOpenedId, sortProjects } from '../../project/projectSort';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
@@ -209,7 +209,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       chartIds: src.charts.map(() => newChartId()),
       now,
     }, untitledProjectLabel(), taken);
-    await store.save(copy);
+    await store.save(copy, src.liveBgName?.trim() ? { liveBgCopyFrom: src.id } : undefined);
     trail.record({ module: 'project', action: 'save', result: 'ok', meta: { projectId: copy.id } }); notifyCatalogChanged();
     setNewSource(null);
     goDetailKeepAnimation(copy.id);
@@ -319,7 +319,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       const key = e.key;
       if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
       if (list.length === 0) return;
-      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
+      if (document.querySelector('.dialog__scrim, .is-portaled')) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
@@ -416,7 +416,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
             })();
           }}
           onUpdate={(patch) => {
-            void mutate(chartForm.project.id, (p) => updateChartInfo(p, chartForm.chart!.id, patch, Date.now()));
+            void mutate(chartForm.project.id, (p) => applyChartInfoPatch(p, chartForm.chart!.id, patch, Date.now()));
             setChartForm(null);
           }}
         />

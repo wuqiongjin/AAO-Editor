@@ -14,6 +14,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  contain: size layout style;
   padding: 24px 24px 16px;
   background: var(--bg);
   color: var(--text);
@@ -548,6 +549,23 @@
   font-weight: 650;
 }
 
+/* 填充方式只出现在背景选择器：标签 + SegmentedControl */
+.pdp__picker-fit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 2px 0;
+  border-top: 1px solid var(--border);
+}
+
+.pdp__fit-caption {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .pdp__pack-grid {
   display: grid;
   gap: 4px;
@@ -597,7 +615,8 @@
   box-shadow: inset 0 0 0 1px var(--focus-ring);
 }
 
-.pdp__pack-item img {
+.pdp__pack-item img,
+.pdp__pack-item canvas {
   display: block;
   width: 100%;
   aspect-ratio: 1160 / 610;
@@ -607,9 +626,111 @@
 }
 
 /* 背景主图本身就是 2:1 不透明大图：比例一致，铺满即无裁切 */
-.pdp__pack-grid--background .pdp__pack-item img {
+.pdp__pack-grid--background .pdp__pack-item img,
+.pdp__pack-grid--background .pdp__pack-item canvas {
   aspect-ratio: 2 / 1;
   object-fit: cover;
+}
+
+.pdp__pack-item--custom {
+  position: relative;
+  overflow: hidden;
+}
+
+.pdp__pack-item--custom.is-empty {
+  border-style: dashed;
+}
+
+.pdp__pack-item--custom.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pdp__live-plus {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  color: inherit;
+}
+
+.pdp__live-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--canvas-bg) 55%, transparent) 0,
+    color-mix(in srgb, var(--canvas-bg) 12%, transparent) 42%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.pdp__live-dock {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  pointer-events: none;
+}
+
+.pdp__pack-item--custom.has-file:hover .pdp__live-scrim,
+.pdp__pack-item--custom.has-file:focus-within .pdp__live-scrim {
+  opacity: 1;
+}
+
+.pdp__pack-item--custom.has-file:hover .pdp__live-dock,
+.pdp__pack-item--custom.has-file:focus-within .pdp__live-dock {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .pdp__pack-item--custom.has-file.is-active .pdp__live-scrim {
+    opacity: 1;
+  }
+  .pdp__pack-item--custom.has-file.is-active .pdp__live-dock {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+
+.pdp__live-dock-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  border: 1px solid var(--stage-border);
+  background: color-mix(in srgb, var(--canvas-bg) 78%, transparent);
+  color: var(--stage-text);
+  cursor: pointer;
+}
+
+.pdp__live-dock-btn:hover {
+  border-color: var(--stage-hover);
+  background: var(--stage-surface);
+}
+
+.pdp__live-dock-btn.is-danger {
+  color: var(--stage-danger-text);
+}
+
+.pdp__live-dock-btn.is-danger:hover {
+  background: color-mix(in srgb, var(--danger) 28%, var(--canvas-bg));
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--stage-border));
 }
 
 .pdp__pack-id {
@@ -788,6 +909,7 @@
   padding: 0;
   border: none;
   border-radius: 0;
+  contain: size layout style;
   background: var(--canvas-bg);
   color: var(--stage-text);
   --text: var(--stage-text);
@@ -889,6 +1011,12 @@
   text-align: center;
 }
 
+/* 票 86：切形态那一帧的加载文案直接挂在舞台上；is-filled 把 align-items 改成 stretch，
+   这里只把直接子级的文案收回居中（底部 8px 收白差异属票 19/26 既有口径，不在本票范围）。 */
+.preview-stage.is-filled > .preview-stage__pending {
+  align-self: center;
+}
+
 /* ---- 票 70：记录内容换代期间盖住保活页旧画布的加载态 ----
    激活重读在飞（checking）或数据换了代、可见面板还没分批出完时都出现；
    常态切回数据没变也会短显示一层，但只盖 DOM、不重画、不出图。
@@ -952,12 +1080,28 @@
 }
 
 .pv-field {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   min-height: 0;
   overflow: hidden;
+}
+
+/* 票 42：自定义背景还在读 / 推帧未就绪时盖住已挂上的 canvas。
+   只 `position: absolute` 没有铺底的话，「正在读取场地素材…」会浮在旧场地上，包图从文案后面漏出来。 */
+.pv-field__pending {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 /* 场地：尺寸由 JS 按设计面 contain 算（`fitDesignSurface`），这里是它的容器。
@@ -1058,6 +1202,12 @@
   flex-wrap: wrap;
   padding: 5px 8px;
   border-radius: var(--radius-sm);
+}
+
+/* 行内说明（如导出弹窗的说明行）：借 `.pvex__note` 的字色 / 字号，
+   但去掉它作为独立段落的上下外边距，否则会把这行撑歪。 */
+.pvex__row > .pvex__note {
+  margin: 0;
 }
 
 /* 开场那一组（chart-preview 30）：总开关在组标题行右侧，子项缩进一格、关掉时整组置灰。

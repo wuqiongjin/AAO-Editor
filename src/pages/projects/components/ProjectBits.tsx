@@ -2,6 +2,7 @@
 // 只被本页消费，不上升为跨页资产。
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutside } from '../../../ui/useDismissOnOutside';
 import { Check, Circle, Music2 } from 'lucide-react';
 import type { ChartDifficulty, ChartSummary } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT, projectCoverHue } from '../../../project/projectCatalog';
@@ -112,7 +113,7 @@ export function StatusBadge({ chart, interactive = false, onSelect }: {
  * 难度+等级徽标（issue 19 #2）：点开就地小浮层直接改，不再绕道行尾铅笔。
  * - 点难度色块 = 即时提交；等级输入 Enter / 失焦提交（照 ADR-0008 §5 就地编辑口径）。
  * - 已上传谱面只读：点击只给 toast（复用 `projects.uploadedReadonly`），不弹浮层。
- * - 浮层照卡片菜单的 portal + scrim 范式定位，Esc / 点外部关闭。
+ * - 浮层照卡片菜单的 portal 范式定位，Esc / 点外部关闭。
  */
 export function DiffLevelBadge({ chart, uploaded, onCommit }: {
   chart: ChartSummary;
@@ -122,8 +123,10 @@ export function DiffLevelBadge({ chart, uploaded, onCommit }: {
   const [open, setOpen] = useState(false);
   const [level, setLevel] = useState('');
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const cancelledRef = useRef(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  useDismissOnOutside(open, () => setOpen(false), [wrapRef, panelRef]);
 
   const openPopover = () => {
     if (uploaded) {
@@ -159,8 +162,7 @@ export function DiffLevelBadge({ chart, uploaded, onCommit }: {
       </button>
       {open && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={() => setOpen(false)} />
-          <div className="pc-diff__panel is-portaled" style={{ top: pos.top, left: pos.left }} role="dialog" aria-label={t('projects.diffLevelEdit')}>
+          <div ref={panelRef} className="pc-diff__panel is-portaled" style={{ top: pos.top, left: pos.left }} role="dialog" aria-label={t('projects.diffLevelEdit')}>
             <span className="pc-diff__row">
               {DIFF_NAMES.map((name, i) => (
                 <button
@@ -234,7 +236,9 @@ export function Menu({ trigger, placement = 'down', align = 'end', panelClass, c
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPos>({ right: 0 });
+  useDismissOnOutside(open, () => setOpen(false), [wrapRef, panelRef]);
   const toggle = () => {
     if (!open && wrapRef.current) {
       const r = wrapRef.current.getBoundingClientRect();
@@ -255,9 +259,9 @@ export function Menu({ trigger, placement = 'down', align = 'end', panelClass, c
       <span className="pp-menu__trigger" onClick={toggle}>{panel}</span>
       {open && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={() => setOpen(false)} />
           {/* `pos` 的键就是 CSS 属性名，没测过的那一档不写（`undefined` 会被 React 跳过） */}
           <div
+            ref={panelRef}
             className={`pp-menu__panel is-portaled${panelClass ? ` ${panelClass}` : ''}`}
             style={pos}
             onClick={() => setOpen(false)}

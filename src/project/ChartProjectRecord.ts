@@ -3,13 +3,15 @@
 // 一份工程在存储里有三种表示，映射只在**本文件**：
 //   - wire doc：Electron 文件后端（<数据根>/projects/<id>/project.json，带 audioPresent / coverPresent）；
 //   - put 载荷：渲染进程 → 主进程（doc + audioIntent / coverIntent，见 ProjectPutWire）；
-//   - stored record：IndexedDB 记录（ChartProject 原样 + schemaVersion，Blob 与记录内联）。
+//   - stored record：IndexedDB 记录（ChartProject 原样 + schemaVersion；audio/cover Blob 内联，
+//     liveBg 像素在独立 object store，不进本表）。
 // 加字段 = 实体接口 + 本文件 RECORD_FIELDS 一张表；任写少一个方向都过不了 `satisfies`。
 //
 // 写入口：mutateProject 是记录侧「整记录读-改-写」的唯一一处（flush → get → fn → save → notify），
 // 五处调用点 + 当前工程会话的 open 都走它。次序约束从各调用点的注解搬进这里；
 // 调用点自己的下一步（reload / setState / open）留在原地。
 import type { ChartProject, ProjectChart, SongSource } from './ChartProject';
+import { readLiveBgFit, type LiveBgFit } from './liveBgImport';
 
 export const PROJECT_SCHEMA_VERSION = 1 as const;
 
@@ -20,20 +22,32 @@ export interface ProjectRecordDoc {
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
   name: string | null;
   artist: string | null;
+  /** 曲目署名（票 79）：可选以兼容老记录；缺值由 RECORD_FIELDS.read 回落 null */
+  lyricist?: string | null;
+  composer?: string | null;
+  arranger?: string | null;
   source: SongSource;
   durationSeconds: number;
   lastOpened: number;
+  /** 谱师署名在 `ProjectChart` 里，同样可选 */
   charts: ProjectChart[];
   audioName: string | null;
   coverName: string | null;
   audioPresent: boolean;
   coverPresent: boolean;
+  /** 自定义表演背景 sidecar 是否在盘上（票 42；get 不读像素） */
+  liveBgPresent: boolean;
+  liveBgName?: string | null;
+  liveBgMime?: string | null;
+  liveBgUseCustom?: boolean;
+  liveBgFit?: LiveBgFit;
 }
 
 /** 写入文档；素材 intent 在主进程落盘时换成 present。 */
-export type ProjectWriteDoc = Omit<ProjectRecordDoc, 'audioPresent' | 'coverPresent'> & {
+export type ProjectWriteDoc = Omit<ProjectRecordDoc, 'audioPresent' | 'coverPresent' | 'liveBgPresent'> & {
   audioIntent: BinaryIntent;
   coverIntent: BinaryIntent;
+  liveBgIntent: BinaryIntent;
 };
 
 /** 渲染进程 → 主进程 put 载荷 */
@@ -43,6 +57,13 @@ export interface ProjectPutWire {
   doc: string;
   audio?: Uint8Array;
   cover?: Uint8Array;
+  /** 自定义表演背景字节（票 42）；intent=set 且没走 copyFrom 时带 */
+  liveBg?: Uint8Array;
+  /**
+   * 从另一份工程拷 sidecar（复制工程）。值是**工程 id**，主进程只读
+   * `projects/<id>/liveBg.bin`，字节不过 IPC。
+   */
+  liveBgCopyFrom?: string;
   /**
    * intent=set 时也可以给「素材缓存里的路径」代替字节（票 08 + 14：官方 / 社区导入的音频与封面
    * 由主进程从 `<数据根>/cache/community/` 拷进工程目录，字节不过 IPC）。给了它就优先于上面的字节。
@@ -112,7 +133,7 @@ export interface ProjectUploadRefs {
   cover: ProjectUploadFile | null;
 }
 
-/** IndexedDB 记录形状：工程实体原样 + schemaVersion（Blob 内联），未发布，不做数据迁移。 */
+/** IndexedDB 记录形状：工程实体 + schemaVersion（audio/cover Blob 内联；liveBg 不进本表）。 */
 export type StoredProjectRecord = ChartProject & { schemaVersion: typeof PROJECT_SCHEMA_VERSION };
 
 /* ------------------------------------------------------------------ */
@@ -124,7 +145,7 @@ export type StoredProjectRecord = ChartProject & { schemaVersion: typeof PROJECT
  * id（在路径 / 记录主键里）、两个 Blob（在 bin 文件 / 记录内联字段里）。
  * 故意**从 ChartProject 派生**而不是手写 Pick：实体加字段而这里没跟，`satisfies` 立刻红。
  */
-type RecordFields = Omit<ChartProject, 'id' | 'audioBlob' | 'coverBlob'>;
+type RecordFields = Omit<ChartProject, 'id' | 'audioBlob' | 'coverBlob' | 'liveBgBlob'>;
 
 type RecordFieldKey = keyof RecordFields;
 
@@ -134,6 +155,16 @@ type RecordFieldKey = keyof RecordFields;
  * - `write`：工程 → 文档字段；快照／JSON 规范化统一在记录出口完成。
  * 加字段只动这张表；漏字段或漏写任一方向，`satisfies` 编译期报错。
  */
+/** 曲目署名 / 谱师署名（票 79）：只认字符串，缺字段 / 脏值回落空 —— 老记录不迁移。 */
+const readCredit = (raw: unknown): string | null => (typeof raw === 'string' ? raw : null);
+
+/** 谱面数组逐张归一谱师署名；其余字段（含 ADR-0014 的未知字段）原样保留。 */
+function readProjectCharts(raw: unknown): ProjectChart[] {
+  const charts = (raw as ProjectChart[] | undefined) ?? [];
+  if (!Array.isArray(charts)) return [];
+  return charts.map((c) => ({ ...c, charterCredit: readCredit(c?.charterCredit) }));
+}
+
 const RECORD_FIELDS = {
   name: {
     read: (raw: unknown): string | null => (raw as string | null | undefined) ?? null,
@@ -142,6 +173,19 @@ const RECORD_FIELDS = {
   artist: {
     read: (raw: unknown): string | null => (raw as string | null | undefined) ?? null,
     write: (src: RecordFields): string | null => src.artist,
+  },
+  // 曲目署名：工程级三项（票 79），additive，不 bump schemaVersion
+  lyricist: {
+    read: readCredit,
+    write: (src: RecordFields): string | null => src.lyricist ?? null,
+  },
+  composer: {
+    read: readCredit,
+    write: (src: RecordFields): string | null => src.composer ?? null,
+  },
+  arranger: {
+    read: readCredit,
+    write: (src: RecordFields): string | null => src.arranger ?? null,
   },
   source: {
     read: (raw: unknown): SongSource => {
@@ -164,7 +208,7 @@ const RECORD_FIELDS = {
     write: (src: RecordFields): number => src.lastOpened,
   },
   charts: {
-    read: (raw: unknown): ProjectChart[] => (raw as ProjectChart[] | undefined) ?? [],
+    read: readProjectCharts,
     write: (src: RecordFields): ProjectChart[] => src.charts,
   },
   audioName: {
@@ -174,6 +218,23 @@ const RECORD_FIELDS = {
   coverName: {
     read: (raw: unknown): string | null => (raw as string | null | undefined) ?? null,
     write: (src: RecordFields): string | null => src.coverName,
+  },
+  // 自定义表演背景（票 42）：additive，不 bump schemaVersion；像素不进本表
+  liveBgName: {
+    read: (raw: unknown): string | null => (typeof raw === 'string' && raw.trim() ? raw : null),
+    write: (src: RecordFields): string | null => (src.liveBgName?.trim() ? src.liveBgName : null),
+  },
+  liveBgMime: {
+    read: (raw: unknown): string | null => (typeof raw === 'string' && raw.trim() ? raw : null),
+    write: (src: RecordFields): string | null => src.liveBgMime ?? null,
+  },
+  liveBgUseCustom: {
+    read: (raw: unknown): boolean => raw === true,
+    write: (src: RecordFields): boolean => src.liveBgUseCustom === true,
+  },
+  liveBgFit: {
+    read: readLiveBgFit,
+    write: (src: RecordFields): LiveBgFit => readLiveBgFit(src.liveBgFit),
   },
 } satisfies {
   [K in RecordFieldKey]: {
@@ -264,12 +325,14 @@ export function recordFromProject(
   project: ChartProject,
   audioIntent: BinaryIntent,
   coverIntent: BinaryIntent,
+  liveBgIntent: BinaryIntent = 'cleared',
 ): ProjectPutWire['doc'] {
   return JSON.stringify({
     schemaVersion: PROJECT_SCHEMA_VERSION,
     ...writeRecordFields(project),
     audioIntent,
     coverIntent,
+    liveBgIntent,
   } satisfies ProjectWriteDoc);
 }
 

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { PAGE_NAV } from '@/src/layouts/pageNav';
 import { PAGE_REGISTRY } from '@/src/pages/PageRegistry';
 import { FUNCTIONS } from '@/src/settings/ShortcutConfig';
-import { readStripped, repoRoot } from '@/tests/support/source';
+import { cssRuleBody, readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */
 function sourceFiles(dir: string, re = /\.(ts|tsx|css)$/): string[] {
@@ -192,6 +192,15 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     // 播放条自 issue 22 起是工作台同一件 PlayBar（变体类 `.play-bar--preview`）
     expect(css).toMatch(/\.preview-page\.is-video \.play-bar--preview\s*\{[^}]*min-height:\s*32px/);
   });
+
+  it('票 86：切形态那一帧的加载文案在 is-filled 舞台上仍垂直居中', () => {
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    // is-filled 把 align-items 改成 stretch，过渡帧那句裸 <p> 会被拉满高度贴顶；
+    // 只锁行为：该帧文案要么用 align-self 收回居中，要么按遮罩口径绝对居中。
+    expect(cssRuleBody(css, '.preview-stage.is-filled')).toMatch(/align-items:\s*stretch/);
+    const pending = css.match(/\.preview-stage\.is-filled[^{}]*\.preview-stage__pending[^{}]*\{([^}]*)\}/)?.[1];
+    expect(pending).toMatch(/align-self:\s*center|(?:position:\s*absolute[\s\S]*align-items:\s*center)/);
+  });
 });
 
 describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
@@ -217,17 +226,23 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     // 41 起 sim/ 多两件：`simAssetPacks.ts`（包清单消费侧：按包 ID 查清单 + 非法 ID 回落
     // skin00）与 `gen/`（取件侧产出的包清单，git 忽略、assets:sync 取件，照 skin/gen 先例）；
     // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级；
-    // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级
-    expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'opening', 'sim']);
+    // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级；
+    // 52 起再旁出一支 ending/（结尾段的参数表 / 素材 / 一帧绘制），同样与 sim/ 平级；
+    // 52 起同层多一枚 `sfx.ts`：导出两端的游戏音效（开场人潮 / 结尾章双声）的 cue 表
+    expect(entries('src/preview/video')).toEqual(['encode', 'ending', 'index.ts', 'opening', 'sfx.ts', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
+      'appAssetPacks.ts', // 84：应用自带素材包（不进快照清单，由应用侧前置合并）
       'gen',
       'index.ts',
       'prepareSimNoteSprites.ts', // 68：开播前准备独立音符切片与 mip（含按住端帽和挂件）
+      'prepareSimRendering.ts', // 80：完整绘制冷路径准备与播放门禁
       'simAssetPacks.ts',
       'simAssets.ts',
+      'simBandGpu.ts',
       'simBandRaster.ts', // 65：带体贴图剖面 / LUT / 一张共享缓冲的逐像素光栅
       'simField.ts',
       'simGeometry.ts',
+      'simHud.ts',
       'simPlayback.ts',
       'simSprites.ts',
     ]);
@@ -246,5 +261,53 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       .filter((file) => importSpecifiers(readStripped(file))
         .some((spec) => (resolveSpec(spec, file) ?? '').startsWith('src/pages/')));
     expect(offenders).toEqual([]);
+  });
+});
+
+// 票 84（相框封面）× issue 80（首播冷路径）：封面是**后到**的一张图，接线不能让它的晚到
+// 把场地素材与播放器重来一遍 ——
+//   ① 解码未落定前不取素材（否则按"空相框"取两遍、`assets` 换两次身份）；
+//   ② 播放器只在「音频身份 / 就绪门禁 / GPU 渲染器」变化时重建，素材换代走 `setFrame`。
+describe('84 · 相框封面不吃 issue 80 的冷路径', () => {
+  const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+  const page = readStripped('src/pages/preview/PreviewPage.tsx');
+
+  it('页面把 `pending` 交给舞台当取素材门禁', () => {
+    expect(page).toMatch(/cover=\{stageCover\.image\}/);
+    expect(page).toMatch(/coverPending=\{stageCover\.pending\}/);
+    expect(page).toMatch(/liveBgPending=\{liveBg\.pending\}/);
+    expect(stage).toMatch(/if \(coverPending \|\| liveBgPending\) return;/);
+  });
+
+  it('票 42：自定义背景 pending 不跟页面 active 走，遮罩盖住保活画布', () => {
+    const hook = readStripped('src/pages/preview/useLiveBg.ts');
+    // 保活切走会 close 位图；若 pending 随 active 变 false，隐藏的舞台会按「没用自定义」去取内置包
+    expect(hook).toMatch(/const pending = Boolean\(projectId && useCustom && hasImage && full == null\)/);
+    expect(hook).not.toMatch(/active && projectId && useCustom/);
+    expect(stage).toMatch(/if \(!pb \|\| liveBgPending \|\| !frameReady/);
+
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    expect(css).toMatch(/\.pv-field__pending\s*\{[^}]*position:\s*absolute/s);
+    expect(css).toMatch(/\.pv-field__pending\s*\{[^}]*inset:\s*0/s);
+    expect(css).toMatch(/\.pv-field__pending\s*\{[^}]*background:/s);
+  });
+
+  it('播放器不跟 `assets` 重建（换包 / 封面晚到只重烤场地底图）', () => {
+    expect(stage).toMatch(/\}, \[stageReady, audio, gpuBands\]\);/);
+    expect(stage).not.toMatch(/\}, \[stageReady, audio, assets, gpuBands\]\);/);
+  });
+});
+
+describe('票 85 · 舞台遮罩与预热门禁', () => {
+  it('遮罩不再等于任意 `!renderingReady`，预热也不跟 scene 身份', () => {
+    const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+    const prepare = readStripped('src/preview/video/sim/prepareSimRendering.ts');
+    // 票 42 那句会把亮度 / 全屏也盖住；收窄后不能再当回归锁
+    expect(stage).not.toMatch(/stageReady && \(liveBgPending \|\| !renderingReady\)/);
+    expect(stage).toMatch(/liveBgPending/);
+    expect(stage).toMatch(/pv-field__pending/);
+    expect(stage).toMatch(/simRenderingNeedsWarmup/);
+    expect(prepare).toMatch(/export function simRenderingNeedsWarmup/);
+    expect(prepare).not.toMatch(/scene === /);
   });
 });

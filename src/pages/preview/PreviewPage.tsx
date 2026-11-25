@@ -19,8 +19,10 @@ import {
   DEFAULT_PREVIEW_ZOOM,
   StaticPreviewView,
   exportSheetAs,
+  SCORE_MAX,
   planSheet,
   waitForPaint,
+  type EndingInput,
   type OpeningInput,
   type PanelSceneInput,
   type PreviewMode,
@@ -42,12 +44,14 @@ import {
 } from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
+import { useLiveBg } from './useLiveBg';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
 import PreviewVideoStage, { type VideoSyncToken } from './PreviewVideoStage';
 import VideoExportControl from './VideoExportControl';
 import { usePreviewScope } from './usePreviewScope';
+import { useStageCoverImage } from './useStageCoverImage';
 import { useVideoExport, exportDoneText } from './useVideoExport';
 import './PreviewPage.css';
 
@@ -67,9 +71,15 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   /** 等待那一帧里连点 / 点回静态：只有最后一次点按的令牌有权落地 */
   const switchTokenRef = useRef(0);
   const { scopeId, currentId, project, options, loading, chartId, pickChart, dataVersion, checking } = usePreviewScope(active);
+  const liveBg = useLiveBg(project, active && (mode === 'video' || pendingMode === 'video'));
 
   // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
   const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
+
+  // 相框封面（票 84 · ADR-0018 §7）：取**作用域工程**的封面（不是"当前工程" —— 预览页可以看别人的工程），
+  // 与开场片头 / 结算卡同一口径。解码一次，舞台与面板 hover 大预览共用；
+  // `pending` 交给舞台当取素材门禁（issue 80：别按"空相框"先取一遍再重取）。
+  const stageCover = useStageCoverImage(project?.coverBlob ?? null);
 
   // 静态预览的看谱档：缩放 / 全屏是"这一屏怎么看"（页面内 state，不落设置）；
   // 叠加项（BPM / 时间 / 节拍线）落 `settings.preview`、画布共享项落 `settings.display`
@@ -189,12 +199,19 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       simultaneousClickLines: settings.display.simultaneousClickLines,
       colorAssist: settings.display.colorAssist,
       mirror: settings.preview.mirror,
+      apCombo: settings.preview.apCombo,
+      // AUTO 模式（票 71）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
+      autoMode: settings.preview.autoMode,
+      // 顶部状态栏总开关（2026-11-08 验收）：同一份 scene ⇒ 三处画面一致
+      showGameUi: settings.preview.showGameUi,
       bgPackId: settings.preview.bgPackId,
       fieldPackId: settings.preview.fieldPackId,
       // 背景亮度（票 43）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
       bgBrightness: settings.preview.bgBrightness,
+      customLiveBg: liveBg.customLiveBg,
+      liveBgFit: liveBg.customLiveBg ? liveBg.slot.fit : undefined,
     };
-  }, [project, chart, settings.display, settings.preview, beatDisplay]);
+  }, [project, chart, settings.display, settings.preview, beatDisplay, liveBg.customLiveBg, liveBg.slot.fit]);
 
   // 票 69 复验整改：保活在动态形态时若工作台改了谱再直切回来（不经过静态预览），
   // 在 checking 与 (dataVersion, chartId) 异步分片派生完成并推入 pb.setFrame 前遮住整个舞台，
@@ -258,7 +275,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   /**
    * 视频开场的**数据面**（chart-preview 30）：与静态那支的 `SheetHeaderInput` 同口径 ——
    * 页面组装、难度色 / 封面色相由页面算好传进去（preview 域不 import 工程域）。
-   * 总开关关掉 ⇒ 传 `null`（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 总开关关掉 ⇒ 传 `null`（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长，结尾段另加 7.5s）。
    */
   const openingInput = useMemo<OpeningInput | null>(() => {
     if (chart == null || !settings.export.opening.enabled) return null;
@@ -270,22 +287,50 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       cover: project?.coverBlob ?? null,
       coverHue: projectCoverHue(project?.id ?? chart.id),
       items: settings.export.opening.items,
-      // 可选的附加字段（作词/作曲/编曲/谱师，chart-preview 39）：
-      // 当前 ChartProject 尚未扩容此 4 个字段（未来扩容时直接透传）；这里留好接线口
-      credits: (project as { credits?: OpeningInput['credits'] })?.credits ?? null,
+      // 票 79：曲目署名接真实工程 / 谱面数据（工程级 3 项 + 谱面级谱师署名）；导出阶段不现取账号名。
+      credits: {
+        lyricist: project?.lyricist ?? null, composer: project?.composer ?? null,
+        arranger: project?.arranger ?? null, charter: chart.charterCredit ?? null,
+      },
     };
   }, [chart, project, settings.export.opening]);
+
+  /**
+   * 结尾画面的**数据面**（chart-preview 52）：口径同 `openingInput`。
+   * 判定计数在 Auto 下恒为全 PERFECT（不是按漏判算的），MAX COMBO = 音符总数。
+   * 总开关关掉 ⇒ 传 `null`（回到旧行为：播完切末帧）。
+   */
+  const endingInput = useMemo<EndingInput | null>(() => {
+    if (chart == null || !settings.export.ending.enabled) return null;
+    const noteCount = countChartNotes(chart.notes);
+    return {
+      stamp: settings.export.ending.stamp,
+      title: chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel()),
+      difficultyName: DIFF_NAMES[chart.diff].toUpperCase(),
+      difficultyColor: DIFF_COLORS[chart.diff],
+      level: chart.level,
+      cover: project?.coverBlob ?? null,
+      coverHue: projectCoverHue(project?.id ?? chart.id),
+      counts: { perfect: noteCount, great: 0, good: 0, bad: 0, miss: 0 },
+      maxCombo: noteCount,
+      // 归一最终分（票 73）：全部命中 ⇒ 满分；这是预览的归一上限，不是游戏官方分数
+      score: SCORE_MAX,
+    };
+  }, [chart, project, settings.export.ending]);
 
   const videoExport = useVideoExport({
     scene: videoScene,
     audio: videoAudio,
     durationSeconds: project?.durationSeconds ?? 0,
+    // 票 84：相框封面与预览用的是同一份（作用域工程封面）
+    cover: project?.coverBlob ?? null,
     keySetId: settings.audio.keySet,
     seVolume: settings.audio.seVolume,
     volume: settings.audio.volume,
     noteSkin: settings.visual?.noteSkin ?? {},
     suggestedBaseName: videoExportName,
     opening: openingInput,
+    ending: endingInput,
   });
 
   const handleVideoExport = useCallback(async () => {
@@ -317,6 +362,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
         noteCount: countChartNotes(chart.notes),
         bpms: getBpmEvents(chart.notes).map((e) => e.bpm),
         exportedAt: Date.now(),
+        // 票 79：谱师署名（谱面级），第 8 枚 chip 只在 settings.export.charter 开时出现
+        charterCredit: chart.charterCredit ?? null,
         fields: settings.export,
         cover: project?.coverBlob ?? null,
         coverHue: projectCoverHue(project?.id ?? chart.id),
@@ -448,13 +495,20 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 />
               ) : (
                 <div className="preview-controls">
-                  <PreviewDisplayPanel mode="video" />
+                  <PreviewDisplayPanel
+                    mode="video"
+                    cover={stageCover.image}
+                    liveBg={liveBg.slot}
+                    liveBgHandlers={liveBg.handlers}
+                  />
                   {/* 导出（07）：票 20 定案，动态形态工具栏的这一枚随视频导出落地；全屏在末位 */}
                   <VideoExportControl
-                    disabled={videoScene == null}
+                    disabled={videoScene == null || liveBg.pending}
                     spec={videoExport.spec}
                     opening={settings.export.opening}
                     onOpeningChange={(patch) => setExport({ opening: mergeOpening(settings.export.opening, patch) })}
+                    ending={settings.export.ending}
+                    onEndingChange={(patch) => setExport({ ending: { ...settings.export.ending, ...patch } })}
                     onSpecChange={videoExport.setSpec}
                     onStart={() => void handleVideoExport()}
                     onCancel={videoExport.cancel}
@@ -462,9 +516,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     cancelling={videoExport.cancelling}
                     notice={videoExport.notice}
                     onDismissNotice={videoExport.dismissNotice}
-                    support={videoExport.support}
-                    probing={videoExport.probing}
-                    onProbe={videoExport.probe}
                   />
                   <PreviewEnterFullscreenButton onEnter={toggleFullscreen} />
                 </div>
@@ -502,11 +553,15 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             ) : mode === 'video' && videoScene ? (
               <PreviewVideoStage
                 active={active}
+                fullscreen={fullscreen}
                 scene={videoScene}
                 chartId={chartId}
                 initialSeconds={videoPlaybackSeconds}
                 onSecondsChange={setVideoPlaybackSeconds}
                 duration={project?.durationSeconds ?? 0}
+                cover={stageCover.image}
+                coverPending={stageCover.pending}
+                liveBgPending={liveBg.pending}
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}
                 seVolume={settings.audio.seVolume}

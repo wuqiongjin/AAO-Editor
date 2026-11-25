@@ -1014,6 +1014,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const now = active ?? true;
         if (now && !wasActiveRef.current) {
             paintOnActivateRef.current();
+        } else if (!now && wasActiveRef.current) {
+            // 票 88：离开工作台切到预览/其他页时释放静态背景+条带及音符瓦片离屏层，缓解 8GB 机器显存占用；切回时上面激活 branch 立即补绘
+            targetRef.current?.staticLayer?.reset();
+            targetRef.current?.noteLayer?.reset();
         }
         wasActiveRef.current = now;
     }, [active]);

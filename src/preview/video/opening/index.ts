@@ -10,6 +10,9 @@ export {
   OPENING_FRAME_LINE,
   OPENING_GAP_ARTIST_CREDIT,
   OPENING_GAP_BAND_ARTIST,
+  OPENING_STACK,
+  OPENING_STACK_DRIFT_AT,
+  OPENING_STACK_DRIFT_SECONDS,
   OPENING_STACK_INSET,
   OPENING_STACK_T,
   OPENING_FADE_IN_SECONDS,
@@ -17,20 +20,30 @@ export {
   OPENING_HOLD_SECONDS,
   OPENING_SECONDS,
   OPENING_TITLE_FONT,
+  OPENING_TIMING,
   OPENING_TRACK_IN_AT,
   OPENING_TRACK_IN_SECONDS,
+  openingSecondsOf,
   openingStackMetrics,
+  openingTrackInAt,
   type OpeningMetrics,
+  type OpeningStack,
+  type OpeningTiming,
 } from './openingSpec';
 export { OPENING_ITEM_IDS, DEFAULT_OPENING_ITEMS, openingItemOrder } from './openingItems';
 export type { OpeningItemId } from './openingItems';
+export { decorPairAt } from './openingDecor';
+export type { DecorNote, DecorSpacing } from './openingDecor';
 export {
   drawOpeningFieldBackground,
   drawOpeningFrameAt,
   drawOpeningTrack,
+  OPENING_COVER_INTRO_SECONDS,
   extractCreditLines,
   openingAlphaAt,
+  openingCoverIntroAt,
   openingSegmentAt,
+  openingStackDriftAt,
   openingTrackAlphaAt,
   type OpeningCredits,
   type OpeningFieldImages,

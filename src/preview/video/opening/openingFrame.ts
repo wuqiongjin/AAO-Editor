@@ -11,27 +11,32 @@
 //     空间的轨道都要一起过渡"）；三张图的矩形直接复用 `simGeometry`，不抄第二份。
 import type { SimFieldMetrics } from '../sim/simGeometry';
 import { fieldImageRect, playLineRect } from '../sim/simGeometry';
-import { drawSimBackground } from '../sim/simField';
-import { drawOpeningDecor } from './openingDecor';
-import type { OpeningItemId } from './openingItems';
+import { drawSimBackground, type StageCoverIntroStyle } from '../sim/simField';
+import { drawOpeningDecor, type DecorSpacing } from './openingDecor';
+import { OPENING_ITEM_IDS, type OpeningItemId } from './openingItems';
 import { HEADER_SANS } from '../../fontStack';
-import { OPENING_SECONDS, OPENING_TRACK_IN_AT } from './openingSpec';
+import { t, type MessageKey } from '../../../i18n';
 import {
   OPENING_BADGE_HEIGHT_FACTOR,
   OPENING_BAND_COLOR,
   OPENING_BAND_TEXT,
   OPENING_BG,
-  OPENING_FADE_IN_SECONDS,
-  OPENING_FADE_OUT_SECONDS,
-
   OPENING_FRAME_LINE,
-  OPENING_HOLD_SECONDS,
+  OPENING_STACK,
+  OPENING_TIMING,
   OPENING_TITLE_FONT,
-  OPENING_TRACK_IN_SECONDS,
+  openingSecondsOf,
   openingStackMetrics,
+  openingTrackInAt,
+  type OpeningStack,
+  type OpeningTiming,
 } from './openingSpec';
 
-/** 歌曲信息附加字段（全部可选：作词 / 作曲 / 编曲 / 谱师，空项不占位） */
+/**
+ * 歌曲信息附加字段（全部可选：作词 / 作曲 / 编曲 / 谱师，空项不占位）。
+ * 这是**绘制层**的入参（票 39 定的形状）：`charter` 装的是工程里的「谱师署名」，
+ * 不是 Bestdori 社区帖作者（那是 `PostCandidate.charter`）—— 术语边界见 ADR-0024 §1。
+ */
 export interface OpeningCredits {
   /** 作词 */
   lyricist?: string | null;
@@ -39,7 +44,7 @@ export interface OpeningCredits {
   composer?: string | null;
   /** 编曲 */
   arranger?: string | null;
-  /** 谱师 */
+  /** 谱师署名 */
   charter?: string | null;
 }
 
@@ -64,6 +69,14 @@ export interface OpeningFieldImages {
   background: CanvasImageSource | null;
   field: CanvasImageSource | null;
   playLine: CanvasImageSource | null;
+  /**
+   * 相框层（chart-preview 84）：字段名与 `SimFrameAssets` 一致、结构上也只要求
+   * `{ cover }` ⇒ 导出侧直接把 `frame.assets` 递进来，③段自动带上相框封面
+   * （"导出与预览一致"），这一层不必依赖仿真场的类型。
+   */
+  stageFrame?: { cover: CanvasImageSource | null } | null;
+  /** 自定义表演背景取景（票 42）；有值时开场③段也不画相框 */
+  liveBgFit?: 'cover' | 'contain';
 }
 
 // ---------------- 文字 ----------------
@@ -123,33 +136,44 @@ function drawFittedText(
   inkCentered(ctx, truncateToWidth(ctx, text, maxW), cx, cy);
 }
 
-const CREDIT_FIELDS = [
-  ['lyricist', '作词'],
-  ['composer', '作曲'],
-  ['arranger', '编曲'],
-  ['charter', '谱师'],
-] as const;
+/**
+ * 4 行附加字段的**声明式列表**：key 同时是 `OpeningItemId`（一枚开关 gate 一行）与 credits 键。
+ * 标签走 i18n（票 79 Q13=B）：zh-CN 全角冒号、en 半角冒号空格，模板在
+ * `preview.opening.credit.line`，四个词统一为角色名 Lyricist / Composer / Arranger / Charter。
+ */
+const CREDIT_FIELDS: readonly (readonly [keyof OpeningCredits, MessageKey])[] = [
+  ['lyricist', 'preview.opening.credit.lyricist'],
+  ['composer', 'preview.opening.credit.composer'],
+  ['arranger', 'preview.opening.credit.arranger'],
+  ['charter', 'preview.opening.credit.charter'],
+];
 
 /**
- * 提取有效的附加字段行（空值不占位）。
- * 顺序：作词 → 作曲 → 编曲 → 谱师。
+ * 提取有效的附加字段行（票 79）。
+ * - 顺序固定：作词 → 作曲 → 编曲 → 谱师；
+ * - `items` = 开着的开场信息项（缺省 = 全开）：每枚开关 gate 自己那一行；
+ * - 值为空 / 纯空白 / 该项关掉 ⇒ 不画也不占位（票 39「空项不占位」口径）。
  */
-export function extractCreditLines(credits?: OpeningCredits | null): string[] {
+export function extractCreditLines(
+  credits?: OpeningCredits | null,
+  items: readonly OpeningItemId[] = OPENING_ITEM_IDS,
+): string[] {
   if (!credits) return [];
   const lines: string[] = [];
-  for (const [key, label] of CREDIT_FIELDS) {
+  for (const [key, labelKey] of CREDIT_FIELDS) {
+    if (!items.includes(key)) continue;
     const raw = credits[key];
     const val = typeof raw === 'string' ? raw.trim() : '';
     if (val) {
-      lines.push(`${label}：${val}`);
+      lines.push(t('preview.opening.credit.line', { label: t(labelKey), value: val }));
     }
   }
   return lines;
 }
 
 /**
- * 方案 B：首字对齐（块居中）
- * 整个 credits 区域在画面中轴居中，内部多行统一左对齐，使得“作词/作曲/编曲/谱师”首字垂直对齐。
+ * 逐行墨迹居中（用户 2026-11-22 推翻票 39 方案 B，回到方案 A）：
+ * 每一行都按墨迹框在画面中轴居中；多行不再首字对齐。
  */
 function drawCreditsBlock(
   ctx: CanvasRenderingContext2D,
@@ -163,21 +187,10 @@ function drawCreditsBlock(
   ctx.save();
   ctx.font = `400 ${fontPx}px ${HEADER_SANS}`;
   ctx.fillStyle = '#f0f2f5';
-
-  let maxLineWidth = 0;
-  for (const line of lines) {
-    const lw = ctx.measureText(line).width;
-    if (lw > maxLineWidth) maxLineWidth = lw;
-  }
-  const blockW = Math.min(maxLineWidth, maxW);
-  const blockLeft = Math.round(cx - blockW / 2);
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
   lines.forEach((line, idx) => {
     const text = truncateToWidth(ctx, line, maxW);
     const lineCy = startY + idx * lineH + lineH / 2;
-    ctx.fillText(text, blockLeft, lineCy);
+    inkCentered(ctx, text, cx, lineCy);
   });
   ctx.restore();
 }
@@ -209,9 +222,12 @@ function drawBadge(
 /** 占位块缓存（同一 hue 只画一次；逐帧重建会白烧 300 次渐变） */
 let placeholderCache: { hue: number; canvas: HTMLCanvasElement } | null = null;
 
-/** 无封面时的占位块：`coverHue` 派生的深色渐变（口径同长图头带） */
-function placeholderCover(hue: number): HTMLCanvasElement | null {
-  // 无 DOM（单测 / node）时不造占位块：返回 null ⇒ 只画空画框，不炸
+/**
+ * 无封面时的占位块：`coverHue` 派生的深色渐变（口径同长图头带）。
+ * 结尾段（票 52）的结算左栏复用同一张占位，不另造第二套。
+ */
+export function openingPlaceholderCover(hue: number): HTMLCanvasElement | null {
+  // 无 DOM（单测 / node）时不造占位块：返回 null ⇒ 封面位留空，不炸
   if (typeof document === 'undefined') return null;
   if (placeholderCache && placeholderCache.hue === hue) return placeholderCache.canvas;
   const size = 512;
@@ -230,7 +246,8 @@ function placeholderCover(hue: number): HTMLCanvasElement | null {
   return c;
 }
 
-function drawSquareCover(
+/** 方形裁切（居中取短边）；开场封面与结尾段结算的封面实体共用 */
+export function drawSquareCover(
   ctx: CanvasRenderingContext2D,
   img: CanvasImageSource,
   x: number,
@@ -249,6 +266,9 @@ function drawSquareCover(
 /**
  * 画开场画面（`alpha` = 整屏三段 alpha）。
  * **整屏 alpha 就在这里设一次**，装饰 / 垫层 / 封面 / 徽章 / 白条 / 艺人行全部继承它 ⇒ 同时机。
+ *
+ * `seconds` = 开场内的视频秒（票 50 · A 轻推的堆叠缓出用它）；缺省 = 已推完，
+ * 即**最终版式**（单测 / 定格帧不必关心入场过程）。
  */
 export function drawOpeningFrameAt(
   ctx: CanvasRenderingContext2D,
@@ -256,41 +276,48 @@ export function drawOpeningFrameAt(
   h: number,
   input: OpeningFrameInput,
   alpha: number,
+  seconds: number = Number.POSITIVE_INFINITY,
+  /** 垫层轻推的覆盖参数（原型 / 调参用；缺省 = 票 50 定稿） */
+  stack: OpeningStack = OPENING_STACK,
+  /** 装饰布点口径（原型 A/B 对照用；缺省 = 票 81 落默认的 C 版，绘制层级不变） */
+  decorSpacing: DecorSpacing = 'middle',
 ): void {
   ctx.save();
   ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
   ctx.fillStyle = OPENING_BG;
   ctx.fillRect(0, 0, w, h);
 
-  const creditLines = extractCreditLines(input.credits);
-  const m = openingStackMetrics(w, h, input.items, creditLines.length);
+  const creditLines = extractCreditLines(input.credits, input.items);
+  const m = openingStackMetrics(w, h, input.items, creditLines.length, stack.distance);
   const cx = w / 2;
+  // 垫层缓出（票 50 · A 轻推）：露出厚度从 0 长到 `stackD`，单层向右上推出
+  const stackD = Math.round(m.stackD * openingStackDriftAt(seconds, stack));
   // 装饰层在最下（可被封面 / 白条切边），整链相对白条上缘定位
   const bandTop = Number.isNaN(m.bandY) ? m.top + m.cover : m.bandY;
   // 装饰压在封面下面的那些枚直接跳过（封面 / 垫层是不透明的，画了也看不见）。
   // **只按封面 + 垫层的实际方形剔除**，不额外外扩 —— 外扩会把"该露在封面旁边"的装饰也吃掉。
   drawOpeningDecor(ctx, w, h, bandTop, {
     x: m.coverX,
-    y: m.top - m.stackD,
-    w: m.cover + m.stackD,
-    h: m.cover + m.stackD,
-  });
+    y: m.top - stackD,
+    w: m.cover + stackD,
+    h: m.cover + stackD,
+  }, decorSpacing);
 
   // 难度色堆叠垫层：**只画露出来的 L 形**（第五轮）—— 画整个方形的话，封面缺位 / 还没浮现时
   // 会在封面的位置露出一整块纯色方块
   const sx0 = m.coverX + m.stackInset;
-  const sy0 = m.top - m.stackD;
-  const sx1 = sx0 + m.cover + m.stackD - m.stackInset;
-  const sy1 = sy0 + m.cover + m.stackD - m.stackInset;
-  if (m.stackD > 0 && sx1 > sx0) {
+  const sy0 = m.top - stackD;
+  const sx1 = sx0 + m.cover + stackD - m.stackInset;
+  const sy1 = sy0 + m.cover + stackD - m.stackInset;
+  if (stackD > 0 && sx1 > sx0) {
     ctx.fillStyle = input.difficultyColor;
     const leftEdge = Math.max(sx0, m.coverX);
-    if (sx1 > leftEdge) ctx.fillRect(leftEdge, sy0, sx1 - leftEdge, Math.min(m.stackD, sy1 - sy0));
+    if (sx1 > leftEdge) ctx.fillRect(leftEdge, sy0, sx1 - leftEdge, Math.min(stackD, sy1 - sy0));
     const rx0 = Math.max(sx0, m.coverX + m.cover);
     if (sx1 > rx0 && sy1 > sy0) ctx.fillRect(rx0, sy0, sx1 - rx0, sy1 - sy0);
   }
 
-  const cover = input.cover ?? placeholderCover(input.coverHue);
+  const cover = input.cover ?? openingPlaceholderCover(input.coverHue);
   if (cover) drawSquareCover(ctx, cover, m.coverX, m.top, m.cover);
   // 细白框（垫层在白框之外）
   const framePx = Math.max(1, Math.round(h * OPENING_FRAME_LINE));
@@ -344,9 +371,21 @@ export function drawOpeningFieldBackground(
   m: SimFieldMetrics,
   imgs: OpeningFieldImages,
   brightness: number = 1,
+  /** 相框封面的淡入（缺省 0 = ③ 只有空相框；④ 由调用方喂 `openingTrackAlphaAt(t)`） */
+  coverAlpha: number = 0,
+  /** 相框封面的登场动效进度（缺省 1 = 已落定；④ 喂 `openingCoverIntroAt(t)`） */
+  coverIntro: number = 1,
+  /** 登场动效的力度覆盖（原型调参用；缺省 = `STAGE_COVER_INTRO_STYLE`） */
+  coverIntroStyle?: Partial<StageCoverIntroStyle>,
 ): void {
   ctx.save();
-  drawSimBackground(ctx, m, imgs.background, brightness);
+  drawSimBackground(ctx, m, imgs.background, brightness, 1, {
+    stageFrame: imgs.liveBgFit ? null : imgs.stageFrame ?? null,
+    coverAlpha,
+    coverIntro,
+    coverIntroStyle,
+    liveFit: imgs.liveBgFit,
+  });
   ctx.restore();
 }
 
@@ -374,31 +413,66 @@ export function drawOpeningTrack(
 /** 该视频秒落在开场四段的哪一段（帧循环用；`t >= OPENING_SECONDS` 返回 `'sim'`） */
 export type OpeningSegment = 'fadeIn' | 'hold' | 'fadeOut' | 'trackIn' | 'sim';
 
-export function openingSegmentAt(t: number): OpeningSegment {
-  if (t < OPENING_FADE_IN_SECONDS) return 'fadeIn';
-  if (t < OPENING_FADE_IN_SECONDS + OPENING_HOLD_SECONDS) return 'hold';
-  if (t < OPENING_TRACK_IN_AT) return 'fadeOut';
-  if (t < OPENING_SECONDS) return 'trackIn';
+export function openingSegmentAt(t: number, timing: OpeningTiming = OPENING_TIMING): OpeningSegment {
+  if (t < timing.fadeIn) return 'fadeIn';
+  if (t < timing.fadeIn + timing.hold) return 'hold';
+  if (t < openingTrackInAt(timing)) return 'fadeOut';
+  if (t < openingSecondsOf(timing)) return 'trackIn';
   return 'sim';
 }
 
 /** 开场画面在该视频秒的 alpha（fadeIn 渐显 / hold 恒 1 / fadeOut 渐隐；其余不画） */
-export function openingAlphaAt(t: number): number {
-  const seg = openingSegmentAt(t);
-  if (seg === 'fadeIn') return t / OPENING_FADE_IN_SECONDS;
+export function openingAlphaAt(t: number, timing: OpeningTiming = OPENING_TIMING): number {
+  const seg = openingSegmentAt(t, timing);
+  if (seg === 'fadeIn') return timing.fadeIn > 0 ? t / timing.fadeIn : 1;
   if (seg === 'hold') return 1;
   if (seg === 'fadeOut') {
-    const a = (t - OPENING_FADE_IN_SECONDS - OPENING_HOLD_SECONDS) / OPENING_FADE_OUT_SECONDS;
+    const a = timing.fadeOut > 0 ? (t - timing.fadeIn - timing.hold) / timing.fadeOut : 1;
     return 1 - Math.min(1, Math.max(0, a));
   }
   return 0;
 }
 
+/**
+ * 相框封面「登场」动效的时长（秒）：④ 开头这一小段走完落定 + 扫光 + 屏沿。
+ * 2026-11-23 用户定档：0.7 → 1.1 → **2.0**（原型里拉满、说"延长时间"那一版更稳）。
+ * 注意 2.0 > ④ 段时长（`trackIn` 1.8）⇒ 最后 0.2s 会落在切到打歌之后，但那时 p = 0.9、
+ * 缩放差 0.02%、扫光 / 屏沿都只剩残影（≤3%），接缝看不出来。
+ * 力度参数见 `STAGE_COVER_INTRO_STYLE`；原型「封面登场」一组可实时调时长 / 起始缩放 / 扫光 / 屏沿。
+ */
+export const OPENING_COVER_INTRO_SECONDS = 2.0;
+
+/**
+ * 相框封面的登场进度（票 84 回修）：③ 恒 0（只有空相框）、④ 开头 `seconds` 秒从 0 走到 1。
+ * 之后恒 1 —— 正片与实时预览都不会重放这套动效。
+ */
+export function openingCoverIntroAt(
+  t: number,
+  timing: OpeningTiming = OPENING_TIMING,
+  seconds: number = OPENING_COVER_INTRO_SECONDS,
+): number {
+  const at = openingTrackInAt(timing);
+  if (t < at) return 0;
+  return Math.min(1, (t - at) / Math.max(0.05, seconds));
+}
+
 /** 轨道层在该视频秒的 alpha（④ 里 0 → 1；⑤ 起恒 1 —— 正常仿真帧自己画场地） */
-export function openingTrackAlphaAt(t: number): number {
-  if (t < OPENING_TRACK_IN_AT) return 0;
-  if (t < OPENING_SECONDS) {
-    return Math.min(1, (t - OPENING_TRACK_IN_AT) / OPENING_TRACK_IN_SECONDS);
-  }
-  return 1;
+export function openingTrackAlphaAt(t: number, timing: OpeningTiming = OPENING_TIMING): number {
+  const at = openingTrackInAt(timing);
+  if (t < at) return 0;
+  if (timing.trackIn <= 0) return 1;
+  return Math.min(1, (t - at) / timing.trackIn);
+}
+
+/**
+ * 堆叠垫层的**缓出**进度（票 50 · 定案 A 轻推）：`OPENING_STACK_DRIFT_AT` 起
+ * `OPENING_STACK_DRIFT_SECONDS` 秒内 0 → 1（缓出三次曲线），垫层从封面正后方向右上推出。
+ *
+ * 传 `Infinity`（`drawOpeningFrameAt` 的缺省）= 已推完 —— 单测与定格帧看的是**最终版式**。
+ */
+export function openingStackDriftAt(t: number, stack: OpeningStack = OPENING_STACK): number {
+  const p = (t - stack.at) / Math.max(1e-6, stack.seconds);
+  if (!Number.isFinite(p)) return 1;
+  const x = Math.min(1, Math.max(0, p));
+  return 1 - Math.pow(1 - x, 3);
 }

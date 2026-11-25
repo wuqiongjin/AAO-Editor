@@ -1,12 +1,12 @@
 import type { ActiveNoteIcons } from '../../../rendering/skin/noteSkin';
 import CanvasSpriteIcon, { type SpriteIconConfig } from '../../../ui/CanvasSpriteIcon';
 
-/** 当前皮肤的准备边界；也覆盖按住时插值轨位使用的端帽。 */
+/** 当前皮肤的准备边界；端帽全轨同图，逐轨的只剩方向键本体。 */
 export async function prepareSimNoteSprites(icons: ActiveNoteIcons): Promise<void> {
   const configs: SpriteIconConfig[] = [];
   for (let lane = 0; lane < 7; lane++) {
     configs.push(icons.tapFor(lane), icons.tapVirtualFor(lane), icons.flickFor(lane), icons.skillFor(lane),
-      icons.slideAmongFor(lane), icons.slideEndpointFor(lane), icons.slideEndpointLaneFor(lane));
+      icons.slideAmongFor(lane), icons.slideEndpointFor(lane));
     for (const side of ['L', 'R'] as const) {
       configs.push(icons.dirLaneFor(side, lane));
     }

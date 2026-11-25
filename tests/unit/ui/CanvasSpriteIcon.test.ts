@@ -157,6 +157,23 @@ describe('issue 96 · drawSingle 走 mip 源（node 环境无 DOM canvas → 直
         expect(drawCalls[0].sw).toBeLessThan(308);
         expect(createdCanvases).toBe(0);
     });
+
+    it('票 88 · drawSingle 绘制音符后恢复外部 ctx.imageSmoothingQuality，且不污染后续图层', () => {
+        const sprite = new CanvasSpriteIcon();
+        const qualities: unknown[] = [];
+        const ctx = {
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'low' as ImageSmoothingQuality,
+            drawImage: () => { qualities.push(ctx.imageSmoothingQuality); },
+        } as unknown as CanvasRenderingContext2D;
+
+        sprite.render(ctx, {
+            src: 'atlas', x: 0, y: 0, w: 100, h: 100,
+            canvasX: 50, canvasY: 50, canvasSize: 36,
+        });
+        expect(qualities).toEqual(['high']);
+        expect(ctx.imageSmoothingQuality).toBe('low');
+    });
 });
 
 

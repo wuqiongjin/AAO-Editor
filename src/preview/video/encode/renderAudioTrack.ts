@@ -7,10 +7,14 @@
 //   - 包络 = **同一份** `scheduleKeySample` / `scheduleKeyTone`；
 //   - 音量结构照实时那条链：BGM → master(volume) → destination，键音 → se(seVolume) → master。
 //
+// 除上面两条之外，再按 `sfx` 表调度**两端的游戏音效**（chart-preview 52：开场人潮 / 结尾章双声）：
+// 表由 `exportVideo` 从 `../sfx` 组装，本文件不认识任何具体 SE 名，只负责"按秒放 + 包络"。
+//
 // 持久化：不落中间音轨文件（内存里直接喂 `AudioEncoder`）。
 import { loadKeySoundSet } from '../../../audio/KeySound';
 import { sampleSrcFor, scheduleKeySample, scheduleKeyTone, keySoundBank } from '../../../audio/keySoundSamples';
 import type { KeySoundEvent } from '../../../audio/AudioTiming';
+import { gameSfxUrl, type SfxCue } from '../sfx';
 import { EXPORT_AUDIO_CHANNELS, EXPORT_AUDIO_SAMPLE_RATE, audioFramesFor } from './exportSpec';
 import { yieldToMainThread } from '../../static/exportPanels';
 
@@ -18,10 +22,30 @@ export interface AudioTrackRequest {
   /** 谱面长度（秒，ADR-0005） */
   durationSeconds: number;
   /**
-   * 开场段长度（秒，chart-preview 30）：`> 0` = 轨长 = 它 + 谱面长度，BGM 从它起、
-   * 键音事件整体 + 它 ⇒ 谱面 0 秒落在开场段结束那刻（开场段无 BGM / 无键音）。
+   * 开场段长度（秒，chart-preview 30）：票 74 起**只作旧调用方的回落**——开场人潮在这段末尾收，
+   * 之后是静音前导段，BGM 不再从这里起。
    */
   openingSeconds?: number;
+  /**
+   * 谱面 0 秒在整条音轨的绝对秒（票 74）= 开场段 + 前导补偿。
+   * BGM `start()`、键音偏移与轨长都按它算；不给时回落到 `openingSeconds`。
+   */
+  simStartSeconds?: number;
+  /**
+   * 末击收尾补偿（秒，票 75）：谱面段在 `durationSeconds` 之后多出的尾段。
+   * 轨长与键音轨外过滤的右端点都按它后移；尾段本身静音（BGM 已结束）。
+   */
+  chartTailSeconds?: number;
+  /**
+   * 结尾段长度（秒，chart-preview 52）：`> 0` = 轨长在谱面之后再留这一段
+   * （这段的**声**由 `sfx` 给；轨长必须与视频等长，否则封装时音画错位）。
+   */
+  endingSeconds?: number;
+  /**
+   * 两端的游戏音效（chart-preview 52）：开场人潮 + 结尾章双声，**整条轨的绝对秒**。
+   * 空 / 缺 = 不出声；走 `se` 增益（与键音同一条音量口径，不另开设置）。
+   */
+  sfx?: readonly SfxCue[];
   /** 键音事件表（`buildKeyEvents` 的输出，按 time 升序） */
   keyEvents: readonly KeySoundEvent[];
   /** 键音素材包（`settings.audio.keySet`） */
@@ -75,6 +99,73 @@ function decodeContextFor(injected?: BaseAudioContext): BaseAudioContext {
 }
 
 /**
+ * SE 解码缓存（按 URL）：一次导出里同一件只解码一次，多次导出之间也复用。
+ * 用普通记录而不是 `new Map` / `new Set`：票 231 的静态锁要求离线渲染层不自建事件表 /
+ * 归并容器，这里只是 URL → 解码结果的缓存，不该被那条门禁误判。
+ */
+const sfxBank: Record<string, Promise<AudioBuffer | null>> = {};
+
+/** 读一件 SE；**取不到 = null**（缺件静音降级，不抛错、不阻断导出） */
+function loadSfx(name: string, ctx: BaseAudioContext): Promise<AudioBuffer | null> {
+  const url = gameSfxUrl(name);
+  let hit = sfxBank[url];
+  if (!hit) {
+    hit = fetch(url)
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`SE ${res.status}: ${url}`))))
+      .then((bytes) => ctx.decodeAudioData(bytes))
+      .catch(() => null);
+    sfxBank[url] = hit;
+  }
+  return hit;
+}
+
+/**
+ * 按表把 SE 摆进离线轨：`at` 起播 →（可选）`endAt` 截断，最后 `fadeOut` 秒线性降到 0。
+ *
+ * 包络用 `linearRampToValueAtTime` 而不是直接 `stop`：开场人潮要"快结束时音量递减"，
+ * 硬切会在开场段末尾留一记爆音（票 74 起之后是静音前导段，BGM 在 `simStartSeconds` 才起）。
+ */
+async function scheduleSfx(
+  ctx: OfflineAudioContext,
+  dest: AudioNode,
+  cues: readonly SfxCue[],
+  decodeCtx: BaseAudioContext,
+): Promise<void> {
+  for (const cue of cues) {
+    if (!Number.isFinite(cue.at) || cue.at < 0) continue;
+    const buffer = await loadSfx(cue.name, decodeCtx);
+    if (!buffer) continue;
+    const peak = Math.max(0, Math.min(1, cue.gain ?? 1));
+    const fadeIn = Math.max(0, cue.fadeIn ?? 0);
+    const endAt = Number.isFinite(cue.endAt) ? Math.max(cue.at, cue.endAt!) : cue.at + buffer.duration;
+    if (endAt <= cue.at) continue;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    if (fadeIn > 0) {
+      gain.gain.setValueAtTime(0, cue.at);
+      gain.gain.linearRampToValueAtTime(peak, cue.at + fadeIn);
+    } else {
+      gain.gain.setValueAtTime(peak, cue.at);
+    }
+    src.connect(gain);
+    gain.connect(dest);
+    // `start` 必须早于 `stop`：Web Audio 对未起音的 `stop()` 直接抛 InvalidStateError
+    // （票 53：开场人潮 7.105s > 开场段 6.75s，必然走到下面的截断分支）。
+    src.start(cue.at);
+    // 截断只发生在"素材比这一段长"时；素材自然结束的不去动它
+    if (endAt < cue.at + buffer.duration) {
+      const fadeOut = Math.max(0, cue.fadeOut ?? 0);
+      const fadeAt = Math.max(cue.at + fadeIn, endAt - fadeOut);
+      gain.gain.setValueAtTime(peak, fadeAt);
+      gain.gain.linearRampToValueAtTime(0, endAt);
+      src.stop(endAt);
+    }
+  }
+}
+
+/**
  * 渲染一条离线音轨。
  *
  * 返回 `null` = 静音导出（调用方据此把容器配成"无音轨"，省掉 `AudioEncoder`）；
@@ -87,9 +178,15 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
   if (req.muted) return null;
   const sampleRate = req.sampleRate ?? EXPORT_AUDIO_SAMPLE_RATE;
   const channels = req.channels ?? EXPORT_AUDIO_CHANNELS;
-  // 开场段在最前面（chart-preview 30）：轨长 = 开场 + 谱面，与视频同一终点
-  const offset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
-  const frames = audioFramesFor(req.durationSeconds + offset, sampleRate);
+  // 开场段在最前面（30）、其后是静音前导段（74）、末击尾段（75）、结尾段在最后（52）：
+  // 轨长 = 谱面 0 秒的绝对位置 + 谱面 + 末击尾段 + 结尾，与视频同一终点
+  // （这几段的声由 `sfx` 补，但轨长一定要够 —— 短了封装时音画就错位）
+  const fallbackOffset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
+  const offset = Number.isFinite(req.simStartSeconds) ? Math.max(0, req.simStartSeconds!) : fallbackOffset;
+  const chartTail = Number.isFinite(req.chartTailSeconds) ? Math.max(0, req.chartTailSeconds!) : 0;
+  const endingSeconds = Number.isFinite(req.endingSeconds) ? Math.max(0, req.endingSeconds!) : 0;
+  const chartEndSeconds = req.durationSeconds + chartTail;
+  const frames = audioFramesFor(req.durationSeconds + chartTail + offset + endingSeconds, sampleRate);
   const ctx = new OfflineAudioContext(channels, frames, sampleRate);
 
   // 与实时同一条链：master 是主音量，se 是键音的独立音量（issue 39 #7）
@@ -104,7 +201,7 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
     const src = ctx.createBufferSource();
     src.buffer = req.bgm;
     src.connect(master);
-    src.start(offset); // 开场段无声：BGM 从开场段结束那刻起
+    src.start(offset); // 开场段与前导段无声：BGM 从 simStartSeconds 起
   }
 
   if (req.keyEvents.length > 0) {
@@ -121,18 +218,31 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
         if (cancelled()) return AUDIO_TRACK_CANCELLED;
       }
       processed++;
-      // 轨外不调度：负时刻（倒流区把 beat 折成负秒）与超过谱面长度的都落不到这条轨上
-      if (!Number.isFinite(evt.time) || evt.time < 0 || evt.time >= req.durationSeconds) continue;
+      // 轨外不调度：负时刻（倒流区把 beat 折成负秒）与超过「谱面 + 末击尾段」的都落不到这条轨上。
+      // 票 75：旧口径 `>= D` 会把恰好落在 D 的末拍键音吞掉（画面却画满命中特效），
+      // 右端点后移到 `D + chartTail` 且改为严格 `>` ⇒ 末拍必发声。不改 buildKeyEvents。
+      if (!Number.isFinite(evt.time) || evt.time < 0 || evt.time > chartEndSeconds) continue;
       const sample = set.samples[evt.kind];
       const src = sampleSrcFor(sample, evt.kind, evt.tier);
       const buffer = src ? await keySoundBank.load(src, decodeCtx).catch(() => undefined) : undefined;
-      // 键音整体后移开场段长度（过滤仍按**谱面时间** `[0, duration)` 判）
+      // 键音整体后移 simStartSeconds（过滤仍按**谱面时间** `[0, duration)` 判）
       const at = evt.time + offset;
       // 同刻响度归一系数由事件表算好，离线侧只透传（不在这里另算 / 另挂总线限幅）
       const gainScale = evt.gain ?? 1;
       if (buffer) scheduleKeySample(ctx, se, buffer, at, gainScale);
       else scheduleKeyTone(ctx, se, evt.kind, sample, at, gainScale);
     }
+  }
+
+  // 两端的游戏音效（52）：开场人潮收在开场段末尾（票 74 起之后是静音前导段），
+  // 结尾章双声落在结尾段 t=0（票 75 起 = simStartSeconds + 谱面时长 + 末击尾段）。
+  // 票 67：SE 的 fetch / decodeAudioData 同样没有 abort，取消命中就别再等它。
+  if (req.sfx && req.sfx.length > 0) {
+    const scheduled = await raceCancellation(
+      scheduleSfx(ctx, se, req.sfx, decodeContextFor(req.decodeContext)),
+      cancelled,
+    );
+    if (scheduled === AUDIO_TRACK_CANCELLED) return AUDIO_TRACK_CANCELLED;
   }
 
   if (cancelled()) return AUDIO_TRACK_CANCELLED;

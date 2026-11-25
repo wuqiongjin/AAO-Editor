@@ -10,6 +10,7 @@
 //     值读共享单点 `usePlaybackRate`。空格 / 倍速音量四键 / 键盘 seek 由本层 `useShortcutDispatch` 页面级接管（Q2 / 230 / 251）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getBpmEvents, type BpmEvent } from '../../audio/AudioTiming';
+import { getElectronAPI } from '../../app/electronBridge';
 import { DEFAULT_SEEK_STEP_SECONDS, type AppSettings } from '../../settings/AppSettings';
 import { formatKey, type FunctionId, type ShortcutConfig } from '../../settings/ShortcutConfig';
 import { useShortcutDispatch } from '../../settings/useShortcutDispatch';
@@ -30,6 +31,13 @@ import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection, type ActiveNoteIcons } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../../preview/video/sim/prepareSimNoteSprites';
+import {
+  prepareSimRendering,
+  simRenderingNeedsWarmup,
+  simRenderingWarmupKey,
+  type SimRenderingWarmupKey,
+} from '../../preview/video/sim/prepareSimRendering';
+import { createSimGpuBandRenderer } from '../../preview/video/sim/simBandGpu';
 import {
   buildSimChartInChunks,
   createSimPlayback,
@@ -64,16 +72,85 @@ interface DerivedChart {
   bpmEvents: BpmEvent[];
 }
 
+/** 上次已经推上画布的冷/包身份（票 85）：用来判断遮罩，不跟 scene 对象身份 */
+interface PaintedField {
+  audio: SimPlaybackAudio | null;
+  density: number;
+  assets: SimAssets;
+  gpu: unknown;
+  bgPackId: SimScene['bgPackId'];
+  fieldPackId: SimScene['fieldPackId'];
+  customLiveBg: SimScene['customLiveBg'];
+  liveBgFit: SimScene['liveBgFit'];
+}
+
+/** 派生表只吃这些字段；亮度 / HUD / 包 ID 变了不必整表重算 */
+function simChartGeometryMatches(derived: DerivedChart, scene: SimScene, noteIcons: ActiveNoteIcons): boolean {
+  return derived.noteIcons === noteIcons
+    && derived.scene.notes === scene.notes
+    && derived.scene.beatDisplay === scene.beatDisplay
+    && derived.scene.noteSpeed === scene.noteSpeed
+    && derived.scene.mirror === scene.mirror
+    && derived.scene.colorAssist === scene.colorAssist;
+}
+
+/** 画面不能给人看：自定义背景还在读、还没出过帧、画质/素材/包对不上。全屏拉伸与亮度不在此列。 */
+function simFieldPixelsUnsafe(
+  liveBgPending: boolean,
+  painted: PaintedField | null,
+  current: {
+    audio: SimPlaybackAudio | null;
+    density: number;
+    assets: SimAssets | null;
+    gpu: unknown;
+    scene: SimScene;
+  },
+): boolean {
+  if (liveBgPending) return true;
+  if (painted == null) return true;
+  if (painted.audio !== current.audio) return true;
+  if (painted.density !== current.density) return true;
+  if (painted.gpu !== current.gpu) return true;
+  if (current.assets == null || painted.assets !== current.assets) return true;
+  if (!simScenePacksMatch(painted, current.scene)) return true;
+  return false;
+}
+
+function simScenePacksMatch(painted: PaintedField, scene: SimScene): boolean {
+  return painted.bgPackId === scene.bgPackId
+    && painted.fieldPackId === scene.fieldPackId
+    && painted.customLiveBg === scene.customLiveBg
+    && painted.liveBgFit === scene.liveBgFit;
+}
+
+function waitingOnPackAssets(painted: PaintedField | null, scene: SimScene, assets: SimAssets): boolean {
+  if (painted == null) return false;
+  return !simScenePacksMatch(painted, scene) && painted.assets === assets;
+}
+
 export interface PreviewVideoStageProps {
   /**
    * 这一页此刻是不是前台页（应用壳的保活挂载会给 `active`）。
    * 失活就**停声**：仿真场自持引擎，切走不停就会和工作台 / 音频页的播放叠在一起。
    */
   active?: boolean;
+  fullscreen?: boolean;
   /** 谱面 + 作者设置（页面 useMemo 构建；谱面或设置变 → 派生表重建） */
   scene: SimScene;
   /** 谱面长度（秒，ADR-0005 第一性）：播到这里停住 */
   duration: number;
+  /**
+   * 作用域工程的封面（chart-preview 84 · ADR-0018 §7）：背景是「AAO 舞台」时填进相框。
+   * 已解码的图（页面用 `useStageCoverImage` 备好）；null = 无封面 → 相框留空。
+   */
+  cover?: CanvasImageSource | null;
+  /**
+   * 封面仍在解码（票 84 + issue 80）：true 时**先不取场地素材** —— 否则会按"空相框"取一遍、
+   * 解码完再取第二遍，`assets` 两次换身份会把播放器和 BGM 一起重建。
+   */
+  coverPending?: boolean;
+  /** 自定义表演背景 sidecar 还在读（票 42）：先不取场地素材，避免先画内置包再闪到自定义 */
+  liveBgPending?: boolean;
   /** 作用域工程的音频（null = 无音频 → 引擎走合成时间线） */
   audio: SimPlaybackAudio | null;
   /** 键音素材包（`settings.audio.keySet`） */
@@ -108,8 +185,12 @@ export interface PreviewVideoStageProps {
 
 export default function PreviewVideoStage({
   active = true,
+  fullscreen = false,
   scene,
   duration,
+  cover = null,
+  coverPending = false,
+  liveBgPending = false,
   audio,
   keySetId,
   seVolume,
@@ -130,6 +211,9 @@ export default function PreviewVideoStage({
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackRef = useRef<SimPlayback | null>(null);
+  // Issue 80：实时预览默认 GPU 全分辨率带体；WebGL 不可用或丢失时该渲染器返回 false，simField 回 CPU。
+  const gpuBands = useMemo(() => createSimGpuBandRenderer(), []);
+  useEffect(() => () => gpuBands?.dispose(), [gpuBands]);
   const spriteIconRef = useRef<CanvasSpriteIcon | null>(null);
   if (spriteIconRef.current === null) spriteIconRef.current = new CanvasSpriteIcon();
 
@@ -153,6 +237,10 @@ export default function PreviewVideoStage({
   const [preparedIcons, setPreparedIcons] = useState<typeof noteIcons | null>(null);
   /** 票 69：谱面派生表异步进场 —— 首帧不再被 O(notes) 的同步派生压住 */
   const [derived, setDerived] = useState<DerivedChart | null>(null);
+  /** 已经安全出过的那一帧的冷/包身份（票 85）；跟 scene 对象身份脱钩 */
+  const [paintedField, setPaintedField] = useState<PaintedField | null>(null);
+  const paintedFieldRef = useRef<PaintedField | null>(null);
+  const warmupKeyRef = useRef<SimRenderingWarmupKey | null>(null);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
   // 导出侧的固定档由 07 显式给，不跟这里走
   const density = resolveCanvasDpr(imageQuality);
@@ -175,15 +263,24 @@ export default function PreviewVideoStage({
   // 背景 / 轨道包（41）换了也重读 —— 包 ID 随 scene 进来（settings.preview），
   // 实时预览与视频导出 / 开场第③段因此永远是同一份素材（ADR-0018 §5）。
   useEffect(() => {
+    // 封面还在解码就先不取素材（票 84 + issue 80）：先按"空相框"取一遍、解码完再取第二遍，
+    // 等于把场地图 / 带体 / 精灵 / HUD 解码两次，`assets` 还会两次换身份（第二次连播放器一起重建、
+    // 重新解码 BGM）。等解码落定再取，全程只有一次。
+    // 自定义表演背景还在读也一样（票 42）：先按内置包取一遍再换成自定义，保活切回来会先闪包图。
+    if (coverPending || liveBgPending) return;
     let cancelled = false;
     void loadSimAssets({
       bandSrc: noteIcons.slideBand.src,
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: scene?.fieldPackId, background: scene?.bgPackId },
+      // 相框封面（票 84）：`assets` 换身份才会重建场地底图，所以取素材时就得带上
+      cover,
+      customLiveBg: scene?.customLiveBg ?? null,
+      liveBgFit: scene?.customLiveBg ? scene.liveBgFit : undefined,
     })
       .then((next) => { if (!cancelled) setAssets(next); });
     return () => { cancelled = true; };
-  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId]);
+  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId, scene?.customLiveBg, scene?.liveBgFit, cover, coverPending, liveBgPending]);
 
   // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）。
   // 票 69：不再用同步 useMemo —— 挪到 effect 里分批 yieldToMainThread()，让骨架 /「正在读取场地素材…」
@@ -199,7 +296,9 @@ export default function PreviewVideoStage({
       if (!cancelled && next) setDerived({ scene, noteIcons, chart: next, bpmEvents });
     });
     return () => { cancelled = true; };
-  }, [scene, noteIcons]);
+    // 亮度 / HUD / 包 ID 不进派生表：跟 scene 身份会把热更新拖去整表重建（票 85）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟几何字段 + 皮肤
+  }, [scene.notes, scene.beatDisplay, scene.noteSpeed, scene.mirror, scene.colorAssist, noteIcons]);
 
   // ---------------- 量舞台（jsdom 无布局：ResizeObserver 缺席时靠挂载 / resize 两条同步路径） ----------------
   const syncFromHost = useCallback(() => {
@@ -232,12 +331,16 @@ export default function PreviewVideoStage({
   // `ready` 本身保持票 05 / 68 的门禁不动，只在它的下游追加「派生表到了」这一条。
   const chartReady = derived != null;
   const stageReady = ready && chartReady;
-  const frameReady = ready && derived?.scene === scene && derived?.noteIcons === noteIcons;
+  const frameReady = ready && derived != null && simChartGeometryMatches(derived, scene, noteIcons);
+  const fieldPending = simFieldPixelsUnsafe(liveBgPending, paintedField, {
+    audio, density, assets, gpu: gpuBands, scene,
+  });
+  const renderingReady = !fieldPending;
 
   const onSecondsChangeRef = useRef(onSecondsChange);
   onSecondsChangeRef.current = onSecondsChange;
 
-  // ---------------- 回放：只在「音频身份」或「素材」变化时重建（引擎不随设置面板抖） ----------------
+  // ---------------- 回放：只在「音频身份 / 就绪门禁」变化时重建（引擎不随设置面板抖，也不随素材换代） ----------------
   useEffect(() => {
     const canvas = canvasRef.current;
     const currentAssets = assets;
@@ -255,6 +358,7 @@ export default function PreviewVideoStage({
       rate,
       duration,
       density,
+      bandRenderer: gpuBands?.draw,
       initialSeconds,
       onTick: (seconds, playing) => {
         latestSeconds = seconds;
@@ -282,10 +386,30 @@ export default function PreviewVideoStage({
       }
       pb.dispose();
     };
-    // 只有音频身份与素材进场会重建引擎：keySetId / seVolume / density 走下面的 setOptions
+    // 只有音频身份 / 就绪门禁 / GPU 渲染器会重建引擎：keySetId / seVolume / density 走 setOptions，
+    // **素材换代也走 `setFrame`**（换包、相框封面晚到都只重建场地底图）。把 `assets` 放进依赖会
+    // 让封面一到就把引擎拆了重建 —— 那是重新解码一遍 BGM，issue 80 的冷路径就白做了。
     // stageReady 是布尔量（派生表首次到位才翻一次），换谱面重新派生不会重建引擎 / 重载音频
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟「音频身份 + 素材进场」：别的旋钮走 setOptions，重建就要重载音频
-  }, [stageReady, audio, assets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟「音频身份 + 就绪门禁 + 渲染器」
+  }, [stageReady, audio, gpuBands]);
+
+  // 全屏曲中长暂停后，Windows 重新打开预览的音频流会阻塞起播数百毫秒。
+  const canResume = tick.seconds < duration;
+  useEffect(() => {
+    const pb = playbackRef.current;
+    if (!active || !fullscreen || !canResume || !pb || getElectronAPI()?.platform !== 'win32') return;
+    const sync = () => pb.setKeepPausedAudioReady(!document.hidden && document.hasFocus());
+    sync();
+    window.addEventListener('focus', sync);
+    window.addEventListener('blur', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.removeEventListener('focus', sync);
+      window.removeEventListener('blur', sync);
+      document.removeEventListener('visibilitychange', sync);
+      pb.setKeepPausedAudioReady(false);
+    };
+  }, [active, fullscreen, canResume, stageReady, audio, gpuBands]);
 
   // 引擎侧 / 画布侧的旋钮：不重建引擎（重建一次就要把音频重新解码）
   useEffect(() => {
@@ -318,11 +442,13 @@ export default function PreviewVideoStage({
   }, [active]);
 
   // 一帧输入：谱面 / 设置 / 场地尺寸 / 素材任一变化都重推（内部按需重建键音事件表并立即重画）。
-  // frameReady 还钉住「派生表属于当前 scene / 皮肤」：换谱面重新派生那几帧不推过期的表。
+  // frameReady 钉住「派生表属于当前几何」：换速度 / 镜向那几帧不推过期的表。
+  // 票 85：GPU 预热只走冷路径；亮度 / HUD 直接 setFrame。换包时旧素材还在就不推，免得把新包 ID 记成已画。
   useEffect(() => {
     const pb = playbackRef.current;
     const spriteIcon = spriteIconRef.current;
-    if (!pb || !frameReady || !derived || !spriteIcon || !assets || !metrics || assets.missing) return;
+    if (!pb || liveBgPending || !frameReady || !derived || !spriteIcon || !assets || !metrics || assets.missing) return;
+    if (waitingOnPackAssets(paintedFieldRef.current, scene, assets)) return;
     const input: SimFrameInput = {
       chart: derived.chart,
       scene,
@@ -332,12 +458,50 @@ export default function PreviewVideoStage({
       spriteIcon,
       bpmEvents: derived.bpmEvents,
     };
-    pb.setFrame(input);
-    if (syncToken != null) onSyncComplete?.(syncToken);
+    const nextKey = simRenderingWarmupKey(density, assets, gpuBands);
+    const needsWarmup = simRenderingNeedsWarmup(warmupKeyRef.current, nextKey);
+    let cancelled = false;
+    const commit = () => {
+      if (cancelled) return;
+      pb.setFrame(input);
+      warmupKeyRef.current = nextKey;
+      const painted: PaintedField = {
+        audio,
+        density,
+        assets,
+        gpu: gpuBands,
+        bgPackId: scene.bgPackId,
+        fieldPackId: scene.fieldPackId,
+        customLiveBg: scene.customLiveBg,
+        liveBgFit: scene.liveBgFit,
+      };
+      paintedFieldRef.current = painted;
+      setPaintedField(painted);
+      if (syncToken != null) onSyncComplete?.(syncToken);
+    };
+    if (!needsWarmup) {
+      commit();
+      return;
+    }
+    void prepareSimRendering(input, density, { isCancelled: () => cancelled, bandRenderer: gpuBands?.draw })
+      .catch((e) => {
+        console.warn('[preview] 仿真场绘制预热失败（按原路径渲染）:', e);
+        return true;
+      })
+      .then((prepared) => {
+        if (cancelled || !prepared) return;
+        commit();
+      });
+    return () => { cancelled = true; };
     // skinVersion 是"图集到位"的信号：它不进 input，但要触发重推（暂停态那帧是缺图画的）
-  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, syncToken, onSyncComplete]);
+    // liveBgPending：自定义背景还在读时不要用手上的包图 / 已 close 的位图去推帧
+  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, density, stageReady, audio, syncToken, onSyncComplete, gpuBands, liveBgPending]);
 
-  const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
+  const togglePlay = useCallback(() => {
+    // 未就绪时只允许暂停；HUD 的 playing 可能属于刚被换掉的旧播放器。
+    if (renderingReady) playbackRef.current?.toggle();
+    else playbackRef.current?.pause();
+  }, [renderingReady]);
   const secondsRef = useRef(tick.seconds);
   const durationRef = useRef(duration);
   durationRef.current = duration;
@@ -407,6 +571,10 @@ export default function PreviewVideoStage({
         ) : (
           <p className="preview-stage__pending">{t('preview.video.loading')}</p>
         )}
+        {/* 不安全像素才盖：首帧 / 自定义背景还在读 / 换包 / 画质。亮度与全屏拉伸不盖。 */}
+        {stageReady && fieldPending ? (
+          <p className="preview-stage__pending pv-field__pending" role="status">{t('preview.video.loading')}</p>
+        ) : null}
       </div>
 
       {/* 播放条（工作台同一件 PlayBar，issue 22）：外壳走 `--preview` 变体（舞台底部一行），

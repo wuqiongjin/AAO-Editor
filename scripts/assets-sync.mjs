@@ -34,6 +34,7 @@ const DEFAULT_SOURCE = Buffer.from(SOURCE_HINT, 'base64').toString('utf8').split
 const ROOTS = [
   'public/assets/skins',
   'public/assets/sim',
+  'public/assets/game-ui',
   'src/assets/audio/keysounds',
   'src/rendering/skin/gen',
   'src/audio/gen',

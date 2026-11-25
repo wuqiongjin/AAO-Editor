@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Eye, EyeOff, ImageOff, ImagePlus, Music2, Trash2, Upload, Wand2 } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
+import SegmentedControl from '../../ui/SegmentedControl';
 import { useConfig } from '../../app/ProviderTree';
 import {
   listNoteSkinPacks,
@@ -326,16 +327,16 @@ function BackgroundPanel() {
             <strong>{t('assets.bg.scope')}</strong>
             <span>{t('assets.bg.scope.hint')}</span>
           </div>
-          <select
-            className="select-control"
+          <SegmentedControl<'outsideTrack' | 'fullCanvas'>
+            label={t('assets.bg.scope')}
             value={bg?.scope ?? DEFAULT_BACKGROUND_SCOPE}
             disabled={!image || !enabled || busy}
-            onChange={(e) => setBackgroundSkin({ scope: e.target.value as 'outsideTrack' | 'fullCanvas' })}
-            aria-label={t('assets.bg.scope')}
-          >
-            <option value="outsideTrack">{t('assets.bg.scope.outsideTrack')}</option>
-            <option value="fullCanvas">{t('assets.bg.scope.fullCanvas')}</option>
-          </select>
+            options={[
+              { value: 'outsideTrack', label: t('assets.bg.scope.outsideTrack') },
+              { value: 'fullCanvas', label: t('assets.bg.scope.fullCanvas') },
+            ]}
+            onChange={(scope) => setBackgroundSkin({ scope })}
+          />
         </div>
 
         {/* 填充方式 */}
@@ -344,16 +345,16 @@ function BackgroundPanel() {
             <strong>{t('assets.bg.fit')}</strong>
             <span>{t('assets.bg.fit.hint')}</span>
           </div>
-          <select
-            className="select-control"
+          <SegmentedControl<'cover' | 'contain'>
+            label={t('assets.bg.fit')}
             value={bg?.fit ?? DEFAULT_BACKGROUND_FIT}
             disabled={!image || !enabled || busy}
-            onChange={(e) => setBackgroundSkin({ fit: e.target.value as 'cover' | 'contain' })}
-            aria-label={t('assets.bg.fit')}
-          >
-            <option value="cover">{t('assets.bg.fit.cover')}</option>
-            <option value="contain">{t('assets.bg.fit.contain')}</option>
-          </select>
+            options={[
+              { value: 'cover', label: t('assets.bg.fit.cover') },
+              { value: 'contain', label: t('assets.bg.fit.contain') },
+            ]}
+            onChange={(fit) => setBackgroundSkin({ fit })}
+          />
         </div>
 
         {/* 不透明度 */}

@@ -12,6 +12,7 @@ export {
   StaticPreviewView,
   esForZoom,
   exportSheetAs,
+  loadCoverImage,
   makePanelLayout,
   normalizePreviewZoom,
   panelWidthForEs,
@@ -34,13 +35,16 @@ export type {
 export { DEFAULT_PREVIEW_MARKERS } from './static';
 // 动态形态（仿真场）：面与 `video/sim/index.ts` 同（消费方要用的那几件，内部件走 deep import）
 export {
+  AAO_STAGE_PACK_ID,
   DESIGN_SURFACE,
   PLAYBACK_RATE_RANGE,
   SIM_ASSET_BASE,
   SIM_ASSET_SERVERS,
   SIM_DEFAULT_PACK_IDS,
+  isAppBackgroundPack,
   SIM_PLAYBACK_RATE_PRESETS,
   SIM_PLAYBACK_RATE_STEP,
+  SCORE_MAX,
   approachA,
   approachOf,
   approachSeconds,
@@ -78,6 +82,13 @@ export {
   DEFAULT_OPENING_ITEMS,
   type OpeningInput,
   type OpeningItemId,
+} from './video';
+// 结尾画面（chart-preview 52）：谱面之后那段（页面只需三档形态 + 段长 + `type EndingInput`）
+export {
+  ENDING_SECONDS,
+  ENDING_STAMPS,
+  type EndingInput,
+  type EndingStamp,
 } from './video';
 // 视频导出（chart-preview 07）：离线逐帧 + 离线音轨 + 编码封装
 export {

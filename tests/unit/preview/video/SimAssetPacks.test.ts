@@ -41,10 +41,24 @@ import {
 import { setActiveUiLanguage } from '@/src/i18n';
 
 describe('chart-preview 41 · 包清单（列表即真相）', () => {
-  it('两个选择器各自一份清单；默认包都是 skin00', () => {
-    expect(SIM_DEFAULT_PACK_IDS).toEqual({ field: 'skin00', background: 'skin00' });
+  it('两个选择器各自一份清单；轨道默认 skin00、背景默认自带包 aao-stage（票 84 · ADR-0018 §7）', () => {
+    expect(SIM_DEFAULT_PACK_IDS).toEqual({ field: 'skin00', background: 'aao-stage' });
     expect(listSimFieldPacks().map((p) => p.id)).toEqual(['skin00', 'skin05', 'skin14', 'skin_maid', 'skin_miku']);
-    expect(listSimBackgroundPacks().map((p) => p.id)).toEqual(['skin00', 'skin03', 'skin_miku']);
+    // 自带包**前置合并**：恒占第一格，取件侧清单照展示序跟在后面
+    expect(listSimBackgroundPacks().map((p) => p.id)).toEqual(['aao-stage', 'skin00', 'skin03', 'skin_miku']);
+  });
+
+  it('自带包不是取件侧产物：entry 的 background 是"相对 public/ 的路径"，且不依赖 gen 清单', () => {
+    expect(findSimBackgroundPack('aao-stage')).toEqual({
+      id: 'aao-stage',
+      background: 'assets/preview/aao-stage-frame-bg.webp',
+    });
+    expect(normalizeSimAssetPackId('background', 'aao-stage')).toBe('aao-stage');
+    // 官方名那条通道：缺官方 skinName → 走 i18n 消息表（缺 key 不告警）
+    setActiveUiLanguage('zh-CN');
+    expect(simPackDisplayName(findSimBackgroundPack('aao-stage')!, 'background')).toBe('AAO 舞台');
+    setActiveUiLanguage('en');
+    expect(simPackDisplayName(findSimBackgroundPack('aao-stage')!, 'background')).toBe('AAO Stage');
   });
 
   it('按包 ID 定型查找：场地图 / 判定线 / 主背景图各就各位', () => {
@@ -61,24 +75,31 @@ describe('chart-preview 41 · 包清单（列表即真相）', () => {
     expect(findSimBackgroundPack('skin01')).toBeUndefined(); // 轨道独有的编号包不在背景清单里
   });
 
-  it('合法 ID 原样保留；非法 / 脏值 → 静默回落 skin00', () => {
+  it('合法 ID 原样保留；非法 / 脏值 → 静默回落各自默认（轨道 skin00 / 背景 aao-stage）', () => {
     expect(normalizeSimAssetPackId('field', 'skin_miku')).toBe('skin_miku');
     expect(normalizeSimAssetPackId('background', 'skin_miku')).toBe('skin_miku');
     expect(normalizeSimAssetPackId('field', 'skin_satan')).toBe('skin00'); // 清单里没有
-    expect(normalizeSimAssetPackId('background', '')).toBe('skin00');
-    expect(normalizeSimAssetPackId('background', 42)).toBe('skin00');
-    expect(normalizeSimAssetPackId('background', null)).toBe('skin00');
-    expect(normalizeSimAssetPackId('background', undefined)).toBe('skin00');
+    expect(normalizeSimAssetPackId('background', '')).toBe('aao-stage');
+    expect(normalizeSimAssetPackId('background', 42)).toBe('aao-stage');
+    expect(normalizeSimAssetPackId('background', null)).toBe('aao-stage');
+    expect(normalizeSimAssetPackId('background', undefined)).toBe('aao-stage');
   });
 
-  it('清单里连默认包都没有 → 仍回落 skin00 常量（照 noteSkin.ts：默认值原样返回，不自建）', async () => {
+  it('**老设置不迁移**：已存的 skin00 原样留着（只有空 / 非法值才落到自带包）', () => {
+    expect(normalizeSimAssetPackId('background', 'skin00')).toBe('skin00');
+    expect(normalizeSimAssetPackId('background', 'skin03')).toBe('skin03');
+  });
+
+  it('清单里连编号包都没有 → 背景仍命中共用自带包（空快照不再退化成缺素材）', async () => {
     const gen = await import('@/src/preview/video/sim/gen/simAssetPacks.gen');
     const saved = gen.SIM_ASSET_PACKS.background;
     // 现场换一份没有 skin00 的背景清单（对象是注入的可变引用）
     (gen.SIM_ASSET_PACKS as { background: unknown }).background = [{ id: 'skin_5th', background: 'liveBG.png' }];
     try {
-      expect(normalizeSimAssetPackId('background', 'whatever')).toBe('skin00');
+      // 自带包由应用侧前置合并，**不依赖**取件侧清单 ⇒ 默认值恒存在
+      expect(normalizeSimAssetPackId('background', 'whatever')).toBe('aao-stage');
       expect(normalizeSimAssetPackId('background', 'skin_5th')).toBe('skin_5th'); // 清单里的合法值照原样
+      expect(listSimBackgroundPacks().map((p) => p.id)).toEqual(['aao-stage', 'skin_5th']);
     } finally {
       (gen.SIM_ASSET_PACKS as { background: unknown }).background = saved;
     }

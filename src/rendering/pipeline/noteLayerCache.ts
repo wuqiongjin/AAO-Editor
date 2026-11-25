@@ -661,6 +661,12 @@ export function createNoteLayerCache(options: {
 
   function reset() {
     cancelTileBuild();
+    for (const t of tiles.values()) {
+      if (t.canvas && typeof t.canvas === 'object' && 'width' in t.canvas && 'height' in t.canvas) {
+        t.canvas.width = 1;
+        t.canvas.height = 1;
+      }
+    }
     tiles.clear();
     prefetchAfter = 0;
     deferredScrollTiles.clear();

@@ -5,11 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { SIM_NOTE_SPEED_RANGE } from '@/src/settings/AppSettings';
 import { NOTE_SKIN_GEOMETRY } from '@/src/rendering/skin/noteSkin';
 import {
+  AAO_FRAME_RATIO,
   APPROACH,
   APPROACH_MIN_SECONDS,
   DESIGN_SURFACE,
   LANE_DESIGN_W,
   SIM_FIELD_LIMITS,
+  aaoFrameRect,
+  aaoStageBackgroundRect,
   approachA,
   approachOf,
   approachSeconds,
@@ -301,6 +304,34 @@ describe('票 23 #2 · 音符盒子 / 同时点击线 / 背景取景', () => {
     expect(r.y).toBeCloseTo(m.h / 2 - 0.3775 * r.h, 6);
     expect(r.y / m.h).toBeCloseTo(-0.176, 2); // 与票面记的 −0.176H 对上
     expect(r.y + r.h).toBeGreaterThan(m.h); // 下缘沉到画布之下（幕布铺满）
+  });
+
+  // chart-preview 84 · ADR-0018 §7：应用自带背景包「AAO 舞台」走独立取景，不吃幕布拉伸
+  it('AAO 舞台取景：宽 1.32W、高按 2:1 自然比例、图顶贴设计面顶（而不是 1.0065W 那条幕布公式）', () => {
+    const r = aaoStageBackgroundRect(m);
+    expect(r.w).toBeCloseTo(1.32 * DESIGN_SURFACE.w, 6);
+    expect(r.h).toBeCloseTo(r.w / 2, 6);
+    expect(r.y).toBe(0);
+    expect(r.x + r.w / 2).toBeCloseTo(m.centerX, 6);
+    // 与幕布口径的差别就是"没有 1.525 倍纵向拉伸"
+    expect(r.h).toBeLessThan(backgroundRect(m).h);
+    expect(backgroundRect(m).h / r.h).toBeCloseTo(1.525, 2);
+    // 底部溢出画布（裁掉的是观众席最下一排）
+    expect(r.y + r.h - m.h).toBeCloseTo(130.4, 0);
+  });
+
+  it('相框区比例常量（源图 2048×1024 像素实测）与设计面落位 287×288', () => {
+    expect(AAO_FRAME_RATIO).toEqual({ x0: 0.418, x1: 0.5811, y0: 0.1855, y1: 0.5127 });
+    const f = aaoFrameRect(m);
+    expect(f.w).toBeCloseTo(287, 0);
+    expect(f.h).toBeCloseTo(288, 0);
+    expect(f.x).toBeCloseTo(523, 0);
+    expect(f.y).toBeCloseTo(163, 0);
+    // 近正方形（工程封面 1:1 落进去几乎不裁）
+    expect(f.w / f.h).toBeCloseTo(1, 1);
+    // 相框整体在画布之内、且落在判定线之上
+    expect(f.y).toBeGreaterThan(0);
+    expect(f.y + f.h).toBeLessThan(playLineRect(m).y);
   });
 });
 
