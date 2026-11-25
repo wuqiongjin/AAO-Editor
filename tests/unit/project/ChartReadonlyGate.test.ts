@@ -247,6 +247,9 @@ describe('chartReadonlyGate · isChartEditFunction 与 withReadonlyGate', () => 
     // 非编辑类：切换工具态、复制、播放、侧栏折叠等
     expect(isChartEditFunction('switchSingle')).toBe(false);
     expect(isChartEditFunction('switchMouse')).toBe(false);
+    expect(isChartEditFunction('switchDelete')).toBe(false);
+    expect(isChartEditFunction('switchCopy')).toBe(false);
+    expect(isChartEditFunction('switchCut')).toBe(false);
     expect(isChartEditFunction('execCopy')).toBe(false);
     expect(isChartEditFunction('play')).toBe(false);
     expect(isChartEditFunction('jumpToMarker')).toBe(false);

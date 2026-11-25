@@ -325,7 +325,8 @@ export function resolveReleaseIntent(input: {
  * BPM / 粘贴不在此列：二者作用于**位置**，与"点中了哪个音符"无关。
  */
 const NEEDS_HIT: ReadonlySet<MatrixTool> = new Set<MatrixTool>([
-  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'curve', 'delete', 'mirror', 'noteCode',
+  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'curve',
+  'delete', 'mirror', 'copy', 'cut', 'noteCode',
 ]);
 
 /** §2 单击矩阵在画布侧的四种去向（语义行仍在 ToolActionMatrix，本表只决定"去问谁"）。 */
@@ -374,16 +375,17 @@ export function resolveClickPlan(input: {
     if (input.armedTool === null) {
         return { kind: 'selectItem', additive: input.shiftKey, ctrl: input.ctrlKey || input.metaKey };
     }
-    // 动作族（删除/镜像）/「音符代码」需要音符命中（空白 = 无效果不清选区）；其余行只吃栅格落点。
-    // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
+    // 动作族（删除/镜像/复制/剪切）/「音符代码」需要音符命中（空白 = 清选区 / 无效果）；其余行只吃栅格落点。
     // **issue 88 扩订**：键型与 Slide 也要判"命中项 ∈ 选区 → 整片执行"，故同样需要命中。
     const tool = input.armedTool;
     const needHit = NEEDS_HIT.has(tool);
     const hit = needHit ? findItemAt(input.cx, input.cy, input.deps) : null;
     // issue 59：BPM 线视觉上横跨轨道、画在音符层之下，而 findItemAt 完全跳过 BPM。
-    // 故对**需要对 BPM 表态的四态**补一条整线命中：音符优先（findItemAt 先判），不进 hover。
-    // 四态缺一都会让 clickOps 里对应的矩阵行变成不可达的死分支（锁表单测也会变假绿）。
-    const needsBpmLine = tool === 'bpm' || tool === 'delete' || tool === 'mirror' || tool === 'noteCode';
+    // 故对**需要对 BPM 表态的工具**补一条整线命中：音符优先（findItemAt 先判），不进 hover。
+    // 缺一都会让 clickOps 里对应的矩阵行变成不可达的死分支（锁表单测也会变假绿）。
+    // issue 256：复制 / 剪切与镜像同档，必须吃 BPM 整线，否则会落到空 op。
+    const needsBpmLine = tool === 'bpm' || tool === 'delete' || tool === 'mirror'
+      || tool === 'copy' || tool === 'cut' || tool === 'noteCode';
     const bpmLineHit = hit === null && needsBpmLine
         ? findBpmLineAt(input.cx, input.cy, input.deps)
         : null;

@@ -565,6 +565,15 @@ describe('resolveClickPlan 单击去向', () => {
     expect(r.hit).toEqual({ kind: 'note', noteIndex: 2 });
   });
 
+  it('issue 256：复制/剪切同样吃音符命中（issue 88 整片/单件）', () => {
+    for (const tool of ['copy', 'cut'] as const) {
+      const r = plan({ armedTool: tool });
+      expect(r.kind).toBe('runMatrix');
+      if (r.kind !== 'runMatrix') continue;
+      expect(r.hit, `${tool} 该吃音符命中`).toEqual({ kind: 'note', noteIndex: 2 });
+    }
+  });
+
   it('BPM / 粘贴：不吃音符命中（作用于位置，issue 88 不扩）', () => {
     for (const tool of ['bpm', 'paste'] as const) {
       const r = plan({ armedTool: tool });
@@ -572,6 +581,23 @@ describe('resolveClickPlan 单击去向', () => {
       if (r.kind !== 'runMatrix') continue;
       expect(r.hit, `${tool} 不该吃音符命中`).toBeNull();
       expect(r.pos).not.toBeNull();
+    }
+  });
+
+  it('issue 256：复制/剪切命中 BPM 整线（与镜像同档，findBpmLineAt）', () => {
+    const { deps, geometry, viewport } = makeDeps(notes);
+    const y = geometry.virtualToCanvas(0, geometry.beatToVirtualY(20, 1), viewport).y;
+    const x = geometry.trackGeometry(1).trackBgX + 40;
+    for (const tool of ['copy', 'cut'] as const) {
+      const r = resolveClickPlan({
+        cx: x, cy: y, armedTool: tool,
+        shiftKey: false, ctrlKey: false, metaKey: false,
+        deps, notes, snap: snapChartPos(deps, 100, x, y),
+        bpmLabelBeat: null, onMarker: false,
+      });
+      expect(r.kind).toBe('runMatrix');
+      if (r.kind !== 'runMatrix') continue;
+      expect(r.hit, `${tool} 该吃 BPM 整线`).toEqual({ kind: 'note', noteIndex: 1 });
     }
   });
 
@@ -739,7 +765,7 @@ describe('marqueeRect 框选矩形', () => {
 describe('resolveBoxPlan / canStartMarquee 框选矩阵去向', () => {
   it('指针态 → 建选区；其余工具族 → 交矩阵', () => {
     expect(resolveBoxPlan(null)).toBe('select');
-    for (const t of ['single', 'bpm', 'slide', 'delete', 'paste', 'mirror', 'noteCode'] as const) {
+    for (const t of ['single', 'bpm', 'slide', 'delete', 'paste', 'mirror', 'copy', 'cut', 'noteCode'] as const) {
       expect(resolveBoxPlan(t)).toBe('runMatrix');
     }
   });
@@ -752,6 +778,8 @@ describe('resolveBoxPlan / canStartMarquee 框选矩阵去向', () => {
     expect(canStartMarquee('slide')).toBe(true);
     expect(canStartMarquee('delete')).toBe(true);
     expect(canStartMarquee('mirror')).toBe(true);
+    expect(canStartMarquee('copy')).toBe(true);
+    expect(canStartMarquee('cut')).toBe(true);
     expect(canStartMarquee('bpm')).toBe(true);
   });
 });

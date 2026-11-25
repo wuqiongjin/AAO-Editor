@@ -17,8 +17,6 @@ interface RailTool {
   icon: ReactNode;
   labelKey: MessageKey;
   danger?: boolean;
-  /** 即时动作：点一下就执行，不进持工具态、无高亮（ADR-0008 §2.1 六轮：复制 / 剪切不占工具轴） */
-  action?: () => void;
   disabled?: boolean;
   disabledTip?: string;
 }
@@ -26,14 +24,13 @@ interface RailTool {
 export default memo(function WorkspaceToolRail() {
   const { armedTool, setArmedTool, patternPaste } = useUI();
   const { settings } = useConfig();
-  const { clipboard, selectedItems, copy, cut } = useEditing();
+  const { clipboard } = useEditing();
   // issue 86：音符图标直接读当前音符皮肤 → 与素材页 / 画布同一套素材与绘制器，换肤即时联动
   const noteIcons = useMemo(
     () => buildActiveNoteIcons(normalizeNoteSkinSelection(settings.visual?.noteSkin)),
     [settings.visual?.noteSkin],
   );
 
-  const hasSelection = selectedItems.length > 0;
   // issue 194：字形用 28px（与 main 一致）。28 是 4 的倍数，dpr 1.25 / 1.75 下画布盒
   // 仍是整数物理像素；183 的 26px 会落在半像素，方向键边缘出现台阶锯齿。
   const glyph = (item: ToolGlyphItem) => <NoteIconGlyph icons={noteIcons} item={item} size={28} />;
@@ -50,8 +47,8 @@ export default memo(function WorkspaceToolRail() {
     ],
     [{ id: 'bpm', icon: <Music size={18} />, labelKey: 'tool.bpm' }],
     [
-      { id: 'copy', icon: <Copy size={17} />, labelKey: 'tool.copy', action: copy, disabled: !hasSelection, disabledTip: t('toolbar.copyNeedsSelection') },
-      { id: 'cut', icon: <Scissors size={17} />, labelKey: 'tool.cut', action: cut, disabled: !hasSelection, disabledTip: t('toolbar.cutNeedsSelection') },
+      { id: 'copy', icon: <Copy size={17} />, labelKey: 'tool.copy' },
+      { id: 'cut', icon: <Scissors size={17} />, labelKey: 'tool.cut' },
       // §2.1（六轮）：粘贴 = 持工具态；空剪贴板 = 不可进态（唯一"前提缺失即完全空转"的工具），`V` 键同步。
       // issue 186：片段粘贴态下这个钮仍是"回剪贴板来源"的唯一入口（ADR-0023 §4），故不能因剪贴板为空而置灰。
       { id: 'paste', icon: <Clipboard size={17} />, labelKey: 'tool.paste', disabled: clipboard.length === 0 && !patternPaste, disabledTip: t('toolbar.pasteEmpty') },
@@ -65,9 +62,8 @@ export default memo(function WorkspaceToolRail() {
   ];
 
   const keysOf = (id: string) => [...new Set(categoryShortcuts(settings.shortcuts, id).map((l) => l.key))];
-  const isActive = (tool: RailTool) => !tool.action && (armedTool === null ? tool.id === 'mouse' : armedTool === tool.id);
+  const isActive = (tool: RailTool) => (armedTool === null ? tool.id === 'mouse' : armedTool === tool.id);
   const armOrRelease = (tool: RailTool) => {
-    if (tool.action) { tool.action(); return; }
     if (tool.id === 'mouse') { setArmedTool(null); return; }
     // issue 186 / ADR-0023 §4：片段粘贴态下再点「粘贴」= 回剪贴板来源，而不是退出工具。
     // 例外的例外：剪贴板为空时「回剪贴板」= 纯空转，而 ADR-0008 §2.1 明令空剪贴板不进粘贴态，
@@ -93,7 +89,7 @@ export default memo(function WorkspaceToolRail() {
                 type="button"
                 className={`wtr__btn${active ? ' is-active' : ''}${tool.danger ? ' is-danger' : ''}`}
                 disabled={tool.disabled}
-                aria-pressed={tool.action ? undefined : active}
+                aria-pressed={active}
                 aria-label={t(tool.labelKey)}
                 onClick={() => armOrRelease(tool)}
               >
