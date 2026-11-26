@@ -142,6 +142,13 @@ describe('§2 BPM 工具单击', () => {
     expect(clickOps(input({ tool: 'mirror', notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
       .toEqual([{ t: 'setSelection', items: [] }]);
   });
+  it('issue 256：复制/剪切单击已有 BPM 线 = 镜像档（无效果 + 清选区，不写剪贴板）', () => {
+    const notes: ChartNote[] = [bpm(4, 120)];
+    for (const tool of ['copy', 'cut'] as const) {
+      expect(clickOps(input({ tool, notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
+        .toEqual([{ t: 'setSelection', items: [] }]);
+    }
+  });
   it('键型工具单击已有 BPM 线 = 照常按栅格位放置（BPM 不拦放置）', () => {
     // BPM 线的可交互点在 lane 0，点线右段时命中仍是它、但栅格位在 lane 3 → 照常放置单键
     const notes: ChartNote[] = [bpm(4, 120)];
@@ -246,7 +253,6 @@ describe('§2 paste 工具单击', () => {
 });
 
 // ══════════════════ §2 单击矩阵·动作工具行（T/Q，Model A）══════════════════
-// §2.1（六轮）：copy / cut 已退出工具轴（不 arm），矩阵不再有这两行
 describe('§2 delete/mirror 单击', () => {
   const notes: ChartNote[] = [single(1, 1), single(2, 2)];
   const hit = noteSel(0)[0];
@@ -263,7 +269,7 @@ describe('§2 delete/mirror 单击', () => {
     expect((ops[1] as any).notes[0].lane).toBe(5);
   });
   it('issue 83：轨道内空白 / 轨道外（无命中）**一律清选区**（旧口径：只有落点非法才清）', () => {
-    for (const tool of ['delete', 'mirror'] as const) {
+    for (const tool of ['delete', 'mirror', 'copy', 'cut'] as const) {
       expect(clickOps(input({ tool, notes, hit: null, pos: sp(4, 3) })))
         .toEqual([{ t: 'setSelection', items: [] }]);
       expect(clickOps(input({ tool, notes, hit: null, pos: null })))
@@ -308,6 +314,45 @@ describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
     expect(clickOps(input({ tool: 'delete', notes, hit: noteSel(1)[0], selectedItems: noteSel(0) })))
       .toEqual([
         { t: 'setNotes', notes: [single(1, 1), single(3, 3)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('issue 256：copy 命中 ∈ 选区 → 整片写入剪贴板并保留选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    const selected = noteSel(0, 1);
+    expect(clickOps(input({ tool: 'copy', notes, hit: noteSel(0)[0], selectedItems: selected })))
+      .toEqual([
+        { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+        { t: 'setSelection', items: selected },
+      ]);
+  });
+
+  it('issue 256：copy 命中选区外 → 单件复制并设为选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'copy', notes, hit: noteSel(2)[0], selectedItems: noteSel(0, 1) })))
+      .toEqual([
+        { t: 'setClipboard', notes: [single(3, 3)] },
+        { t: 'setSelection', items: noteSel(2) },
+      ]);
+  });
+
+  it('issue 256：cut 命中 ∈ 选区 → 整片剪切并清选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'cut', notes, hit: noteSel(1)[0], selectedItems: noteSel(0, 1) })))
+      .toEqual([
+        { t: 'setNotes', notes: [single(3, 3)] },
+        { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('issue 256：cut 命中选区外 → 单件剪切并清选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'cut', notes, hit: noteSel(2)[0], selectedItems: noteSel(0) })))
+      .toEqual([
+        { t: 'setNotes', notes: [single(1, 1), single(2, 2)] },
+        { t: 'setClipboard', notes: [single(3, 3)] },
         { t: 'setSelection', items: [] },
       ]);
   });
@@ -430,7 +475,7 @@ describe('issue 254 Ctrl+左键整条选中后再点端点 → 整片执行', ()
   const ctrlSel = noteSel(0);
   const posStart = sp(2, 1);
 
-  it.each(['skill', 'flick', 'delete', 'mirror'] as MatrixTool[])(
+  it.each(['skill', 'flick', 'delete', 'mirror', 'copy', 'cut'] as MatrixTool[])(
     '%s：框选整条后再点端点 ≡ Ctrl+左键后再点同一端点',
     (tool) => {
       const viaBox = clickOps(input({ tool, notes, hit: hitStart, selectedItems: boxSel, pos: posStart }));
@@ -669,11 +714,26 @@ describe('§2 框选矩阵', () => {
       expect(boxSelectOps(tool, [single(1, 1)], [])).toEqual([]);
     }
   });
-  it('§2.1（六轮）：copy / cut 不占工具轴 → 框选无效果（只走 Ctrl+C / Ctrl+X 执行键）', () => {
-    const notes: ChartNote[] = [single(1, 1), single(2, 2)];
-    // 矩阵类型层面已移除；运行时兜底（旧配置残留）同样无效果
-    expect(boxSelectOps('copy' as never, notes, noteSel(0, 1))).toEqual([]);
-    expect(boxSelectOps('cut' as never, notes, noteSel(0, 1))).toEqual([]);
+  it('issue 256：copy 行框选 = 写入剪贴板并保留框内选区（BPM 不入选）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), bpm(9, 120)];
+    const items = noteSel(0, 1);
+    expect(boxSelectOps('copy', notes, items)).toEqual([
+      { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+      { t: 'setSelection', items },
+    ]);
+  });
+  it('issue 256：cut 行框选 = 写入剪贴板、移除音符、清选区（BPM 留在谱面）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), bpm(9, 120)];
+    expect(boxSelectOps('cut', notes, noteSel(0, 1))).toEqual([
+      { t: 'setNotes', notes: [bpm(9, 120)] },
+      { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+      { t: 'setSelection', items: [] },
+    ]);
+  });
+  it('issue 256：copy/cut 空框 = 无效果（不清选区、不写剪贴板）', () => {
+    for (const tool of ['copy', 'cut'] as const) {
+      expect(boxSelectOps(tool, [single(1, 1)], [])).toEqual([]);
+    }
   });
   it('delete 行：删框内 + 清选区', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2)];

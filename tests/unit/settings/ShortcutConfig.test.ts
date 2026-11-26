@@ -61,6 +61,29 @@ describe('ShortcutConfig 默认配置', () => {
     expect(cfg.switchCurve).toBe('w');
   });
 
+  // issue 256：复制 / 剪切进持工具态，切换键与删除（T / Ctrl+T）同构
+  it('issue 256：复制/剪切 = 切换 C / X，执行仍是 Ctrl+C / Ctrl+X，出厂零冲突', () => {
+    const cfg = getDefaultConfig();
+    expect(cfg.switchCopy).toBe('c');
+    expect(cfg.switchCut).toBe('x');
+    expect(cfg.execCopy).toBe('ctrl+c');
+    expect(cfg.execCut).toBe('ctrl+x');
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
+    expect(resolveAction(keyEvent('c'), cfg)).toBe('switchCopy');
+    expect(resolveAction(keyEvent('x'), cfg)).toBe('switchCut');
+    expect(resolveAction(keyEvent('c', true), cfg)).toBe('execCopy');
+    expect(resolveAction(keyEvent('x', true), cfg)).toBe('execCut');
+    expect(functionMode('switchCopy')).toBe('switch');
+    expect(functionMode('switchCut')).toBe('switch');
+  });
+
+  it('issue 256：老功能已占用 c 时，新增的 switchCopy 载入退让为 null', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ switchMouse: 'c' }) });
+    expect(cfg.switchMouse).toBe('c');
+    expect(cfg.switchCopy).toBeNull();
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
+  });
+
   // issue 185 / ADR-0023 §4：收藏选区 = 新的执行类功能（默认 Ctrl+Shift+D）
   it('默认含 片段收藏（Ctrl+Shift+D），且不与任何功能相撞', () => {
     const cfg = getDefaultConfig();

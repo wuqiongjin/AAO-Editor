@@ -8,7 +8,7 @@ import {
   applyPlacement, handleSlideToSlideCombination, keyTargetsFromItems,
   batchApplyKeyType, pasteChartNotes,
 } from './NoteReplacementRules';
-import { deleteSelection, isSlide, mirrorSelection, remapSelection } from './SelectionEditing';
+import { copySelection, cutSelection, deleteSelection, isSlide, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
 import { projectedSlideSpans } from './SlideSegments';
 import { buildPatternPastePayload, type PatternPasteRequest } from '../../patterns/paste';
@@ -19,15 +19,17 @@ export type { NoteCodeTarget } from './NoteCodeOps';
 
 /**
  * 持工具态（与 UIProvider.ArmedTool 同构；本模块保持零 UI 依赖）。
- * ADR-0008 §2.1（六轮）：**复制 / 剪切不占工具轴**——二者必须有选区（作用于对象而非位置），
- * 连续复制无意义、连续剪切有误删风险，只保留 Ctrl+C / Ctrl+X 执行键作用于选区。
+ * issue 256 / ADR-0008 §2.1：复制 / 剪切与删除 / 镜像同属动作族，占工具轴。
  */
 export type MatrixTool =
   | 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional'
   | 'bpm' | 'slide'
   | 'curve' // issue 09 S2（ADR-0009 §3）：曲线工具——单击链式缓动段 / 拖动画笔自由段 / 点段重应用
-  | 'delete' | 'paste' | 'mirror'
+  | 'delete' | 'paste' | 'mirror' | 'copy' | 'cut'
   | 'noteCode'; // issue 59 §2：持工具态，点音符 = 打开该音符代码弹窗（唯一不改谱面的工具）
+
+/** 画布动作族（不含粘贴 / 音符代码：那两行不走 `actionOnTargetsOps`） */
+type MatrixActionTool = 'delete' | 'mirror' | 'copy' | 'cut';
 
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
@@ -43,8 +45,8 @@ export type MatrixOp =
 
 const isKeyTool = (tool: MatrixTool): tool is 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional' =>
   tool === 'single' || tool === 'flick' || tool === 'skill' || tool === 'ldirectional' || tool === 'rdirectional';
-const isActionTool = (tool: MatrixTool): tool is 'delete' | 'mirror' =>
-  tool === 'delete' || tool === 'mirror';
+const isActionTool = (tool: MatrixTool): tool is MatrixActionTool =>
+  tool === 'delete' || tool === 'mirror' || tool === 'copy' || tool === 'cut';
 
 /** 命中的是否是一条**已有** BPM 线（issue 56 Q14=A：单击 BPM 线默认无效果，只有删除/音符代码两个例外） */
 const hitIsBpm = (notes: ChartNote[], hit: SelectionItem | null): boolean =>
@@ -248,7 +250,8 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   //（否则 lane 0 上恰好有 BPM 的拍就永远放不下音符）。
   if (hit && hitIsBpm(notes, hit)) {
     if (tool === 'delete') return actionOnTargetsOps('delete', notes, resolveActionTargets(hit, selectedItems, notes));
-    if (tool === 'bpm' || tool === 'mirror') return [clearSel];
+    // issue 256：复制 / 剪切对 BPM 走镜像档（受限：无效果、清选区、不写剪贴板）
+    if (tool === 'bpm' || tool === 'mirror' || tool === 'copy' || tool === 'cut') return [clearSel];
   }
   if (isKeyTool(tool)) {
     // issue 88：命中 ∈ 选区 → **与「先切键型工具、再框选」完全同源** —— 直接复用框选矩阵的键型行
@@ -381,7 +384,8 @@ export function boxSelectOps(
     // mirror：拖拽期间预览（渲染器），松手立即执行（§2"无需二次确认"）
     return [{ t: 'setSelection', items }, { t: 'setNotes', notes: mirrorSelection(notes, items) }];
   }
-  return []; // 其余（含 §2.1 已退出工具轴的 copy/cut 旧配置残留）→ 无效果
+  if (tool === 'copy' || tool === 'cut') return actionOnTargetsOps(tool, notes, items);
+  return [];
 }
 
 /**
@@ -409,10 +413,21 @@ export function resolveActionTargets(
   return expandWholeSlideItems(notes, selectedItems);
 }
 
-/** 动作族作用于一组目标条目（删除 → 清选区；镜像 → 选区 = 镜像产物） */
-export function actionOnTargetsOps(tool: 'delete' | 'mirror', notes: ChartNote[], targets: SelectionItem[]): MatrixOp[] {
+/** 动作族作用于一组目标条目（删除 / 剪切 → 清选区；镜像 / 复制 → 选区 = 本次产物） */
+export function actionOnTargetsOps(tool: MatrixActionTool, notes: ChartNote[], targets: SelectionItem[]): MatrixOp[] {
   if (targets.length === 0) return [];
   if (tool === 'delete') return [{ t: 'setNotes', notes: deleteSelection(notes, targets) }, { t: 'setSelection', items: [] }];
+  if (tool === 'copy') {
+    return [{ t: 'setClipboard', notes: copySelection(notes, targets) }, { t: 'setSelection', items: targets }];
+  }
+  if (tool === 'cut') {
+    const { clipboard, newNotes } = cutSelection(notes, targets);
+    return [
+      { t: 'setNotes', notes: newNotes },
+      { t: 'setClipboard', notes: clipboard },
+      { t: 'setSelection', items: [] },
+    ];
+  }
   return [{ t: 'setSelection', items: targets }, { t: 'setNotes', notes: mirrorSelection(notes, targets) }];
 }
 
