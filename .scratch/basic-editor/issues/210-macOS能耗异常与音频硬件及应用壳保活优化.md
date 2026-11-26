@@ -39,3 +39,7 @@ mac 端能耗极高，尚未开始导入谱面或播放，机器已异常发烫�
 2. **锁测**：
    - `tests/unit/AudioEngine.idle.test.ts`：验证空闲时音频上下文不泄漏常驻 loop 节点，支持按需唤醒；
    - `tests/static/AppShellVisibility.test.ts`：验证非激活页面样式规则具备 `visibility: hidden`。
+
+## Comments
+
+- **2026-11-26**：同一批用户反馈发热好点了、能耗仍高。本票死循环保活定案不回改。后续语义（不改节流/Retina；GitHub Mac 冒烟验电源锁，锁还在再动音频）见 [257](./257-macOS修饰键展示与退出通道及能耗门禁.md)。

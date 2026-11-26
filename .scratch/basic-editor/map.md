@@ -250,6 +250,7 @@
 - **255 Ctrl+滚轮缩放步长**（[255](./issues/255-Ctrl滚轮缩放步长.md)，`Type: feature`，resolved / 2026-11-25 已实现并锁测，待页面验收）—— 画布 Ctrl+滚轮每格改为 1.15 / 1/1.15（100% → ~201% 约 5 格）；工具栏 ± 仍 ±0.1；长按连发不做。
 - **256 复制与剪切持工具态**（[256](./issues/256-复制与剪切持工具态.md)，`Type: grilling`，resolved / 2026-11-12 定案、2026-11-25 收进动作族并实现；stash 原编号 233，与 233 高缩放调查撞号后顺延）—— **定了什么** = 复制与剪切正式入持工具态（`armedTool` 扩充 `copy` / `cut`，键盘 `switchCopy: 'c'` / `switchCut: 'x'`）；框选自动写入剪贴板并覆盖前值（复制后选区保留，剪切后移除音符并清选区）；单击音符遵循 issue 88；**按钮/再点/切换键对齐删除与镜像**（11-12「有选区则先执行再进态」已推翻）；BPM 不入选、单击 BPM 走镜像档；剪切不套 danger；Shift+音符拖拽与 Esc 五档链套既有原则。删除框选 BPM「整条覆盖」不在本票改。
 
+- **257 macOS 修饰键展示、⌘Q 退出通道与能耗门禁**（[257](./issues/257-macOS修饰键展示与退出通道及能耗门禁.md)，`Type: grilling`，open / 2026-11-26 定案待实现）—— **定了什么** = Mac 界面 `ctrl` 显示为 ⌘（Control 仍同义）；**⌘Q 只退出不再镜像**（Control+Q 仍镜像，Win/Linux 出厂 `ctrl+q` 不动，快捷键页该条写 ⌃Q；⌘A/⌘S 这轮不动）；红叉维持 211 关窗不退出；不改 `backgroundThrottling` / Retina / 120Hz；GitHub `macos-latest` 打包 job 冒烟验电源锁与进程退出，锁还在再改音频空闲挂起。不装本机 macOS 虚拟机。
 
 ## Not yet specified
 
