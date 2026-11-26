@@ -154,23 +154,51 @@ export const functionMode = (id: FunctionId): 'switch' | 'exec' | null => {
   return id.startsWith('switch') ? 'switch' : 'exec';
 };
 
-/** 键位展示格式（大写）：ctrl+f → Ctrl+F，空格 → Space，ctrl+shift+q → Ctrl+Shift+Q；null(屏蔽) → — */
-export const formatKey = (key: string | null): string => {
+/**
+ * issue 257：内部绑定串里的 `ctrl` 在 Mac 上代表 ⌘（物理 Control 也是同义词），展示层才分流。
+ * 渲染进程（本函数的实际调用方）先读 `navigator`，Node / 主进程侧回落 `process.platform`；
+ * 测试显式传参锁分支，也可在 jsdom 里桩 `navigator.platform`。
+ */
+export type ShortcutPlatform = 'darwin' | 'win32' | 'linux' | 'other';
+
+export function shortcutPlatform(): ShortcutPlatform {
+  const nav = typeof navigator === 'undefined'
+    ? undefined
+    : (navigator as Navigator & { userAgentData?: { platform?: string } });
+  const name = (nav?.userAgentData?.platform ?? nav?.platform ?? '').toLowerCase();
+  if (name.includes('mac')) return 'darwin';
+  if (typeof process !== 'undefined' && typeof process.platform === 'string') {
+    return process.platform === 'darwin' ? 'darwin' : 'other';
+  }
+  return 'other';
+}
+
+/** 键位展示格式（大写）：ctrl+f → Ctrl+F；Mac 上 ctrl → ⌘（保留键 ctrl+q → ⌃Q）；null(屏蔽) → — */
+export const formatKey = (key: string | null, platform: ShortcutPlatform = shortcutPlatform()): string => {
   if (!key) return '—';
   if (key === ' ') return 'Space';
-  return key.split('+').map(p => {
-    if (p === 'ctrl') return 'Ctrl';
-    if (p === 'shift') return 'Shift';
-    if (p === 'alt') return 'Alt';
+  const mac = platform === 'darwin';
+  // ⌘Q 是系统退出键，唯一保留串；物理 Control+Q 仍执行镜像，故 Mac 上写 ⌃Q（issue 257）
+  if (mac && key === 'ctrl+q') return '⌃Q';
+  const parts = key.split('+').map(p => {
+    if (p === 'ctrl') return mac ? '⌘' : 'Ctrl';
+    if (p === 'shift') return mac ? '⇧' : 'Shift';
+    if (p === 'alt') return mac ? '⌥' : 'Alt';
     if (p === ' ') return 'Space'; // 组合键中的空格（如 ctrl+ 空格）也应显示为 Space
     if (p === 'arrowleft') return '←';
     if (p === 'arrowright') return '→';
     return p.toUpperCase();
-  }).join('+');
+  });
+  // Mac 按 Apple 惯例把修饰键字形直接连写（⌘F / ⌘⇧Q），Win/Linux 保留既有 Ctrl+Shift+Q
+  return parts.join(mac ? '' : '+');
 };
 
-/** 某类别下用于 tooltip 展示的 切换/执行 键位行（按当前配置） */
-export const categoryShortcuts = (cfg: ShortcutConfig, cat: string): { mode: string; key: string }[] =>
+/** 某类别下用于 tooltip 展示的 切换/执行 键位行（按当前配置；与快捷键页同源走 formatKey） */
+export const categoryShortcuts = (
+  cfg: ShortcutConfig,
+  cat: string,
+  platform: ShortcutPlatform = shortcutPlatform(),
+): { mode: string; key: string }[] =>
   functionsByCategory(cat)
     .map(f => {
       const b = cfg[f.id];
@@ -179,7 +207,7 @@ export const categoryShortcuts = (cfg: ShortcutConfig, cat: string): { mode: str
       if (!mode) return null; // 应用级功能没有「切换/执行」之分，不进 tooltip 合并行
       return {
         mode: mode === 'switch' ? t('shortcut.mode.switch') : t('shortcut.mode.exec'),
-        key: formatKey(b),
+        key: formatKey(b, platform),
       };
     })
     .filter((x): x is { mode: string; key: string } => x !== null);
@@ -317,8 +345,23 @@ export function buildBindingIndex(cfg: ShortcutConfig, scope?: FunctionScope): M
   return map;
 }
 
+/**
+ * issue 257：darwin 上的 ⌘Q（metaKey 且无物理 ctrlKey，主键 q）是系统退出键，
+ * **不进产品分发**——不命中 resolveAction，分发层就不会 preventDefault / execMirror。
+ * 物理 Control+Q 仍是镜像；Win/Linux 出厂串 `ctrl+q` 不动。
+ */
+export function isReservedSystemQuit(e: KeyboardEvent, platform: ShortcutPlatform = shortcutPlatform()): boolean {
+  return platform === 'darwin' && e.metaKey && !e.ctrlKey && mainKeyOf(e) === 'q';
+}
+
 /** 由按键事件解析出命中的具体功能 id；scope 不传 = 全表（含切页键） */
-export function resolveAction(e: KeyboardEvent, cfg: ShortcutConfig, scope?: FunctionScope): FunctionId | null {
+export function resolveAction(
+  e: KeyboardEvent,
+  cfg: ShortcutConfig,
+  scope?: FunctionScope,
+  platform: ShortcutPlatform = shortcutPlatform(),
+): FunctionId | null {
+  if (isReservedSystemQuit(e, platform)) return null;
   return buildBindingIndex(cfg, scope).get(normalizeKeyEvent(e)) ?? null;
 }
 

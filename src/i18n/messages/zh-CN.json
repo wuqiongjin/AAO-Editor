@@ -821,6 +821,7 @@
   "shortcuts.emptySearchHint": "换关键词或清除搜索框。",
   "shortcuts.clearSearch": "清除搜索",
   "shortcuts.conflict": "键位 \"{{key}}\" 已被功能「{{label}}」占用",
+  "shortcuts.reservedQuit": "⌘Q 保留给系统退出，请换一个组合键。",
   "shortcuts.recorder.hint": "先按所需的组合键，再按 enter 键。",
   "shortcuts.recorder.meta": "{{label}}　·　Enter 确认 · Esc 取消",
   "shortcuts.beatSnapCycle.config": "配置循环档位",

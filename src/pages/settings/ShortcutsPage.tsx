@@ -7,7 +7,7 @@ import SeekStepConfigModal from './SeekStepConfigModal';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, normalizeKeyEvent, setCapturingShortcut, maskFunctionBinding,
-  bindingToRestore, type FunctionId,
+  bindingToRestore, isReservedSystemQuit, type FunctionId,
 } from '../../settings/ShortcutConfig';
 import {
   INDEX_FILTERS, type IndexFilterId,
@@ -70,6 +70,11 @@ function ShortcutRecorder({ id, initialBinding, initialConflict, onCommit, onClo
       }
       if (e.key === 'Escape') {
         onClose();
+        return;
+      }
+      // issue 257：⌘Q 保留给系统退出，不允许绑到任何功能；沿用冲突提示通道，草稿保留可重按
+      if (isReservedSystemQuit(e)) {
+        setConflict(t('shortcuts.reservedQuit'));
         return;
       }
       const combo = comboFromKeyEvent(e);

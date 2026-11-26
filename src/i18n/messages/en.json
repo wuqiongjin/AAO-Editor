@@ -822,6 +822,7 @@
   "shortcuts.emptySearchHint": "Try another query or clear the search box.",
   "shortcuts.clearSearch": "Clear search",
   "shortcuts.conflict": "\"{{key}}\" is already used by 「{{label}}」",
+  "shortcuts.reservedQuit": "⌘Q is reserved for quitting the app. Choose another combination.",
   "shortcuts.recorder.hint": "Press the combination, then Enter.",
   "shortcuts.recorder.meta": "{{label}}  ·  Enter to confirm · Esc to cancel",
   "shortcuts.beatSnapCycle.config": "Configure cycle divisions",
