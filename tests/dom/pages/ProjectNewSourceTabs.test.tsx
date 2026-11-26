@@ -217,7 +217,7 @@ describe('票 12 · 新建入口四项归类', () => {
     expect(dialog.className).toMatch(/dialog--lg/);
     // 列表走服务端分页：帖子标题与谱师就位
     expect(await within(dialog).findByText('All You Wanted (GBP Edit)')).toBeInTheDocument();
-    expect(within(dialog).getByText('Envy')).toBeInTheDocument();
+    expect(within(dialog).getByText('谱师：Envy')).toBeInTheDocument();
     // 未选中：创建键在但禁用（与官方支同口径）
     const create = within(dialog).getByRole('button', { name: '创建' });
     expect(create).toBeDisabled();
@@ -451,7 +451,7 @@ describe('票 12 · 新建入口四项归类', () => {
     dialog = await switchSource(dialog, '从社区谱面导入');
     await within(dialog).findByText('All You Wanted (GBP Edit)');
 
-    fireEvent.change(within(dialog).getByPlaceholderText('搜索歌曲标题或帖 ID'), { target: { value: '248468' } });
+    fireEvent.change(within(dialog).getByPlaceholderText('搜索标题、歌手或帖 ID'), { target: { value: '248468' } });
 
     await waitFor(() => {
       const rows = Array.from(dialog.querySelectorAll('.off-list [role="option"]'))
@@ -473,7 +473,7 @@ describe('票 12 · 新建入口四项归类', () => {
     dialog = await switchSource(dialog, '从社区谱面导入');
     await within(dialog).findByText('All You Wanted (GBP Edit)');
 
-    fireEvent.change(within(dialog).getByPlaceholderText('搜索歌曲标题或帖 ID'), { target: { value: '123123' } });
+    fireEvent.change(within(dialog).getByPlaceholderText('搜索标题、歌手或帖 ID'), { target: { value: '123123' } });
 
     // 搜索那一路照常（假桥把 POST_LIST 原样回给任何 search 词）
     expect(await within(dialog).findByRole('option', { name: /All You Wanted/ })).toBeInTheDocument();
@@ -481,6 +481,131 @@ describe('票 12 · 新建入口四项归类', () => {
       request.mock.calls.some(([payload]) => payload.url.endsWith('/api/post/details?id=123123')),
     ).toBe(true));
     expect(dialog.querySelector('.error-banner')).toBeNull();
+  });
+
+  it('票 60：社区行三行文本（标题 / 歌手 / 谱师），bandori 帖歌手取曲库官方乐队名', async () => {
+    const BANDORI_POST = {
+      ...COMMUNITY_POST,
+      id: 260001,
+      title: '神秘',
+      artists: 'ykn',
+      song: { type: 'bandori', id: 29 },
+    };
+    installFakeBridge((payload) => (payload.url.endsWith('/api/post/list')
+      ? { ok: true, responseType: 'json', status: 200, data: { result: true, count: 1, posts: [BANDORI_POST] } }
+      : undefined));
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+
+    const row = await within(dialog).findByRole('option', { name: /神秘/ });
+    // 自填的 `ykn` 不上界面：导入后工程的 artist 是官方乐队名（票 60 Q3=A）
+    expect(within(row).getByText('Roselia')).toBeInTheDocument();
+    expect(within(row).getByText('谱师：Envy')).toBeInTheDocument();
+    // 右列：难度芯片与 `#id · 日期` 各占一行（版式归真渲染验收，这里只锁内容）
+    expect(within(row).getByText(/EX 24/)).toBeInTheDocument();
+    expect(row).toHaveTextContent(/#260001 · \d{4}-\d{2}-\d{2}/);
+    // 截断后全文留在 title 里
+    expect(within(row).getByTitle('神秘')).toBeInTheDocument();
+
+    fireEvent.click(row);
+    // 票 60 Q4=A：预览栏按 标题 → 歌手 → 谱师 排（谱师带标签、换维度）
+    const preview = await waitFor(() => within(dialog).getByRole('complementary'));
+    const previewTitle = within(preview).getByText('神秘');
+    const previewArtist = within(preview).getByText('Roselia');
+    const previewCharter = within(preview).getByRole('button', { name: /谱师：Envy/ });
+    const precedes = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(precedes(previewTitle, previewArtist)).toBe(true);
+    expect(precedes(previewArtist, previewCharter)).toBe(true);
+    // 昵称与账号名不同：预览把可检索的账号名一并摆出来（票 59）
+    expect(within(previewCharter).getByText('@envy09')).toBeInTheDocument();
+  });
+
+  it('票 59：搜索框输入精确账号名 → 关键字零命中时切成该谱师，清芯片回浏览', async () => {
+    installFakeBridge((payload) => {
+      if (!payload.url.endsWith('/api/post/list')) return undefined;
+      const body = JSON.parse((payload as { body?: string }).body ?? '{}');
+      // 平台事实：`search` 不索引作者（零命中），`username` 过滤才有结果
+      return String(body.username ?? '').toLowerCase() === 'envy09'
+        ? { ok: true, responseType: 'json', status: 200, data: { result: true, count: 441, posts: [COMMUNITY_POST] } }
+        : { ok: true, responseType: 'json', status: 200, data: { result: true, count: 0, posts: [] } };
+    });
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    expect(await within(dialog).findByText('没有匹配的帖子')).toBeInTheDocument();
+
+    const input = within(dialog).getByPlaceholderText('搜索标题、歌手或帖 ID');
+    fireEvent.change(input, { target: { value: 'Envy09' } });
+
+    // 探测命中 → 切成「只看这位谱师」，搜索框清空（留着会变成 search AND username 的空交集）
+    const chip = await within(dialog).findByRole('button', { name: '取消谱师筛选' });
+    expect(chip.parentElement).toHaveTextContent('谱师：Envy');
+    expect(await within(dialog).findByRole('option', { name: /All You Wanted/ })).toBeInTheDocument();
+    expect((input as HTMLInputElement).value).toBe('');
+
+    fireEvent.click(chip);
+    await waitFor(() => expect(within(dialog).queryByRole('button', { name: '取消谱师筛选' })).toBeNull());
+    // 回到全站浏览（命中会话缓存的空白页），不再筛人
+    await waitFor(() => expect(within(dialog).queryByRole('option', { name: /All You Wanted/ })).toBeNull());
+
+    // 零命中的页不进会话缓存 —— 否则再搜同一个账号名会命中上次那张空页，
+    // 在 peek 处短路、探测不再发，直接回「没有匹配的帖子」
+    fireEvent.change(input, { target: { value: 'Envy09' } });
+    expect(await within(dialog).findByRole('button', { name: '取消谱师筛选' })).toBeInTheDocument();
+  });
+
+  it('票 59：空结果时点刷新，探测命中同样切成该谱师（与首屏同一处判断）', async () => {
+    let probes = 0;
+    const request = installFakeBridge((payload) => {
+      if (!payload.url.endsWith('/api/post/list')) return undefined;
+      const body = JSON.parse((payload as { body?: string }).body ?? '{}');
+      if (String(body.username ?? '').toLowerCase() !== 'envy09') {
+        return { ok: true, responseType: 'json', status: 200, data: { result: true, count: 0, posts: [] } };
+      }
+      // 第一次探测时他还没有作品，刷新那次才有 —— 探测的结论不该被空页挡住
+      probes += 1;
+      return probes === 1
+        ? { ok: true, responseType: 'json', status: 200, data: { result: true, count: 0, posts: [] } }
+        : { ok: true, responseType: 'json', status: 200, data: { result: true, count: 1, posts: [COMMUNITY_POST] } };
+    });
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+
+    const input = within(dialog).getByPlaceholderText('搜索标题、歌手或帖 ID');
+    fireEvent.change(input, { target: { value: 'Envy09' } });
+    // 等防抖真的把搜索发出去（此时才是「关键字零命中」的空态，而不是首屏那份空浏览页）
+    await waitFor(() => {
+      const bodies = request.mock.calls
+        .filter(([payload]) => payload.url.endsWith('/api/post/list'))
+        .map(([payload]) => JSON.parse((payload as { body?: string }).body ?? '{}'));
+      expect(bodies.some((body) => body.search === 'Envy09')).toBe(true);
+    });
+    expect(await within(dialog).findByText('没有匹配的帖子')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '刷新歌曲列表' }));
+    // 刷新也走「搜索首页」那条路：空结果不铺出去，直接切成该谱师
+    expect(await within(dialog).findByRole('button', { name: '取消谱师筛选' })).toBeInTheDocument();
+  });
+
+  it('票 59：预览栏谱师名可点 → 只看该谱师（按账号名服务端过滤）', async () => {
+    const request = installFakeBridge();
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    const row = await within(dialog).findByRole('option', { name: /All You Wanted/ });
+    fireEvent.click(row);
+
+    const charter = await within(dialog).findByRole('button', { name: /谱师：Envy/ });
+    expect(within(charter).getByText('@envy09')).toBeInTheDocument();
+    fireEvent.click(charter);
+
+    expect(await within(dialog).findByRole('button', { name: '取消谱师筛选' })).toBeInTheDocument();
+    const bodies = request.mock.calls
+      .filter(([payload]) => payload.url.endsWith('/api/post/list'))
+      .map(([payload]) => JSON.parse((payload as { body?: string }).body ?? '{}'));
+    expect(bodies.some((body) => body.username === 'envy09')).toBe(true);
   });
 
   it('从空白切到官方是同一颗窗改尺寸，不卸遮罩（票 13 #6）', async () => {

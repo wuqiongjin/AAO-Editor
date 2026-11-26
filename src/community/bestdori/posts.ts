@@ -17,7 +17,8 @@
  *     （搜索是服务端的，两者叠加见文件末尾「客户端过滤」一段）。
  *
  * 列表的两层缓存：
- *   - **会话内**：按 `查询 + offset` 缓存每一页（翻回去 / 重开弹窗零网络）；
+ *   - **会话内**：按 `查询 + offset` 缓存每一页（翻回去 / 重开弹窗零网络）；**零命中的页不存** ——
+ *     同一查询还可能由账号名探测给出结果，缓存空页会把那条旁路在 peek 处挡掉；
  *   - **跨会话**：只有第一页走主进程的 json 档（24h + 先回旧的 + 后台补一枪）；
  *     深页**不落盘** —— offset 会随新帖插入整体漂移，跨会话拼两个时刻的快照会把页码语义搞烂。
  *   - 用户主动刷新走 `force`：绕开会话缓存，并让网关重拉（`revalidate`）。
@@ -118,6 +119,19 @@ function postListRequestBody(query: string, offset: number, limit: number, usern
   });
 }
 
+/**
+ * 空页能不能进会话缓存？只有「与谱师无关」的查询才值得存（票 59）：纯浏览、非账号名形态的关键字、
+ * 纯数字（id 直查不中）—— 重搜时省一趟网络。两类不能存：
+ *   - 账号名形态的关键字：同一趟还会并发账号名探测；
+ *   - 带 `username` 的请求：它就是探测本身（或筛选视图）。
+ * 空页一存，下一次同一查询会在 peek 处短路，探测永远没机会再跑
+ * （清掉谱师芯片后再搜同一账号名，直接回「没有匹配的帖子」）。
+ */
+function canCachePage(page: PostPage, query: string, username: string): boolean {
+  if (page.posts.length > 0) return true;
+  return !(username !== '' || isAccountNameQuery(query));
+}
+
 /** 将一页社区帖子写入会话内存缓存（票 57：取消拉取回落缓存后，同会话重开直接命中） */
 export function commitPostPageCache(
   { query, offset, username }: Pick<PostPageQuery, 'query' | 'offset' | 'username'>,
@@ -127,7 +141,7 @@ export function commitPostPageCache(
   const who = (username ?? '').trim();
   const key = pageKey(query.trim(), at, who);
   const marked = markJsonFromCache(page);
-  pageCache.set(key, marked);
+  if (canCachePage(page, query.trim(), who)) pageCache.set(key, marked);
   return marked;
 }
 
@@ -224,7 +238,7 @@ export async function fetchPostPage(
     const page = toPostPage(raw);
     if (!page) throw invalidResponse('帖子列表不是预期形态');
     const stored = isJsonFromCache(raw) ? markJsonFromCache(page) : page;
-    pageCache.set(key, stored);
+    if (canCachePage(page, query, who)) pageCache.set(key, stored);
     trail.record({
       module: 'community',
       action: 'browse-end',
@@ -280,6 +294,19 @@ export function numericPostIdQuery(query: string): number | null {
 }
 
 /**
+ * 看起来像站点**账号名**的查询（票 59）：可见 ASCII、无空格、含字母、2–32 字符。
+ *
+ * 为什么要这道闸：`username` 只认精确账号名（中文 / 带空格 / 前缀一律 `REQUEST_INVALID`，
+ * 2026-11-26 实测），探测这些查询只会白打一发。纯数字也排除 —— 那是帖 id 直查的语义。
+ */
+export function isAccountNameQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || trimmed.length > 32) return false;
+  if (!/^[\x21-\x7e]+$/.test(trimmed)) return false;
+  return /[A-Za-z]/.test(trimmed);
+}
+
+/**
  * 直查一条帖（票 32）：命中回候选，任何失败回 **null**（静默 —— 这条是「加分项」，
  * 它抖一下不该把搜索结果整屏打翻）。命中结果进会话内缓存（key = **trim 后**的查询词：面板传进来
  * 的查询词本来就是 trim 过的，这里再 trim 一次是为了别让「248468」和「 248468 」各占一份缓存）。
@@ -331,20 +358,61 @@ export function mergeIdLookupHit(hit: PostCandidate | null, page: PostPage): Pos
 }
 
 /**
- * 搜索用的一页（票 32）：**首页**且查询是纯数字时并发「服务端 search + id 直查」并按上面的规则合并；
- * 其余情况就是 `fetchPostPage`（直查那一路回 null，零额外请求）。
- * 直查只挂在首页（`offset === 0`）：它是「跳转」语义，深页是同一段搜索的翻页，不该每翻一页重问一次；
- * `total` / `rawCount` 也仍取搜索那一路 —— 直查命中不在服务端序列里，翻页游标不该被它带偏。
+ * 搜索首页的返回：多一个「查询精确命中账号名」的信号（票 59）。
+ * 面板据此把列表切成「只看这位谱师」（`search=''` + `username=<账号名>`）。
+ */
+export interface PostSearchPage extends PostPage {
+  authorHit?: { username: string; name: string };
+}
+
+/**
+ * 账号名探测（票 59）：与关键字**并发**发出，账号不存在 / 平台不认（`REQUEST_INVALID`）
+ * 一律回 null —— 这是加分项，抖一下不该把搜索结果整屏打翻。
+ */
+async function probeAuthorAccount(
+  transport: CommunityTransport,
+  query: string,
+  signal?: AbortSignal,
+): Promise<PostPage | null> {
+  try {
+    // 只带这三项：`onRetry` / `force` 属于关键字那一路 —— 透传下去，探测的网络抖动
+    // 会点亮面板的「重试中」，而它的结果本来就会被丢掉
+    return await fetchPostPage(transport, { query: '', offset: 0, username: query, signal });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 搜索用的一页（票 32 + 59）：首页并发三路 —— 服务端 `search` + id 直查（纯数字）+ 账号名探测。
+ *
+ * 合并规则：
+ *   - id 直查命中置顶、按 postId 去重（票 32）；
+ *   - **只有关键字一路什么都没找到、账号一路有结果**时才认账号（回 `authorHit`）——账号名撞上
+ *     歌名 / 歌手（`roki`、`GUMI`）时不能把真正的搜索结果挤掉；反之关键字零命中时，
+ *     账号过滤就是用户想要的那份列表（441 条也只走这一条路的翻页）。
+ *   - 带 `username`（显式谱师筛选）时不发探测、也不发 id 直查：那是「在这个人的作品里找」，
+ *     不是「跳转到某帖」。
  */
 export async function fetchPostSearchPage(
   transport: CommunityTransport,
   opts: PostPageQuery,
-): Promise<PostPage> {
-  const [hit, page] = await Promise.all([
-    opts.offset === 0 ? fetchPostIdLookup(transport, opts.query, opts.signal) : Promise.resolve(null),
+): Promise<PostSearchPage> {
+  const query = opts.query.trim();
+  const filteredByAuthor = (opts.username ?? '').trim() !== '';
+  const firstPage = opts.offset === 0;
+  const bonus = firstPage && !filteredByAuthor;
+  const [hit, page, author] = await Promise.all([
+    bonus ? fetchPostIdLookup(transport, opts.query, opts.signal) : Promise.resolve(null),
     fetchPostPage(transport, opts),
+    bonus && isAccountNameQuery(query) ? probeAuthorAccount(transport, query, opts.signal) : Promise.resolve(null),
   ]);
-  return mergeIdLookupHit(hit, page);
+  const merged = mergeIdLookupHit(hit, page);
+  if (author != null && author.posts.length > 0 && merged.posts.length === 0) {
+    // 展示名取第一条帖的昵称（账号名可能是 `envy09` 这种不体面的登录名）
+    return { ...merged, authorHit: { username: query, name: author.posts[0]?.charter || query } };
+  }
+  return merged;
 }
 
 /** 帖子详情：候选 + 谱面代码原文（选中导入时才拉） */

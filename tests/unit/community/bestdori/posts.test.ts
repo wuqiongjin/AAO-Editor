@@ -24,14 +24,15 @@ import {
   fetchPostPage,
   fetchPostSearchPage,
   filterPostCandidates,
+  isAccountNameQuery,
   loadPostPageFromCache,
   mergeIdLookupHit,
   numericPostIdQuery,
   peekPostPage,
   postPageInflight,
 } from '@/src/community/bestdori/posts';
-import { toPostCandidate, toPostPage, toPostDetail } from '@/src/community/bestdori/mapping';
-import { isCommunityError, type StagedBinary } from '@/src/community/transport';
+import { postArtist, toPostCandidate, toPostPage, toPostDetail, type SongCandidate } from '@/src/community/bestdori/mapping';
+import { CommunityError, isCommunityError, type CommunityRequest, type StagedBinary } from '@/src/community/transport';
 import { assetRawUrl, assetThumbUrl } from '@/src/community/assetUrls';
 import { makeFakeCommunityTransport } from '@/tests/support/communityTransport';
 
@@ -128,6 +129,34 @@ describe('票 09 · 列表 → 中立帖子候选', () => {
   it('谱师展示名：nickname 优先，缺 nickname 退 username', () => {
     expect(toPostCandidate({ id: 1, song: { type: 'custom', audio: 'x' }, diff: 0, author: { username: 'u', nickname: 'n' } })?.charter).toBe('n');
     expect(toPostCandidate({ id: 1, song: { type: 'custom', audio: 'x' }, diff: 0, author: { username: 'u' } })?.charter).toBe('u');
+  });
+
+  it('谱师账号名单独留着（票 59：`username` 过滤只认它，展示名拼不进去）', () => {
+    const page = toPostPage(LIST_PAGE);
+    expect(page!.posts[0].charterUsername).toBe('envy09');
+    // 没有 author 的坏条目：空串 = 界面不提供「只看这位谱师」
+    expect(toPostCandidate({ id: 2, song: { type: 'custom', audio: 'x' }, diff: 0 })?.charterUsername).toBe('');
+  });
+
+  it('postArtist：bandori 帖取曲库官方乐队名（与导入产物一致），候选未到 / custom 帖退自填', () => {
+    const official: SongCandidate = {
+      id: 534,
+      bandId: 3,
+      title: 'ぽっぴん’しゃっふる',
+      artist: 'Hello, Happy World!',
+      jacketImage: 'x',
+      server: 'jp',
+      difficulties: [],
+      publishedAt: null,
+    };
+    const [custom, bandori] = toPostPage(LIST_PAGE)!.posts;
+    // 自填是 `kkr` —— 直接上界面就会「列表写 kkr、建出来是 Hello, Happy World!」
+    expect(bandori.artists).toBe('kkr');
+    expect(postArtist(bandori, official)).toBe('Hello, Happy World!');
+    // 曲库还没到 / 这首已下架：只能退自填（总比空着好）
+    expect(postArtist(bandori, null)).toBe('kkr');
+    // custom 帖没有官方来源，官方候选不该影响它
+    expect(postArtist(custom, official)).toBe('Michelle Branch');
   });
 });
 
@@ -260,12 +289,14 @@ describe('票 32 · 纯数字查询的 id 直查（search + post/details）', ()
     expect(page.posts.map((post) => post.postId)).toEqual([248468, 258646]);
   });
 
-  it('非数字查询不打直查（只服务端一路）', async () => {
+  it('非数字查询不打直查（服务端 search + 账号探测两路，都不碰 post/details）', async () => {
     const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
 
     await fetchPostSearchPage(transport, { query: 'gyari', offset: 0 });
 
-    expect(transport.requests.map((req) => req.url)).toEqual([LIST_URL]);
+    // 票 59 起首页多并发一路 `username=<query>`（同一个端点，靠请求体区分）
+    expect(transport.requests.map((req) => req.url)).toEqual([LIST_URL, LIST_URL]);
+    expect(transport.requests.map((req) => JSON.parse(req.body ?? '{}').username ?? null)).toEqual([null, 'gyari']);
   });
 
   it('fetchPostIdLookup：非数字查询零请求直接回 null', async () => {
@@ -301,6 +332,143 @@ describe('票 32 · 纯数字查询的 id 直查（search + post/details）', ()
   it('mergeIdLookupHit：没有命中就直接把这一页还回去（同一个对象，不白拷）', () => {
     const page = { total: 1, rawCount: 1, posts: [] };
     expect(mergeIdLookupHit(null, page)).toBe(page);
+  });
+});
+
+// 票 59 · 谱师检索：平台 `search` 只索引标题 + 歌手，谱师只有 `username`（精确账号名）这一条路
+// （2026-11-26 实测：昵称 / 前缀 / 中文一律 REQUEST_INVALID）。所以探测只在「看起来像账号名」时发，
+// 且只有关键字一路什么都没找到时才认它。
+describe('票 59 · 账号名探测（搜索框里的谱师）', () => {
+  /** 按 body 路由的假出口：`search` 与 `username` 打的是同一个 URL，只能看请求体分辨 */
+  function bodyTransport(
+    handler: (body: Record<string, unknown>) => unknown,
+  ): CommunityTransport & { requests: CommunityRequest[] } {
+    const requests: CommunityRequest[] = [];
+    return {
+      kind: 'ipc',
+      requests,
+      async requestJson(req: CommunityRequest) {
+        requests.push(req);
+        return handler(JSON.parse(req.body ?? '{}'));
+      },
+      async requestText(): Promise<string> {
+        throw new Error('不该走文本请求');
+      },
+      async requestBinary(): Promise<StagedBinary> {
+        throw new Error('不该走二进制请求');
+      },
+    };
+  }
+
+  it('isAccountNameQuery：只认「像账号名」的查询（可见 ASCII / 无空格 / 含字母 / 2–32）', () => {
+    expect(isAccountNameQuery('Envy09')).toBe(true);
+    expect(isAccountNameQuery(' envy_09 ')).toBe(true);
+    expect(isAccountNameQuery('BLACK SHOUT')).toBe(false); // 空格 = 标题
+    expect(isAccountNameQuery('白')).toBe(false); // 中文昵称：平台不认
+    expect(isAccountNameQuery('248468')).toBe(false); // 纯数字 = 帖 id 直查那条路
+    expect(isAccountNameQuery('a')).toBe(false);
+    expect(isAccountNameQuery('')).toBe(false);
+  });
+
+  it('关键字零命中 + 账号名精确命中 → 回 authorHit（面板据此切成只看该谱师）', async () => {
+    const transport = bodyTransport((body) => (String(body.username ?? '').toLowerCase() === 'envy09'
+      ? { result: true, count: 441, posts: [LIST_PAGE.posts[0]] }
+      : { result: true, count: 0, posts: [] }));
+
+    const page = await fetchPostSearchPage(transport, { query: 'Envy09', offset: 0 });
+
+    // 关键字那一路确实是空的；账号名那一路有 441 首，展示名取第一条帖的昵称
+    expect(page.posts).toEqual([]);
+    expect(page.authorHit).toMatchObject({ username: 'Envy09', name: 'Envy' });
+    expect(transport.requests.map((req) => JSON.parse(req.body ?? '{}')))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ search: 'Envy09' }),
+        expect.objectContaining({ username: 'Envy09' }),
+      ]));
+  });
+
+  it('零命中的页不进会话缓存：否则同一查询再搜时，面板的 peek 会挡住账号名探测', async () => {
+    const transport = bodyTransport((body) => (String(body.username ?? '').toLowerCase() === 'envy09'
+      ? { result: true, count: 441, posts: [LIST_PAGE.posts[0]] }
+      : { result: true, count: 0, posts: [] }));
+
+    const page = await fetchPostSearchPage(transport, { query: 'Envy09', offset: 0 });
+    expect(page.authorHit).toMatchObject({ username: 'Envy09' });
+    // 关键字那一路是空页 → 不落缓存（面板在调用前会先 peek，命中空页就不会再走到探测）；
+    // 账号名那一路有结果 → 照常落缓存，切换后的重载零请求
+    expect(peekPostPage('Envy09', 0, '')).toBeNull();
+    expect(peekPostPage('', 0, 'Envy09')).not.toBeNull();
+  });
+
+  it('空页闸只针对账号名形态：纯数字 / 浏览的空页照常进缓存（重搜不必再打一趟网络）', async () => {
+    const transport = bodyTransport(() => ({ result: true, count: 0, posts: [] }));
+
+    await fetchPostSearchPage(transport, { query: '999999999', offset: 0 });
+    await fetchPostPage(transport, { query: '', offset: 0 });
+
+    expect(peekPostPage('999999999', 0, '')).not.toBeNull();
+    expect(peekPostPage('', 0, '')).not.toBeNull();
+  });
+
+  it('commitPostPageCache 守同一条闸：取消拉取回落的空页也挡不住账号名探测', () => {
+    const empty = { total: 0, rawCount: 0, posts: [] };
+
+    commitPostPageCache({ query: 'Envy09', offset: 0 }, empty);
+    expect(peekPostPage('Envy09', 0, '')).toBeNull();
+
+    // 探测自己那一发也是空页时同样不落缓存 —— 否则下次探测会命中这张空页、永远拿不到 authorHit
+    commitPostPageCache({ query: '', offset: 0, username: 'Envy09' }, empty);
+    expect(peekPostPage('', 0, 'Envy09')).toBeNull();
+
+    commitPostPageCache({ query: '', offset: 0 }, empty);
+    expect(peekPostPage('', 0, '')).not.toBeNull();
+  });
+
+  it('探测不透传刷新标记：`force` 只作用于关键字那一路', async () => {
+    const transport = bodyTransport((body) => (body.username == null
+      ? { result: true, count: 0, posts: [] }
+      : { result: true, count: 1, posts: [LIST_PAGE.posts[0]] }));
+
+    await fetchPostSearchPage(transport, { query: 'Envy09', offset: 0, force: true });
+
+    const probe = transport.requests.find((req) => JSON.parse(req.body ?? '{}').username != null);
+    expect(probe?.revalidate).not.toBe(true);
+  });
+
+  it('关键字有结果时丢弃账号探测（账号名撞歌名不能把搜索结果挤掉）', async () => {    const transport = bodyTransport(() => LIST_PAGE);
+
+    const page = await fetchPostSearchPage(transport, { query: 'roki', offset: 0 });
+
+    expect(page.authorHit).toBeUndefined();
+    expect(page.posts.map((post) => post.postId)).toEqual([248468, 258646]);
+  });
+
+  it('账号不存在（REQUEST_INVALID）静默丢弃，不影响关键字结果', async () => {
+    const transport = bodyTransport((body) => {
+      if (body.username != null) {
+        throw new CommunityError('账号不存在', {
+          kind: 'invalid-response',
+          message: 'REQUEST_INVALID',
+          platformCode: 'REQUEST_INVALID',
+        });
+      }
+      return { result: true, count: 0, posts: [] };
+    });
+
+    const page = await fetchPostSearchPage(transport, { query: 'Envy09', offset: 0 });
+
+    expect(page.posts).toEqual([]);
+    expect(page.authorHit).toBeUndefined();
+  });
+
+  it('带 username（谱师筛选）时不再探测、也不再按 id 直查', async () => {
+    const transport = bodyTransport(() => LIST_PAGE);
+
+    await fetchPostSearchPage(transport, { query: '248468', username: 'envy09', offset: 0 });
+
+    expect(transport.requests).toHaveLength(1);
+    expect(JSON.parse(transport.requests[0].body ?? '{}'))
+      .toMatchObject({ search: '248468', username: 'envy09' });
   });
 });
 

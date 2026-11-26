@@ -232,6 +232,11 @@ export interface PostCandidate {
   title: string;
   /** 谱师展示名（nickname 优先，退 username）；两者都缺为空串 */
   charter: string;
+  /**
+   * 谱师的站点**账号名**（`author.username`）：`post/list` 的 `username` 过滤只认它
+   * （票 59；`REQUEST_INVALID` 连前缀都不支持）。取不到为空串 —— 界面据此决定谱师名可不可点。
+   */
+  charterUsername: string;
   /** 帖子自报的歌曲 artists（自填文本，与曲库歌手无关） */
   artists: string;
   /** 谱面难度 0..4（与工程难度同值） */
@@ -249,6 +254,25 @@ function toCharter(raw: unknown): string {
   if (nickname !== '') return nickname;
   const username = typeof raw.username === 'string' ? raw.username.trim() : '';
   return username;
+}
+
+function toCharterUsername(raw: unknown): string {
+  if (!isPlainObject(raw)) return '';
+  return typeof raw.username === 'string' ? raw.username.trim() : '';
+}
+
+/**
+ * 列表 / 预览要显示的歌手（票 60 Q3=A）。
+ *
+ * bandori 帖的 `post.artists` 是谱师**自填**文本（实测有 `ras` / `91` / `ykn` 这类缩写），
+ * 而导入后工程的 artist 用的是曲库官方乐队名（`communityImport.projectMeta`）——
+ * 展示若照抄自填，就会出现「列表写 ykn、建出来是 Roselia」。所以官方候选到位时以它为准，
+ * 候选还没到（曲库在拉 / 拉失败 / 帖子的曲目已下架）才退自填；custom 帖没有官方来源，一律自填。
+ */
+export function postArtist(post: PostCandidate, official?: SongCandidate | null): string {
+  if (post.song.kind !== 'bandori') return post.artists;
+  const name = official?.artist.trim() ?? '';
+  return name !== '' ? name : post.artists;
 }
 
 function toPostSong(raw: unknown): PostSongRef | null {
@@ -286,6 +310,7 @@ export function toPostCandidate(raw: unknown, fallbackId?: number): PostCandidat
     postId,
     title: typeof raw.title === 'string' ? raw.title : '',
     charter: toCharter(raw.author),
+    charterUsername: toCharterUsername(raw.author),
     artists: typeof raw.artists === 'string' ? raw.artists : '',
     diff: Math.trunc(diff),
     level,
