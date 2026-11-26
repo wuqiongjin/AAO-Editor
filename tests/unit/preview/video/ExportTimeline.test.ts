@@ -16,6 +16,7 @@ import { approachSeconds, SIM_SPRITE_EFFECT_DURATION } from '@/src/preview/video
 import { SIM_JUDGE } from '@/src/preview/video/sim/simHud';
 import { ENDING_SECONDS } from '@/src/preview/video/ending/endingSpec';
 import { OPENING_SECONDS } from '@/src/preview/video/opening/openingSpec';
+import { endingSfxCues } from '@/src/preview/video/sfx';
 import type { SimChart, SimScene } from '@/src/preview/video/sim/simField';
 import { probeContainer } from '@/src/preview/video/encode/muxer';
 import { probeVideoExportSupport } from '@/src/preview/video/encode/exportVideo';
@@ -270,6 +271,30 @@ describe('票 75 · 末击收尾补偿（tail）', () => {
     expect(ENDING_SECONDS).toBe(7.5);
     expect(withTail.frameCount - withoutTail.frameCount).toBe(tail * EXPORT_FPS);
     expect(frameSecondsAt(withTail, withTail.frameCount - 1)).toBeLessThan(withTail.durationSeconds);
+  });
+});
+
+describe('票 89 · 导出时间线一次组合 endingAt', () => {
+  it('评审例（开场+结尾、11.9 / 17.5 / 60fps）builder 的 endingAt === 1480/60，SE 读同一字段', () => {
+    const leadIn = leadInSeconds({ approachS: approachSeconds(11.9) });
+    const tl = buildExportTimeline({
+      openingSeconds: OPENING_SECONDS,
+      leadIn,
+      chartDurationSeconds: 17.5,
+      chartTailSeconds: 0,
+      endingSeconds: ENDING_SECONDS,
+    });
+    const cut = 1480 / 60;
+    expect(tl.endingAt).toBe(cut);
+    expect(frameSecondsAt(tl, 1480)).toBe(tl.endingAt);
+    expect(frameSecondsAt(tl, 1480) >= tl.endingAt).toBe(true);
+    // 倒推会大 1 ULP，SE 那一帧比不过切点 —— 这就是本票要钉死的裂缝
+    const reversed =
+      tl.simStartSeconds + (tl.durationSeconds - tl.simStartSeconds - ENDING_SECONDS);
+    expect(Object.is(reversed, tl.endingAt)).toBe(false);
+    expect(frameSecondsAt(tl, 1480) >= reversed).toBe(false);
+    const cues = endingSfxCues(tl.endingAt, 'ap');
+    expect(cues.map((c) => c.at)).toEqual([cut, cut]);
   });
 });
 

@@ -31,6 +31,7 @@ export {
   type ContainerSpec,
   type ExportGeometry,
   type ExportTimeline,
+  type ExportTimelineSegments,
   type VideoHudTimeline,
   type VideoHudWindows,
   type TargetCandidate,
