@@ -239,6 +239,17 @@ if (process.env.AAO_SMOKE_DIAG === '1') {
     for (const ev of ['before-quit', 'will-quit', 'quit', 'window-all-closed']) {
         app.on(ev, () => log(`app ${ev}`, describe()));
     }
+    app.on('quit', () => {
+        setTimeout(() => {
+            try {
+                const handles = process._getActiveHandles?.().map(h => h?.constructor?.name) ?? [];
+                const requests = process._getActiveRequests?.().length ?? -1;
+                log('active handles after quit', JSON.stringify(handles), 'requests=', requests);
+            } catch (err) {
+                log('active handles probe failed', String(err));
+            }
+        }, 3000);
+    });
     app.on('render-process-gone', (_e, _wc, details) => log('render-process-gone', JSON.stringify(details)));
     app.on('child-process-gone', (_e, details) => log('child-process-gone', JSON.stringify(details)));
     app.on('browser-window-created', (_e, win) => {

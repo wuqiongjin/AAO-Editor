@@ -24,6 +24,50 @@ slog() { printf '%s [smoke] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$DIAG
 [[ "$(uname -s)" == "Darwin" ]] || fail "此冒烟只能在 macOS runner 上运行"
 [[ -x "$ELECTRON_BIN" ]] || fail "找不到 Electron 二进制：${ELECTRON_BIN}（先执行 npm ci）"
 
+echo "探测 System Events 辅助功能权限（issue 257 开工确认：先探权限再决定是否注入）"
+AX_STATE="$(osascript -e 'tell application "System Events" to get UI elements enabled' 2>&1 || true)"
+echo "System Events UI elements enabled=${AX_STATE}"
+if [[ "$AX_STATE" != "true" ]]; then
+  fail "runner 未授予 System Events 辅助功能权限（UI elements enabled=${AX_STATE}），无法注入系统级 ⌘Q；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
+fi
+
+# 对照实验：同一台 runner 上的最小 Electron 应用按 ⌘Q 会不会退出。
+# 用来区分「环境 / Electron 版本问题」与「本应用的退出被卡住」。
+minimal_quit_probe() {
+  local dir="$RUN_TMP/minimal-electron-app"
+  mkdir -p "$dir"
+  printf '%s\n' '{"name":"minimal-quit-probe","main":"main.js"}' >"$dir/package.json"
+  printf '%s\n' \
+    "const { app, BrowserWindow } = require('electron');" \
+    "app.whenReady().then(() => {" \
+    "  const win = new BrowserWindow({ width: 480, height: 320, show: true });" \
+    "  win.loadURL('data:text/html,<h1>minimal probe</h1>');" \
+    "});" >"$dir/main.js"
+  "$ELECTRON_BIN" "$dir" >"$RUN_TMP/minimal-electron.log" 2>&1 &
+  local pid=$!
+  sleep 5
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "诊断：最小 Electron 启动失败"; dump_log "minimal Electron 日志" "$RUN_TMP/minimal-electron.log"; return 0
+  fi
+  osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${pid} to true" >>"$OSA_LOG" 2>&1 || true
+  sleep 1
+  osascript -e 'tell application "System Events" to key code 12 using command down' >>"$OSA_LOG" 2>&1 || true
+  local i
+  for i in $(seq 1 10); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "诊断：最小 Electron 收到 ⌘Q 后已退出（环境支持系统级 ⌘Q）"
+      slog "minimal electron exited after cmd+q"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "诊断：最小 Electron 收到 ⌘Q 后仍未退出（环境 / Electron 层面问题）"
+  slog "minimal electron still alive after cmd+q"
+  kill "$pid" 2>/dev/null || true
+  return 0
+}
+minimal_quit_probe
+
 echo "启动源码模式 Electron（pid 待记录）"
 AAO_SMOKE_DIAG=1 AAO_SMOKE_DIAG_FILE="$DIAG_FILE" "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
 APP_PID=$!
@@ -65,13 +109,6 @@ echo "::group::电源锁判定"
 echo "系统汇总 PreventUserIdleSystemSleep=${LOCK_VALUE:-<无>}；本应用持有断言=${APP_LOCK_LINES:-<无>}（runner 基础设施持有不计入）"
 echo "::endgroup::"
 if [[ -n "$LOCK_PROBLEM" ]]; then echo "::warning::$LOCK_PROBLEM"; fi
-
-echo "探测 System Events 辅助功能权限（issue 257 开工确认：先探权限再决定是否注入）"
-AX_STATE="$(osascript -e 'tell application "System Events" to get UI elements enabled' 2>&1 || true)"
-echo "System Events UI elements enabled=${AX_STATE}"
-if [[ "$AX_STATE" != "true" ]]; then
-  fail "runner 未授予 System Events 辅助功能权限（UI elements enabled=${AX_STATE}），无法注入系统级 ⌘Q；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
-fi
 
 # 诊断：记录注入前后的 frontmost / 窗口 / 菜单栏，判断系统级键事件落到了哪、应用是否真起来了
 probe_app() {
