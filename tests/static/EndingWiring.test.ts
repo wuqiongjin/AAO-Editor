@@ -45,7 +45,9 @@ describe('52 · 结尾段是纯后置（不占谱面时间、不与谱面重叠�
 
   it('导出总长 = 开场 + 前导 + 谱面 + 末击尾段 + 结尾；关掉结尾不减前导 / 尾段', () => {
     expect(exportVideo).toMatch(/req\.ending \? ENDING_SECONDS : 0/);
-    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
+    expect(exportVideo).toMatch(/buildExportTimeline\(\{/);
+    expect(exportVideo).toMatch(/chartDurationSeconds: req\.durationSeconds/);
+    expect(exportVideo).toMatch(/endingSeconds,/);
   });
 
   it('音轨长度跟着拉到结尾段末尾（轨长必须与视频等长，否则封装时音画错位）', () => {
@@ -63,7 +65,7 @@ describe('52 · 两端的声（开场人潮 / 结尾章双声）', () => {
 
   it('编排层组装两张 cue 表：开场人潮 + 结尾章（票 75 起 at = 新 endingAt）', () => {
     expect(exportVideo).toMatch(/openingSfxCues\(openingSeconds\)/);
-    expect(exportVideo).toMatch(/endingSfxCues\(endingAtSeconds, req\.ending\.stamp\)/);
+    expect(exportVideo).toMatch(/endingSfxCues\(timeline\.endingAt, req\.ending\.stamp\)/);
     expect(exportVideo).toMatch(/sfx,/);
     expect(renderAudio).toMatch(/req\.sfx/);
   });
@@ -112,10 +114,9 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
     // 结尾段不画判定字 / 打歌顶栏（那是打歌时的东西）
     expect(frame).toMatch(/judge: null,/);
     expect(frame).toMatch(/hud: false,/);
-    // 票 75：总长含 tail ⇒ chartSeconds = D + tail，舞台只用来取「所有特效已收完」的那一秒
-    expect(exportVideo).toMatch(
-      /const endingAtSeconds = simStartSeconds \+ req\.durationSeconds \+ chartTailSeconds/,
-    );
+    // 票 89：切点与 SE 读 builder 的 endingAt，不再入口自加 / 帧驱动倒推
+    expect(exportVideo).toMatch(/endingSfxCues\(timeline\.endingAt, req\.ending\.stamp\)/);
+    expect(frameDriver).toMatch(/const endingAt = timeline\.endingAt/);
     expect(frameDriver).toMatch(/seconds: chartSeconds/);
     expect(frameDriver).toMatch(/x: geometry\.field\.x/);
     expect(frameDriver).toMatch(/y: geometry\.field\.y/);

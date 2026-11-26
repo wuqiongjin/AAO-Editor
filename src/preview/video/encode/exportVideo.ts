@@ -326,7 +326,6 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   const openingSeconds = req.opening ? OPENING_SECONDS : 0;
   const endingSeconds = req.ending ? ENDING_SECONDS : 0;
   const leadIn = leadInSeconds({ approachS: approachSeconds(req.scene.noteSpeed) }, EXPORT_FPS);
-  const simStartSeconds = openingSeconds + leadIn;
   // 票 75：tail 要读谱面派生表（元素 / 带体端点 / 双押线的绝对秒），派生提前到规格段。
   // 派生是同步长活 ⇒ 先让出一拍让进度卡画出来、让取消当帧生效（票 67 口径不回退）。
   await yieldToMainThread();
@@ -334,11 +333,14 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   const bpmEvents = getBpmEvents(req.scene.notes);
   const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
   const chartTailSeconds = endingTailSeconds(chart, req.durationSeconds, EXPORT_FPS);
-  // 结尾段起点 = 谱面 0 秒 + 谱面时长 + 末击尾段；帧循环 / 结尾 SE / 轨长都由它派生
-  const endingAtSeconds = simStartSeconds + req.durationSeconds + chartTailSeconds;
-  const timeline: ExportTimeline = buildExportTimeline(
-    endingAtSeconds + endingSeconds,
-  );
+  // 票 89：simStart / endingAt / 总长只在 builder 加一次；帧循环与结尾 SE 读同一 endingAt
+  const timeline: ExportTimeline = buildExportTimeline({
+    openingSeconds,
+    leadIn,
+    chartDurationSeconds: req.durationSeconds,
+    chartTailSeconds,
+    endingSeconds,
+  });
   const geometry = resolveExportGeometry(tier);
   const audioTrackParams = req.muted ? null : DEFAULT_AUDIO_TRACK;
   const target = await resolveTarget(
@@ -374,10 +376,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     }
   }
   // 两端的游戏音效（52）：开场人潮从整条轨的 0s 起、收在**开场段末尾**（票 74 起之后是静音前导），
-  // 结尾章两层同起在**结尾段 t=0**（票 75 起 = simStartSeconds + 谱面时长 + 末击 tail，章入场那一拍）
+  // 结尾章两层同起在**结尾段 t=0**（= `timeline.endingAt`，章入场那一拍）
   const sfx: SfxCue[] = [
     ...(req.opening ? openingSfxCues(openingSeconds) : []),
-    ...(req.ending ? endingSfxCues(endingAtSeconds, req.ending.stamp) : []),
+    ...(req.ending ? endingSfxCues(timeline.endingAt, req.ending.stamp) : []),
   ];
   // 票 67：进音轨合成前先认一次取消，合成结果也按取消哨兵判定
   if (cancelled()) return done({ ok: true, cancelled: true });
@@ -388,7 +390,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     const rendered = await renderAudioTrack({
       durationSeconds: req.durationSeconds,
       openingSeconds,
-      simStartSeconds,
+      simStartSeconds: timeline.simStartSeconds,
       chartTailSeconds,
       endingSeconds,
       sfx,
@@ -471,9 +473,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       timeline,
       opening,
       openingSeconds,
-      simStartSeconds,
       ending,
-      endingSeconds,
       isCancelled: req.isCancelled,
       onProgress: (p) => req.onProgress?.({ phase: 'frames', frame: p.frame, totalFrames: p.total }),
       onFrame: (vf) => sink.addFrame(vf),

@@ -452,7 +452,8 @@ describe('50 · Opening 堆叠 A 轻推', () => {
 describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏重叠）', () => {
   it('时间轴总长 = 开场 + 前导 + 谱面 + 末击尾段 + 结尾（关掉开场仍有前导）', () => {
     // 52 起再叠一段结尾（关掉时 endingSeconds = 0，公式不变）；74 起加 leadIn；75 起加 tail
-    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
+    expect(exportVideo).toMatch(/buildExportTimeline\(\{/);
+    expect(exportVideo).toMatch(/chartDurationSeconds: req\.durationSeconds/);
     expect(exportVideo).toMatch(/req\.opening \? OPENING_SECONDS : 0/);
   });
 
@@ -493,18 +494,18 @@ describe('74 · 开头前导补偿（lead-in）', () => {
     expect(exportVideo).toMatch(
       /leadInSeconds\(\{ approachS: approachSeconds\(req\.scene\.noteSpeed\) \}, EXPORT_FPS\)/,
     );
-    expect(exportVideo).toMatch(/const simStartSeconds = openingSeconds \+ leadIn/);
-    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
-    expect(exportVideo).toMatch(/simStartSeconds,/);
+    expect(exportVideo).toMatch(/buildExportTimeline\(\{/);
+    expect(exportVideo).toMatch(/leadIn,/);
+    expect(exportVideo).toMatch(/simStartSeconds: timeline\.simStartSeconds/);
   });
 
   it('出帧：谱面秒 = t − simStartSeconds（开场 ④ 之后与关开场时都从负秒起）', () => {
     expect(frameDriver).toMatch(
-      /const simStartSeconds = Math\.max\(0, req\.simStartSeconds \?\? req\.openingSeconds \?\? 0\)/,
+      /const simStartSeconds = Math\.max\(0, timeline\.simStartSeconds\)/,
     );
     expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
     expect(frameDriver).toMatch(/const seg = req\.opening \? openingSegmentAt\(t\) : 'sim'/);
-    expect(frameDriver).toMatch(/const endingAt = simStartSeconds \+ chartSeconds/);
+    expect(frameDriver).toMatch(/const endingAt = timeline\.endingAt/);
     // 票 75：总长含 tail ⇒ chartSeconds = D + tail，结尾舞台各层按既有窗口自然判空
     expect(frameDriver).toMatch(/seconds: chartSeconds/);
   });
@@ -512,7 +513,7 @@ describe('74 · 开头前导补偿（lead-in）', () => {
   it('音轨：BGM / 键音 / 轨长都按 simStartSeconds 后移；结尾 SE 落在新 endingAt', () => {
     expect(renderAudio).toMatch(/const offset = Number\.isFinite\(req\.simStartSeconds\)/);
     expect(exportVideo).toMatch(/openingSfxCues\(openingSeconds\)/);
-    expect(exportVideo).toMatch(/endingSfxCues\(endingAtSeconds, req\.ending\.stamp\)/);
+    expect(exportVideo).toMatch(/endingSfxCues\(timeline\.endingAt, req\.ending\.stamp\)/);
   });
 
   it('开场四段仍不进 drawSimFrameAt（干净场地口径不变）', () => {
@@ -545,17 +546,17 @@ describe('75 · 末击收尾补偿（tail）与结算画面残留', () => {
     expect(exportVideo).toMatch(
       /const chartTailSeconds = endingTailSeconds\(chart, req\.durationSeconds, EXPORT_FPS\)/,
     );
-    expect(exportVideo).toMatch(
-      /const endingAtSeconds = simStartSeconds \+ req\.durationSeconds \+ chartTailSeconds/,
-    );
-    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
-    expect(frameDriver).toMatch(/const endingAt = simStartSeconds \+ chartSeconds/);
+    expect(exportVideo).toMatch(/buildExportTimeline\(\{/);
+    expect(exportVideo).toMatch(/chartDurationSeconds: req\.durationSeconds/);
+    expect(exportVideo).toMatch(/chartTailSeconds,/);
+    expect(frameDriver).toMatch(/const endingAt = timeline\.endingAt/);
+    expect(frameDriver).not.toMatch(/timeline\.durationSeconds - simStartSeconds/);
   });
 
   it('尾段沿用同一条 seconds = t − simStart（帧循环不新增分支），结尾 SE 落在结算第一帧', () => {
     expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
     expect(frameDriver).toMatch(/t >= endingAt/);
-    expect(exportVideo).toMatch(/endingSfxCues\(endingAtSeconds, req\.ending\.stamp\)/);
+    expect(exportVideo).toMatch(/endingSfxCues\(timeline\.endingAt, req\.ending\.stamp\)/);
     expect(renderAudio).toMatch(/const chartTail = Number\.isFinite\(req\.chartTailSeconds\)/);
     expect(renderAudio).toMatch(/const chartEndSeconds = req\.durationSeconds \+ chartTail/);
   });
