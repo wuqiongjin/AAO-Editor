@@ -272,5 +272,4 @@ if (process.env.AAO_SMOKE_DIAG === '1') {
         win.webContents.on('render-process-gone', (_ev, details) => log('wc render-process-gone', JSON.stringify(details)));
         win.webContents.on('destroyed', () => log('wc destroyed', win.id));
     });
-    setInterval(() => log('heartbeat', describe()), 2000).unref();
 }
