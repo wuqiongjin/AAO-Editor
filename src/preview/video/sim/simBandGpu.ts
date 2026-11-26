@@ -149,7 +149,8 @@ function initScratch(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement) {
   // The 2D stage composites the straight-alpha drawing buffer when it draws this canvas.
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  const initialData = new Float32Array(4096);
+  // 预分配 65536 floats（256KB ≈ 1092 段带体），避免长滑条密集段在播放中途触发 gl.bufferData 重分配停顿。
+  const initialData = new Float32Array(65536);
   gl.bufferData(gl.ARRAY_BUFFER, initialData.byteLength, gl.DYNAMIC_DRAW);
   return {
     canvas, gl, material, lut, vertices,

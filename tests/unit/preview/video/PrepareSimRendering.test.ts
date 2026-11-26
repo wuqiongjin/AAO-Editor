@@ -5,7 +5,9 @@ import { drawSimFrameAt, type SimFrameInput } from '@/src/preview/video/sim/simF
 import { scoreAt, scoreForHits } from '@/src/preview/video/sim/simHud';
 
 vi.mock('@/src/preview/video/sim/simField', () => ({
-  drawSimFrameAt: vi.fn(), prepareSimComboSprites: vi.fn(),
+  drawSimFrameAt: vi.fn(),
+  prepareSimComboSprites: vi.fn(),
+  prepareSimLifeGauge: vi.fn(),
 }));
 
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });

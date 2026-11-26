@@ -58,4 +58,33 @@ describe('issue 80 · 实时预览性能护栏', () => {
     expect(playback).not.toMatch(/getImageData/);
     expect(playback).not.toMatch(/createElement\('canvas'\)/);
   });
+
+  it('票 89：工作台冷启动延迟预热只留在工程页，且失活工作台画布跳过 useLayoutEffect 重绘', () => {
+    const workspace = readStripped('src/pages/workspace/WorkspacePage.tsx');
+    const canvas = readStripped('src/chart/components/canvas/FinalVirtualCanvas.tsx');
+    expect(workspace).toMatch(/useAppNav\(\)/);
+    expect(workspace).toMatch(/activePage\s*!==\s*['"]projects['"]/);
+    expect(workspace).toMatch(/\[restoreEnabled,\s*catalogSettled,\s*projectId,\s*activePage\]/);
+    expect(canvas).toMatch(/if\s*\(!activeRef\.current\)\s*return;/);
+  });
+
+  it('票 89：GPU 图集打包、64K VBO 预分配、预烘焙顶栏图层与失活页动画静默', () => {
+    const gpu = readStripped('src/preview/video/sim/simBandGpu.ts');
+    const appShellCss = readStripped('src/layouts/AppShell.css');
+    const workspace = readStripped('src/pages/workspace/WorkspacePage.tsx');
+    const decoupling = readStripped('src/ui/spriteDecoupling.ts');
+    const spriteIcon = readStripped('src/ui/CanvasSpriteIcon.tsx');
+    const simSprites = readStripped('src/preview/video/sim/simSprites.ts');
+    const simField = readStripped('src/preview/video/sim/simField.ts');
+
+    expect(gpu).toMatch(/new\s+Float32Array\(65536\)/);
+    expect(appShellCss).toMatch(/\.app-page:not\(\.is-active\)/);
+    expect(appShellCss).toMatch(/animation:\s*none\s*!important/);
+    expect(workspace).toMatch(/active\s*&&\s*showReadonlyToast/);
+    expect(decoupling).toMatch(/packDecoupledSprites/);
+    expect(spriteIcon).toMatch(/packDecoupledSprites\(/);
+    expect(simSprites).toMatch(/packEffectSpritesAtlas/);
+    expect(simField).toMatch(/packComboSlicesIntoBitmap/);
+    expect(simField).toMatch(/hudChromeUnder/);
+  });
 });

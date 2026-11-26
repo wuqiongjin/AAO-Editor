@@ -1,5 +1,11 @@
 import { waitForPaint, yieldToMainThread } from '../../static/exportPanels';
-import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput, type SimFrameLayers } from './simField';
+import {
+  drawSimFrameAt,
+  prepareSimComboSprites,
+  prepareSimLifeGauge,
+  type SimFrameInput,
+  type SimFrameLayers,
+} from './simField';
 import { SCORE_MAX, SCORE_TIER_THRESHOLDS } from './simHud';
 
 /** 分数条跨档前后的采样秒表：用于覆盖缩小与放大两种纹理采样组合。 */
@@ -113,8 +119,15 @@ export async function prepareSimRendering(
     const cpu = readback.getContext('2d', { willReadFrequently: true });
     if (!ctx || !cpu) return true; // 与既有缺上下文降级一致，不永久卡在加载态。
     const comboShadows = prepareSimComboSprites(input.metrics, input.assets.sprites, density);
+    const lifeGauge = prepareSimLifeGauge(
+      input.metrics,
+      density,
+      input.assets.hud,
+      input.scene.autoMode ?? false,
+      input.chart.hitTimes.length,
+    );
     const probe = { ...input, scene: { ...input.scene, apCombo: true, showGameUi: true } };
-    const layers = { bandRenderer: opts.bandRenderer, comboShadows };
+    const layers = { bandRenderer: opts.bandRenderer, comboShadows, lifeGauge };
     const times = preparationSeconds(probe);
     for (let i = 0; i < times.length; i++) {
       if (cancelled()) return false;
@@ -132,7 +145,14 @@ export async function prepareSimRendering(
       const warmH = Math.max(1, Math.round((warmW * h) / Math.max(1, w)));
       canvas.width = readback.width = warmW;
       canvas.height = readback.height = warmH;
-      const scoreLayers: SimFrameLayers = { comboShadows };
+      const warmLifeGauge = prepareSimLifeGauge(
+        input.metrics,
+        warmW / Math.max(1, w),
+        input.assets.hud,
+        input.scene.autoMode ?? false,
+        input.chart.hitTimes.length,
+      );
+      const scoreLayers: SimFrameLayers = { comboShadows, lifeGauge: warmLifeGauge };
       for (let i = 0; i < scoreTimes.length; i++) {
         if (cancelled()) return false;
         ctx.setTransform(warmW / w, 0, 0, warmH / h, 0, 0);

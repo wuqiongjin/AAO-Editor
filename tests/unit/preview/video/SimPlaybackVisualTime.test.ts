@@ -30,6 +30,7 @@ let playback: SimPlayback;
 const frame = {
   metrics: { w: 100, h: 100 }, assets: { sprites: null },
   scene: { notes: [], beatDisplay: 4 },
+  chart: { hitTimes: [] },
 } as unknown as SimFrameInput;
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 const drawnSecond = () => vi.mocked(drawSimFrameAt).mock.calls.at(-1)![2];

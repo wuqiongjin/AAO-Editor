@@ -336,6 +336,15 @@
   pointer-events: auto;
 }
 
+/* 票 89：失活保活页内一切无限关键帧（如 Audio/Assets 的 .eq i、Workspace 的 .ws-preparing__spinner）
+   必须停表，否则 AnimationHost 每帧触发 NeedsTickAnimations 导致合成器将预览画布帧拆成 PARTIAL。 */
+.app-page:not(.is-active) *,
+.app-page:not(.is-active) *::before,
+.app-page:not(.is-active) *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* ---- 通用页面内容布局 ---- */
 .page-content {
   width: min(920px, calc(100% - 64px));

@@ -178,7 +178,15 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   }
 
   function installHud(input: SimFrameInput): SimFrameInput {
-    layers.lifeGauge = input.scene.showGameUi === false ? undefined : prepareSimLifeGauge(input.metrics, density);
+    layers.lifeGauge = input.scene.showGameUi === false
+      ? undefined
+      : prepareSimLifeGauge(
+        input.metrics,
+        density,
+        input.assets.hud,
+        input.scene.autoMode ?? false,
+        input.chart.hitTimes.length,
+      );
     layers.comboShadows = undefined;
     try {
       layers.comboShadows = prepareSimComboSprites(input.metrics, input.assets.sprites, density);
@@ -264,7 +272,15 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       }
       await yieldPlaybackFrame();
       if (disposed || gen !== fieldBakeGen) return;
-      const life = pending.scene.showGameUi === false ? undefined : prepareSimLifeGauge(pending.metrics, density);
+      const life = pending.scene.showGameUi === false
+        ? undefined
+        : prepareSimLifeGauge(
+          pending.metrics,
+          density,
+          pending.assets.hud,
+          pending.scene.autoMode ?? false,
+          pending.chart.hitTimes.length,
+        );
       let hud: SimFrameInput = pending;
       let combo = undefined as typeof layers.comboShadows;
       try {

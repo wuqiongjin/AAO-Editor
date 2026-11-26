@@ -183,11 +183,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     notifyProjectEdited,
     flushPersist,
   } = useCurrentProject();
-  const { setActivePage } = useAppNav();
+  const { activePage, setActivePage } = useAppNav();
 
   // 冷启动后台工作台延迟预热（chart-projects 44 Q1=A）：
   // 挂载时 active===true 零延迟立即恢复；active===false（冷启动停在工程启动台）时，
-  // 等工程目录就绪且用户停止滚动/交互后的短暂空闲窗口再预热上次工程与 BGM；
+  // 仅在停留在工程启动台且用户停止滚动/交互后的短暂空闲窗口再预热上次工程与 BGM（票 89：切进预览等其他页期间不得在后台抢跑唤醒）；
   // 若在此前主动切进工作台（active→true）或触发 waitForRestore（点卡片播放/进入工作台），立刻取消延迟开始恢复。
   const [prewarmReady, setPrewarmReady] = useState(() => active);
   const restoreEnabled = prewarmReady || active;
@@ -199,7 +199,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return () => registerRestoreWakeup(null);
   }, [registerRestoreWakeup]);
   useEffect(() => {
-    if (restoreEnabled || !catalogSettled || !projectId) return;
+    if (restoreEnabled || !catalogSettled || !projectId || activePage !== 'projects') return;
     let cancelled = false;
     let timer: number | null = null;
     let idleId: number | null = null;
@@ -245,7 +245,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       window.removeEventListener('pointerdown', onActivity);
       window.removeEventListener('keydown', onActivity);
     };
-  }, [restoreEnabled, catalogSettled, projectId]);
+  }, [restoreEnabled, catalogSettled, projectId, activePage]);
 
   // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
   // 丢失（半态）在恢复时判；替换等解码落地（audioLoadGeneration +1）后判。写路径收口
@@ -752,7 +752,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       </div>
     )}
     </div>
-    {showReadonlyToast && createPortal(
+    {active && showReadonlyToast && createPortal(
       <div className="readonly-toast" role="alert">
         <Lock size={14} className="readonly-toast__icon" />
         <span className="readonly-toast__text">{t(isPublishPending ? 'workspace.pendingPublishReadonly' : 'workspace.readonlyPrompt')}</span>

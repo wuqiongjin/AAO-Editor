@@ -596,10 +596,19 @@ function upperBound(sorted: readonly number[], target: number): number {
 
 // ---------------------------------------------------------------- 一帧绘制
 
+let activeFrameCtx: CanvasRenderingContext2D | null = null;
+let activeFrameCtxScale = 1;
+
 function currentCtxScale(ctx: CanvasRenderingContext2D): number {
+  if (ctx === activeFrameCtx) return activeFrameCtxScale;
   if (typeof ctx.getTransform !== 'function') return 1;
   const t = ctx.getTransform();
   return t ? (Math.hypot(t.a, t.b) || 1) : 1;
+}
+
+function canTransferOffscreenBitmap(): boolean {
+  return typeof OffscreenCanvas !== 'undefined'
+    && typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function';
 }
 
 /**
@@ -613,55 +622,65 @@ export function drawSimFrameAt(
   layers?: SimFrameLayers,
 ): void {
   const { chart, metrics } = input;
+  const prevActiveCtx = activeFrameCtx;
+  const prevActiveScale = activeFrameCtxScale;
+  activeFrameCtx = null;
   const ctxScale = currentCtxScale(ctx);
-  // 2026-11-08 验收：默认关 AUTO；分数条 / 生命条只用一枚总开关（缺省全开）
-  const autoMode = input.scene.autoMode ?? false;
-  const showGameUi = input.scene.showGameUi ?? true;
-  if (layers?.fieldBitmap) ctx.drawImage(layers.fieldBitmap, 0, 0, metrics.w, metrics.h);
-  else drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
-  // 票 74 回修：noteAlpha 只包住「正在接近」的三层（带体 / 双押线 / 音符）。
-  // 带体走逐像素光栅，自己的 save/restore 会把 globalAlpha 钉成 1 ⇒ 改从 baseAlpha 传进去；
-  // 其余两层是精灵 drawImage，直接借 ctx.globalAlpha；判定线 / 特效 / HUD 全不受影响。
-  const noteAlpha = clamp01(layers?.noteAlpha ?? 1);
-  drawBands(ctx, input, seconds, noteAlpha, layers?.bandRenderer);
-  if (noteAlpha < 1) {
-    ctx.save();
-    ctx.globalAlpha = noteAlpha;
-  }
-  const prevQuality = ctx.imageSmoothingQuality;
-  const prevEnabled = ctx.imageSmoothingEnabled;
-  if (!prevEnabled) ctx.imageSmoothingEnabled = true;
-  if (prevQuality !== 'high') ctx.imageSmoothingQuality = 'high';
+  activeFrameCtx = ctx;
+  activeFrameCtxScale = ctxScale;
   try {
-    if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds, ctxScale);
-    drawElements(ctx, input, seconds, ctxScale);
+    // 2026-11-08 验收：默认关 AUTO；分数条 / 生命条只用一枚总开关（缺省全开）
+    const autoMode = input.scene.autoMode ?? false;
+    const showGameUi = input.scene.showGameUi ?? true;
+    if (layers?.fieldBitmap) ctx.drawImage(layers.fieldBitmap, 0, 0, metrics.w, metrics.h);
+    else drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
+    // 票 74 回修：noteAlpha 只包住「正在接近」的三层（带体 / 双押线 / 音符）。
+    // 带体走逐像素光栅，自己的 save/restore 会把 globalAlpha 钉成 1 ⇒ 改从 baseAlpha 传进去；
+    // 其余两层是精灵 drawImage，直接借 ctx.globalAlpha；判定线 / 特效 / HUD 全不受影响。
+    const noteAlpha = clamp01(layers?.noteAlpha ?? 1);
+    drawBands(ctx, input, seconds, noteAlpha, layers?.bandRenderer);
+    if (noteAlpha < 1) {
+      ctx.save();
+      ctx.globalAlpha = noteAlpha;
+    }
+    const prevQuality = ctx.imageSmoothingQuality;
+    const prevEnabled = ctx.imageSmoothingEnabled;
+    if (!prevEnabled) ctx.imageSmoothingEnabled = true;
+    if (prevQuality !== 'high') ctx.imageSmoothingQuality = 'high';
+    try {
+      if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds, ctxScale);
+      drawElements(ctx, input, seconds, ctxScale);
+    } finally {
+      if (prevQuality !== undefined && ctx.imageSmoothingQuality !== prevQuality) {
+        ctx.imageSmoothingQuality = prevQuality;
+      }
+      if (prevEnabled !== undefined && ctx.imageSmoothingEnabled !== prevEnabled) {
+        ctx.imageSmoothingEnabled = prevEnabled;
+      }
+    }
+    if (noteAlpha < 1) ctx.restore();
+    drawEffects(ctx, input, seconds, ctxScale);
+    // 顶栏 HUD（71/72）画在判定字 / combo 之前：它是背景上的常驻层，不压字也不压数。
+    // 结尾段把舞台按谱面末帧重画一次，那里只要场地，传 `hud: false` 收掉整层；
+    // 用户关掉「分数条与生命条显示」时走同一道门。
+    // 票 76：`hudAlpha` 是整层淡入 / 淡出倍率，缺省 1 ⇒ 实时回放观感不变。
+    if (layers?.hud !== false && showGameUi) {
+      drawTopBar(ctx, metrics, chart, seconds, input.assets.hud, autoMode,
+        clamp01(layers?.hudAlpha ?? 1), seconds, layers?.lifeGauge);
+    }
+    // 判定字（51/71）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
+    if (layers?.judge !== null) {
+      drawJudgement(ctx, metrics, chart, seconds, input.assets.judge, autoMode, layers?.judge);
+    }
+    // AP 态只由 `settings.preview.apCombo` 决定（2026-11-08 验收：AUTO 不再干预）
+    drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, {
+      ap: comboApActive(input.scene.apCombo ?? true),
+      ...layers?.combo,
+    }, layers?.comboShadows);
   } finally {
-    if (prevQuality !== undefined && ctx.imageSmoothingQuality !== prevQuality) {
-      ctx.imageSmoothingQuality = prevQuality;
-    }
-    if (prevEnabled !== undefined && ctx.imageSmoothingEnabled !== prevEnabled) {
-      ctx.imageSmoothingEnabled = prevEnabled;
-    }
+    activeFrameCtx = prevActiveCtx;
+    activeFrameCtxScale = prevActiveScale;
   }
-  if (noteAlpha < 1) ctx.restore();
-  drawEffects(ctx, input, seconds, ctxScale);
-  // 顶栏 HUD（71/72）画在判定字 / combo 之前：它是背景上的常驻层，不压字也不压数。
-  // 结尾段把舞台按谱面末帧重画一次，那里只要场地，传 `hud: false` 收掉整层；
-  // 用户关掉「分数条与生命条显示」时走同一道门。
-  // 票 76：`hudAlpha` 是整层淡入 / 淡出倍率，缺省 1 ⇒ 实时回放观感不变。
-  if (layers?.hud !== false && showGameUi) {
-    drawTopBar(ctx, metrics, chart, seconds, input.assets.hud, autoMode,
-      clamp01(layers?.hudAlpha ?? 1), seconds, layers?.lifeGauge);
-  }
-  // 判定字（51/71）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
-  if (layers?.judge !== null) {
-    drawJudgement(ctx, metrics, chart, seconds, input.assets.judge, autoMode, layers?.judge);
-  }
-  // AP 态只由 `settings.preview.apCombo` 决定（2026-11-08 验收：AUTO 不再干预）
-  drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, {
-    ap: comboApActive(input.scene.apCombo ?? true),
-    ...layers?.combo,
-  }, layers?.comboShadows);
 }
 
 /**
@@ -1101,6 +1120,7 @@ function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInp
   const groups = chart.simultaneous;
   const lo = timeBound(groups, seconds, true);
   const hi = timeBound(groups, seconds + T, false);
+  const fastSim = typeof spriteIcon.renderSim === 'function';
   for (let i = lo; i < hi; i++) {
     const group = groups[i]!;
     const a = visibleApproach(seconds, group.time, T);
@@ -1111,16 +1131,23 @@ function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInp
     const x1 = laneCenterX(m, group.lanes[group.lanes.length - 1]!, a);
     const width = x1 - x0;
     if (width <= 0) continue;
-    spriteIcon.render(ctx, {
-      ...sprite,
-      canvasX: (x0 + x1) / 2,
-      canvasY: fieldY(m, a),
-      canvasSize: 0,
-      canvasWidth: width,
-      canvasHeight: simDualLineThickness(m, a, scene.noteSize),
-      ctxScale,
-      // 端点由相邻音符盖住：线画在音符**之前**（照编辑器画布的顺序）
-    });
+    if (fastSim) {
+      spriteIcon.renderSim(
+        ctx, sprite, (x0 + x1) / 2, fieldY(m, a),
+        width, simDualLineThickness(m, a, scene.noteSize), 1, ctxScale, true,
+      );
+    } else {
+      spriteIcon.render(ctx, {
+        ...sprite,
+        canvasX: (x0 + x1) / 2,
+        canvasY: fieldY(m, a),
+        canvasSize: 0,
+        canvasWidth: width,
+        canvasHeight: simDualLineThickness(m, a, scene.noteSize),
+        ctxScale,
+        // 端点由相邻音符盖住：线画在音符**之前**（照编辑器画布的顺序）
+      });
+    }
   }
 }
 
@@ -1135,6 +1162,8 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
   const lo = timeBound(elements, seconds, true);
   const hi = timeBound(elements, seconds + T, false);
   const dec = noteIcons.flickTopDecorator;
+  const fastSim = typeof spriteIcon.renderSim === 'function';
+  const fastDec = typeof spriteIcon.renderSimDecorator === 'function';
   for (let i = lo; i < hi; i++) {
     const el = chart.elements[i]!;
     const a = visibleApproach(seconds, el.time, T);
@@ -1149,32 +1178,43 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
       // 逐轨取图（票 25 #1）：图集 7 张各自带该轨位的舞台倾角 —— 全组同一张（扁平轨那张）会让
       // 外侧本体浮在舞台平面之上（Bestdori 模拟器就是逐轨取 `note_flick_<l/r>_<lane>`）
       for (const lane of el.dirLanes) {
-        spriteIcon.render(ctx, {
-          ...noteIcons.dirLaneFor(el.dirSide, lane),
-          canvasX: laneCenterX(m, lane, a),
-          canvasY: y,
-          canvasSize: body.w,
-          canvasWidth: body.w,
-          canvasHeight: body.h,
-          scale: 1,
-          ctxScale,
-        });
+        const laneCfg = noteIcons.dirLaneFor(el.dirSide, lane);
+        const cx = laneCenterX(m, lane, a);
+        if (fastSim) {
+          spriteIcon.renderSim(ctx, laneCfg, cx, y, body.w, body.h, 1, ctxScale, true);
+        } else {
+          spriteIcon.render(ctx, {
+            ...laneCfg,
+            canvasX: cx,
+            canvasY: y,
+            canvasSize: body.w,
+            canvasWidth: body.w,
+            canvasHeight: body.h,
+            scale: 1,
+            ctxScale,
+          });
+        }
       }
       const chevron = group.chevron;
       if (chevron) {
-        spriteIcon.render(ctx, {
-          ...chevron.config,
-          // 外侧箭头照编辑器那份定位：锚点轨 + 组偏移（`offsetVirtualX` 是**原始 length** 推出的
-          // 虚拟位移，`length - 1` 条轨道 —— 小数 / ≤0 的 width 也照实落位，ADR-0014 §3）
-          // + 墨迹偏心修正（设计 px，随 spriteScale 放大）
-          canvasX: laneCenterX(m, el.lane + chevron.offsetVirtualX / LANE_WIDTH, a) + chevron.extraDesignX * scale,
-          canvasY: y,
-          canvasSize: DIRECTIONAL_ICON_SIZE,
-          canvasWidth: chevron.drawW,
-          canvasHeight: chevron.drawH,
-          scale,
-          ctxScale,
-        });
+        const cx = laneCenterX(m, el.lane + chevron.offsetVirtualX / LANE_WIDTH, a) + chevron.extraDesignX * scale;
+        if (fastSim) {
+          spriteIcon.renderSim(ctx, chevron.config, cx, y, chevron.drawW, chevron.drawH, scale, ctxScale, true);
+        } else {
+          spriteIcon.render(ctx, {
+            ...chevron.config,
+            // 外侧箭头照编辑器那份定位：锚点轨 + 组偏移（`offsetVirtualX` 是**原始 length** 推出的
+            // 虚拟位移，`length - 1` 条轨道 —— 小数 / ≤0 的 width 也照实落位，ADR-0014 §3）
+            // + 墨迹偏心修正（设计 px，随 spriteScale 放大）
+            canvasX: cx,
+            canvasY: y,
+            canvasSize: DIRECTIONAL_ICON_SIZE,
+            canvasWidth: chevron.drawW,
+            canvasHeight: chevron.drawH,
+            scale,
+            ctxScale,
+          });
+        }
       }
       continue;
     }
@@ -1182,24 +1222,34 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
     // 音符盒子（票 23 #2）：宽 = 1.35 × noteSize × laneWidth × A、高 = 宽 × 精灵源格的自然比。
     // `simNoteRect` 给的就是**场地 px**，故这里 scale 归 1（设计 px 那一步换算已经在 rect 里）。
     const box = simNoteRect(m, a, scene.noteSize, simSpriteAspect(el.icon));
-    spriteIcon.render(ctx, {
-      ...el.icon,
-      canvasX: pt.x,
-      canvasY: pt.y,
-      canvasSize: box.w,
-      canvasWidth: box.w,
-      canvasHeight: box.h,
-      scale: 1,
-      ctxScale,
-    });
-    if (el.flickDecorator && dec) {
-      const flickCfg = noteIcons.flickFor(el.lane);
-      spriteIcon.renderDecorator(ctx, {
+    if (fastSim) {
+      spriteIcon.renderSim(ctx, el.icon, pt.x, pt.y, box.w, box.h, 1, ctxScale, true);
+    } else {
+      spriteIcon.render(ctx, {
+        ...el.icon,
         canvasX: pt.x,
         canvasY: pt.y,
-        drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
-        drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
-      }, dec, scale, ctxScale);
+        canvasSize: box.w,
+        canvasWidth: box.w,
+        canvasHeight: box.h,
+        scale: 1,
+        ctxScale,
+      });
+    }
+    if (el.flickDecorator && dec) {
+      const flickCfg = noteIcons.flickFor(el.lane);
+      const dw = flickCfg.out?.w ?? NOTE_ICON_SIZE;
+      const dh = flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE;
+      if (fastDec) {
+        spriteIcon.renderSimDecorator(ctx, pt.x, pt.y, dw, dh, dec, scale, ctxScale, true);
+      } else {
+        spriteIcon.renderDecorator(ctx, {
+          canvasX: pt.x,
+          canvasY: pt.y,
+          drawW: dw,
+          drawH: dh,
+        }, dec, scale, ctxScale);
+      }
     }
   }
 }
@@ -1219,6 +1269,9 @@ function timeBound(items: readonly { readonly time: number }[], time: number, in
   }
   return lo;
 }
+
+const laneFlashBuckets: number[][] = [[], [], [], [], [], [], []];
+let extraLaneFlashes: Map<number, number[]> | null = null;
 
 /**
  * 命中特效（chart-preview 21）：**有 Bestdori 精灵时照它的效果表**（`particles.png` 图块 + 生成圆 +
@@ -1245,22 +1298,35 @@ function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, second
   const lo = timeBound(elements, seconds - window, true);
   const hi = timeBound(elements, seconds, false);
   ctx.save();
-  // 票 88：同帧同轨的多次轨道闪按纯白 source-over 传输公式合并，每轨至多画 1 个楔形渐变（原高密帧 ~50 次降为 ≤7 次）。
-  const laneFlashes = new Map<number, number[]>();
+  // 票 88/89：同帧同轨的多次轨道闪按纯白 source-over 传输公式合并，复用固定 7 轨缓冲消除逐帧 Map/Array 分配。
+  for (let l = 0; l < 7; l++) laneFlashBuckets[l]!.length = 0;
+  extraLaneFlashes?.clear();
   for (let i = lo; i < hi; i++) {
     const el = elements[i]!;
     const since = seconds - el.time;
     if (since < SIM_LANE_FLASH_DURATION) {
       const a = SIM_LANE_FLASH_ALPHA * (1 - since / SIM_LANE_FLASH_DURATION);
       if (a > 0) {
-        let arr = laneFlashes.get(el.lane);
-        if (!arr) { arr = []; laneFlashes.set(el.lane, arr); }
-        arr.push(a);
+        const lane = el.lane;
+        if ((lane | 0) === lane && lane >= 0 && lane < 7) {
+          laneFlashBuckets[lane]!.push(a);
+        } else {
+          extraLaneFlashes ??= new Map();
+          let arr = extraLaneFlashes.get(lane);
+          if (!arr) { arr = []; extraLaneFlashes.set(lane, arr); }
+          arr.push(a);
+        }
       }
     }
   }
-  for (const [lane, alphas] of laneFlashes) {
-    drawMergedLaneFlash(ctx, m, lane, alphas);
+  for (let l = 0; l < 7; l++) {
+    const alphas = laneFlashBuckets[l]!;
+    if (alphas.length > 0) drawMergedLaneFlash(ctx, m, l, alphas);
+  }
+  if (extraLaneFlashes && extraLaneFlashes.size > 0) {
+    for (const [lane, alphas] of extraLaneFlashes) {
+      drawMergedLaneFlash(ctx, m, lane, alphas);
+    }
   }
   for (let i = lo; i < hi; i++) {
     const el = elements[i]!;
@@ -1279,33 +1345,36 @@ function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, second
 }
 
 /** 图块 / 生成圆的一次绘制：`center` = 以命中点为中心，`bottom` = 底边贴命中点（照 Bestdori 的 $e / He） */
-interface EffectCanvas {
-  ctx: CanvasRenderingContext2D;
-  /** 局部单位（一个 lane 宽，CSS px） */
-  u: number;
-  /** 命中点 */
-  x: number;
-  y: number;
-  /** `noteSize` 倍数 → CSS px 的换算 */
-  size: number;
+function drawCentered(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  su: number,
+  tile: TileSource,
+  w: number,
+  h: number,
+  alpha: number,
+): void {
+  const dw = w * su;
+  const dh = h * su;
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(tile.source, tile.sx, tile.sy, tile.sw, tile.sh, x - dw / 2, y - dh / 2, dw, dh);
 }
 
-function drawCentered(c: EffectCanvas, tile: TileSource, w: number, h: number, alpha: number, dx = 0, dy = 0): void {
-  c.ctx.globalAlpha = alpha;
-  c.ctx.drawImage(
-    tile.source, tile.sx, tile.sy, tile.sw, tile.sh,
-    c.x + dx * c.u - (w * c.size * c.u) / 2, c.y + dy * c.u - (h * c.size * c.u) / 2,
-    w * c.size * c.u, h * c.size * c.u,
-  );
-}
-
-function drawBottom(c: EffectCanvas, tile: TileSource, w: number, h: number, alpha: number): void {
-  c.ctx.globalAlpha = alpha;
-  c.ctx.drawImage(
-    tile.source, tile.sx, tile.sy, tile.sw, tile.sh,
-    c.x - (w * c.size * c.u) / 2, c.y - h * c.size * c.u,
-    w * c.size * c.u, h * c.size * c.u,
-  );
+function drawBottom(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  su: number,
+  tile: TileSource,
+  w: number,
+  h: number,
+  alpha: number,
+): void {
+  const dw = w * su;
+  const dh = h * su;
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(tile.source, tile.sx, tile.sy, tile.sw, tile.sh, x - dw / 2, y - dh, dw, dh);
 }
 
 function drawSpriteEffect(
@@ -1316,7 +1385,9 @@ function drawSpriteEffect(
   since: number,
   noteSize: number,
 ): void {
-  const c: EffectCanvas = { ctx, u: m.laneWidth, x: laneCenterX(m, el.lane, 1), y: m.laneHeight, size: noteSize };
+  const x = laneCenterX(m, el.lane, 1);
+  const y = m.laneHeight;
+  const su = noteSize * m.laneWidth;
   const kind = el.kind === 'slide' ? 'tap' : el.kind; // Bestdori 的滑条结点 = tap
   const tint = kind === 'directional'
     ? (el.dirSide === 'R' ? SIM_EFFECT_TINTS.directionalR : SIM_EFFECT_TINTS.directionalL)
@@ -1324,49 +1395,50 @@ function drawSpriteEffect(
   const white = radialCircleOf(SIM_EFFECT_TINTS.white);
   const circle = radialCircleOf(tint);
   const { window: W, tile: TILE, size: S, alpha: A } = SIM_SPRITE_EFFECT;
-  const tile = (at: readonly [number, number], color: string | null = tint) =>
-    particleTile(sprites, at[0], at[1], color);
 
   if (kind === 'tap') {
     if (since < W.beam) {
       const p = since / W.beam;
       const a = A.beam * (1 - easeInCubic(p));
-      drawBottom(c, tile(TILE.beam), S.beam[0], S.beam[1], a);
-      drawCentered(c, tile(TILE.slot), S.slot, S.slot, a);
+      drawBottom(ctx, x, y, su, particleTile(sprites, TILE.beam[0], TILE.beam[1], tint), S.beam[0], S.beam[1], a);
+      drawCentered(ctx, x, y, su, particleTile(sprites, TILE.slot[0], TILE.slot[1], tint), S.slot, S.slot, a);
     }
     if (circle && since < W.circle) {
       const p = since / W.circle;
       const e = easeOutCubic(p);
-      drawCentered(c, circle, S.circle[0] * e, S.circle[1] * e, A.circle * (1 - easeInCubic(p)));
+      drawCentered(ctx, x, y, su, circle, S.circle[0] * e, S.circle[1] * e, A.circle * (1 - easeInCubic(p)));
     }
     if (white && since < W.white) {
       const p = since / W.white;
       const e = easeOutCubic(p);
-      drawCentered(c, white, S.circle[0] * e, S.circle[1] * e, A.white * (1 - easeInCubic(p)));
+      drawCentered(ctx, x, y, su, white, S.circle[0] * e, S.circle[1] * e, A.white * (1 - easeInCubic(p)));
     }
     if (since < W.circle) {
       const p = since / W.circle;
       const e = easeOutCubic(p);
       const a = A.ring * (1 - easeInCubic(p));
-      drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, a);
-      drawCentered(c, tile(TILE.ring), S.ringInner[0] * e, S.ringInner[1] * e, a);
+      const ring = particleTile(sprites, TILE.ring[0], TILE.ring[1], tint);
+      drawCentered(ctx, x, y, su, ring, S.ring[0] * e, S.ring[1] * e, a);
+      drawCentered(ctx, x, y, su, ring, S.ringInner[0] * e, S.ringInner[1] * e, a);
     }
     return;
   }
 
   if (kind === 'flick') {
-    if (since < W.beam) drawCentered(c, tile(TILE.slot), S.slot, S.slot, A.beam * (1 - easeInCubic(since / W.beam)));
+    if (since < W.beam) {
+      drawCentered(ctx, x, y, su, particleTile(sprites, TILE.slot[0], TILE.slot[1], tint), S.slot, S.slot, A.beam * (1 - easeInCubic(since / W.beam)));
+    }
     if (since < W.flickCircle) {
       const u = since / W.flickCircle;
       const w = S.flickCircleW * (1 - u);
-      if (circle) drawCentered(c, circle, w, S.flickCircleH * (1 + 4 * u), 1);
+      if (circle) drawCentered(ctx, x, y, su, circle, w, S.flickCircleH * (1 + 4 * u), 1);
       // 白圆那笔只有宽跟着收（高度恒 `2`）—— 照 bundle 原文，别顺手"对齐"成一样
-      if (white) drawCentered(c, white, w, S.flickCircleH, 1);
+      if (white) drawCentered(ctx, x, y, su, white, w, S.flickCircleH, 1);
     }
     if (since < W.circle) {
       const p = since / W.circle;
       const e = easeOutCubic(p);
-      drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, A.ring * (1 - easeInCubic(p)));
+      drawCentered(ctx, x, y, su, particleTile(sprites, TILE.ring[0], TILE.ring[1], tint), S.ring[0] * e, S.ring[1] * e, A.ring * (1 - easeInCubic(p)));
     }
     return;
   }
@@ -1374,20 +1446,20 @@ function drawSpriteEffect(
   if (kind === 'skill') {
     if (since < W.beam) {
       const a = A.beam * (1 - easeInCubic(since / W.beam));
-      drawBottom(c, tile(TILE.skillBeam), S.skillBeam[0], S.skillBeam[1], a);
-      drawCentered(c, tile(TILE.slot), S.slot, S.slot, a);
+      drawBottom(ctx, x, y, su, particleTile(sprites, TILE.skillBeam[0], TILE.skillBeam[1], tint), S.skillBeam[0], S.skillBeam[1], a);
+      drawCentered(ctx, x, y, su, particleTile(sprites, TILE.slot[0], TILE.slot[1], tint), S.slot, S.slot, a);
     }
     if (white && since < W.white) {
       const p = since / W.white;
       const e = easeOutCubic(p);
-      drawCentered(c, white, S.circle[0] * e, S.circle[1] * e, A.white * (1 - easeInCubic(p)));
+      drawCentered(ctx, x, y, su, white, S.circle[0] * e, S.circle[1] * e, A.white * (1 - easeInCubic(p)));
     }
     if (since < W.circle) {
       const p = since / W.circle;
       const e = easeOutCubic(p);
       const a = A.ring * (1 - easeInCubic(p));
-      drawCentered(c, tile(TILE.star), S.star[0] * e, S.star[1] * e, a);
-      drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, a);
+      drawCentered(ctx, x, y, su, particleTile(sprites, TILE.star[0], TILE.star[1], tint), S.star[0] * e, S.star[1] * e, a);
+      drawCentered(ctx, x, y, su, particleTile(sprites, TILE.ring[0], TILE.ring[1], tint), S.ring[0] * e, S.ring[1] * e, a);
     }
     return;
   }
@@ -1397,32 +1469,32 @@ function drawSpriteEffect(
   if (circle && white && since < W.dirSweep) {
     const t = easeOutCubic(since / W.dirSweep);
     ctx.save();
-    ctx.translate(c.x, c.y);
+    ctx.translate(x, y);
     ctx.rotate((Math.PI / 3) * dir);
     ctx.globalAlpha = 1 - t;
-    const w = S.dirSweep[0] * t * noteSize * m.laneWidth;
-    const h = S.dirSweep[1] * t * noteSize * m.laneWidth;
+    const w = S.dirSweep[0] * t * su;
+    const h = S.dirSweep[1] * t * su;
     ctx.drawImage(circle.source, circle.sx, circle.sy, circle.sw, circle.sh, -w / 2, -h, w, h);
     ctx.drawImage(white.source, white.sx, white.sy, white.sw, white.sh, -w / 2, -h, w, h);
     ctx.restore();
     const u = since / W.dirSweep;
-    drawCentered(c, circle, S.flickCircleW * (1 - u), S.flickCircleH * (1 + 4 * u), 1);
-    drawCentered(c, white, S.flickCircleW * (1 - u), S.flickCircleH, 1);
+    drawCentered(ctx, x, y, su, circle, S.flickCircleW * (1 - u), S.flickCircleH * (1 + 4 * u), 1);
+    drawCentered(ctx, x, y, su, white, S.flickCircleW * (1 - u), S.flickCircleH, 1);
   }
   if (since < W.dirArrow) {
     const p = since / W.dirArrow;
-    const arrow = tile(TILE.arrow);
+    const arrow = particleTile(sprites, TILE.arrow[0], TILE.arrow[1], tint);
     const shift = easeOutCubic(p) * dir; // 圆心外移 1 个 lane
     ctx.save();
-    ctx.translate(c.x + shift * m.laneWidth, c.y);
+    ctx.translate(x + shift * m.laneWidth, y);
     ctx.rotate((Math.PI / 2) * dir);
     ctx.globalAlpha = A.beam * (1 - easeInCubic(p));
-    const s = S.arrow * noteSize * m.laneWidth;
+    const s = S.arrow * su;
     // 箭头是**底边贴判定线**（bundle 的 `He`），不是居中：居中的话整枚会浮到线下面半个身位
     ctx.drawImage(arrow.source, arrow.sx, arrow.sy, arrow.sw, arrow.sh, -s / 2, -s, s, s);
     ctx.restore();
     const e = easeOutCubic(p);
-    drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, A.ring * (1 - easeInCubic(p)));
+    drawCentered(ctx, x, y, su, particleTile(sprites, TILE.ring[0], TILE.ring[1], tint), S.ring[0] * e, S.ring[1] * e, A.ring * (1 - easeInCubic(p)));
   }
 }
 
@@ -1447,6 +1519,7 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
   const { tile: TILE, size: S, alpha: A } = SIM_SPRITE_EFFECT;
   const ring = particleTile(sprites, TILE.connectionRing[0], TILE.connectionRing[1], null);
   const rotating = particleTile(sprites, TILE.rotatingRing[0], TILE.rotatingRing[1], SIM_EFFECT_TINTS.tap);
+  const fastSim = typeof spriteIcon.renderSim === 'function';
   for (const band of bandsInWindow(chart.bands, seconds, seconds)) {
     const span = band.t1 - band.t0;
     if (span === 0) continue;
@@ -1465,16 +1538,20 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
     ctx.globalAlpha = 1;
     const holdIcon = band.holdAmong ? noteIcons.slideAmongFor(lane) : noteIcons.slideEndpointFor(lane);
     const box = simNoteRect(m, 1, noteSize, simSpriteAspect(holdIcon));
-    spriteIcon.render(ctx, {
-      ...holdIcon,
-      canvasX: x,
-      canvasY: m.laneHeight,
-      canvasSize: box.w,
-      canvasWidth: box.w,
-      canvasHeight: box.h,
-      scale: 1,
-      ctxScale,
-    });
+    if (fastSim) {
+      spriteIcon.renderSim(ctx, holdIcon, x, m.laneHeight, box.w, box.h, 1, ctxScale, false);
+    } else {
+      spriteIcon.render(ctx, {
+        ...holdIcon,
+        canvasX: x,
+        canvasY: m.laneHeight,
+        canvasSize: box.w,
+        canvasWidth: box.w,
+        canvasHeight: box.h,
+        scale: 1,
+        ctxScale,
+      });
+    }
     ctx.restore();
 
     ctx.save();
@@ -1679,19 +1756,16 @@ function scoreGeom(s: number): {
   };
 }
 
-function drawScoreBox(
+function drawScoreBarFrame(
   ctx: CanvasRenderingContext2D,
   hud: SimHudAssets,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  ky: number,
   s: number,
-  flowSeconds: number,
-  score: number,
-  inc: number,
-  ages: number[],
-  alpha: number,
-  ctxScale: number = 1,
 ): void {
-  const { x, y, w, h, ky, band } = scoreGeom(s);
-
   // 1) 整块分数组件；缺件只降级成描边框，不画假组件 / 不留白块
   if (!hud.scoreBar) {
     ctx.strokeStyle = 'rgba(255,255,255,.35)';
@@ -1701,7 +1775,17 @@ function drawScoreBox(
   } else {
     sliceX(ctx, hud.scoreBar, HUD_SPRITES.scoreBar, x, y, w, h, HUD_SPRITES.scoreSlices, ky);
   }
+}
 
+function drawScoreFillBar(
+  ctx: CanvasRenderingContext2D,
+  hud: SimHudAssets,
+  band: { x: number; y: number; w: number; h: number },
+  s: number,
+  flowSeconds: number,
+  score: number,
+  alpha: number,
+): void {
   const tierIndex = scoreTierAt(score);
   const tier = SCORE_TIERS[tierIndex];
   const frac = clamp01((score / SCORE_MAX) * SIM_HUD.fillScale);
@@ -1728,7 +1812,22 @@ function drawScoreBox(
     }
     ctx.restore();
   }
+}
 
+function drawScoreBox(
+  ctx: CanvasRenderingContext2D,
+  hud: SimHudAssets,
+  s: number,
+  flowSeconds: number,
+  score: number,
+  inc: number,
+  ages: number[],
+  alpha: number,
+  ctxScale: number = 1,
+): void {
+  const { x, y, w, h, ky, band } = scoreGeom(s);
+  drawScoreBarFrame(ctx, hud, x, y, w, h, ky, s);
+  drawScoreFillBar(ctx, hud, band, s, flowSeconds, score, alpha);
   // 4) 等级字母 + ▽ 刻度（自绘；画在裁剪之外，刻度往下推才不会被裁掉）
   drawLetters(ctx, band, s, alpha);
   // 5) 7 位定宽分数（占位字：前导零灰、有效位洋红）
@@ -1776,6 +1875,41 @@ function drawLetters(
   ctx.restore();
 }
 
+const digitWidthCache = new WeakMap<CanvasRenderingContext2D, Map<string, Float64Array>>();
+
+function cachedDigitAdvance(
+  ctx: CanvasRenderingContext2D,
+  font: string,
+  ch: string,
+  fallback: number,
+): number {
+  if (typeof ctx.measureText !== 'function') return fallback;
+  const code = ch.charCodeAt(0) - 48;
+  if (code < 0 || code > 9) {
+    const m = ctx.measureText(ch);
+    return m && Number.isFinite(m.width) ? m.width : fallback;
+  }
+  let byFont = digitWidthCache.get(ctx);
+  if (!byFont) {
+    byFont = new Map();
+    digitWidthCache.set(ctx, byFont);
+  }
+  let widths = byFont.get(font);
+  if (!widths) {
+    widths = new Float64Array(10);
+    for (let d = 0; d < 10; d++) {
+      const m = ctx.measureText(String(d));
+      widths[d] = m && Number.isFinite(m.width) ? m.width : fallback;
+    }
+    if (byFont.size >= 8) {
+      const oldest = byFont.keys().next().value;
+      if (oldest !== undefined) byFont.delete(oldest);
+    }
+    byFont.set(font, widths);
+  }
+  return widths[code]!;
+}
+
 /** 7 位定宽（官方没有 0–9 精灵表，先用 HEADER_SANS 占位） */
 function drawDigits(
   ctx: CanvasRenderingContext2D,
@@ -1785,24 +1919,26 @@ function drawDigits(
   const text = formatScore(score);
   const live = String(Math.round(Math.max(0, Math.min(SCORE_MAX, score)))).length;
   const lead = Math.max(0, text.length - live);
+  const font = `700 ${px}px ${HEADER_SANS}`;
   ctx.save();
-  ctx.font = `700 ${px}px ${HEADER_SANS}`;
+  ctx.font = font;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   let cx = x + w * SIM_HUD.digitDX;
   const cy = y + h * SIM_HUD.digitDY;
+  const track = SIM_HUD.digitTrack * s;
+  const fallbackAdv = px * 0.62;
   for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
     ctx.fillStyle = i < lead ? SIM_HUD.zeroColor : SIM_HUD.liveColor;
-    ctx.fillText(text[i]!, cx, cy);
-    const measured = ctx.measureText(text[i]!);
-    const adv = measured && Number.isFinite(measured.width) ? measured.width : px * 0.62;
-    cx += adv + SIM_HUD.digitTrack * s;
+    ctx.fillText(ch, cx, cy);
+    cx += cachedDigitAdvance(ctx, font, ch, fallbackAdv) + track;
   }
   ctx.restore();
 }
 
 interface PlusGlyphTile {
-  canvas: HTMLCanvasElement;
+  canvas: CanvasImageSource;
   originX: number;
   originY: number;
   cssW: number;
@@ -1811,6 +1947,16 @@ interface PlusGlyphTile {
 
 const PLUS_TILE_CACHE_LIMIT = 4;
 const plusTileCache = new Map<string, PlusGlyphTile>();
+
+function releaseSurface(src: CanvasImageSource | null | undefined): void {
+  if (!src) return;
+  const closable = src as { close?: () => void; width?: number; height?: number };
+  if (typeof closable.close === 'function') {
+    closable.close();
+  } else if (typeof closable.width === 'number' && typeof closable.height === 'number') {
+    closable.width = closable.height = 1;
+  }
+}
 
 function putLruEntry<T>(
   map: Map<string, T>,
@@ -1830,6 +1976,43 @@ function putLruEntry<T>(
   }
 }
 
+type PlusTextCtx = Pick<
+  CanvasRenderingContext2D,
+  'font' | 'textAlign' | 'textBaseline' | 'lineJoin' | 'lineWidth' | 'strokeStyle' | 'fillStyle' | 'measureText' | 'setTransform' | 'strokeText' | 'fillText'
+>;
+
+function computePlusLayout(pg: PlusTextCtx, text: string, fontPx: number, lineWidth: number, scale: number) {
+  pg.font = `800 ${fontPx}px ${HEADER_SANS}`;
+  const metrics = pg.measureText(text);
+  const textW = Number.isFinite(metrics?.width) ? metrics.width : fontPx * text.length * 0.65;
+  const padX = Math.ceil(lineWidth + 3);
+  const padY = Math.ceil(fontPx * 0.85 + lineWidth + 3);
+  const cssW = Math.max(2, Math.ceil(textW) + padX * 2);
+  const cssH = Math.max(2, padY * 2);
+  const pw = Math.max(1, Math.round(cssW * scale));
+  const ph = Math.max(1, Math.round(cssH * scale));
+  return { padX, padY, cssW, cssH, pw, ph };
+}
+
+function paintPlusGlyph(
+  g: PlusTextCtx,
+  text: string,
+  fontPx: number,
+  lineWidth: number,
+  layout: { padX: number; padY: number; cssW: number; cssH: number; pw: number; ph: number },
+): void {
+  g.setTransform(layout.pw / layout.cssW, 0, 0, layout.ph / layout.cssH, 0, 0);
+  g.font = `800 ${fontPx}px ${HEADER_SANS}`;
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  g.lineJoin = 'round';
+  g.lineWidth = lineWidth;
+  g.strokeStyle = 'rgba(20,24,32,.5)';
+  g.strokeText(text, layout.padX, layout.padY);
+  g.fillStyle = SIM_HUD.plusColor;
+  g.fillText(text, layout.padX, layout.padY);
+}
+
 function preparePlusTile(inc: number, fontPx: number, lineWidth: number, ctxScale: number): PlusGlyphTile | null {
   if (typeof document === 'undefined') return null;
   const scale = Number.isFinite(ctxScale) && ctxScale > 0 ? ctxScale : 1;
@@ -1842,33 +2025,42 @@ function preparePlusTile(inc: number, fontPx: number, lineWidth: number, ctxScal
     return hit;
   }
   const text = `+${inc}`;
+  if (canTransferOffscreenBitmap()) {
+    try {
+      const probe = new OffscreenCanvas(1, 1);
+      const pg = probe.getContext('2d') as unknown as PlusTextCtx | null;
+      if (pg && typeof pg.strokeText === 'function' && typeof pg.measureText === 'function') {
+        const layout = computePlusLayout(pg, text, fontPx, lineWidth, scale);
+        const off = new OffscreenCanvas(layout.pw, layout.ph);
+        const g = off.getContext('2d') as unknown as PlusTextCtx | null;
+        if (g) {
+          paintPlusGlyph(g, text, fontPx, lineWidth, layout);
+          const bitmap = off.transferToImageBitmap();
+          const tile: PlusGlyphTile = {
+            canvas: bitmap, originX: layout.padX, originY: layout.padY, cssW: layout.cssW, cssH: layout.cssH,
+          };
+          putLruEntry(plusTileCache, key, tile, PLUS_TILE_CACHE_LIMIT, (evicted) => {
+            releaseSurface(evicted.canvas);
+          });
+          return tile;
+        }
+      }
+    } catch {
+      /* 降级走 HTMLCanvasElement */
+    }
+  }
   const canvas = document.createElement('canvas');
   const g = canvas.getContext('2d');
   if (!g || typeof g.strokeText !== 'function' || typeof g.measureText !== 'function') return null;
-  g.font = `800 ${fontPx}px ${HEADER_SANS}`;
-  const metrics = g.measureText(text);
-  const textW = Number.isFinite(metrics?.width) ? metrics.width : fontPx * text.length * 0.65;
-  const padX = Math.ceil(lineWidth + 3);
-  const padY = Math.ceil(fontPx * 0.85 + lineWidth + 3);
-  const cssW = Math.max(2, Math.ceil(textW) + padX * 2);
-  const cssH = Math.max(2, padY * 2);
-  const pw = Math.max(1, Math.round(cssW * scale));
-  const ph = Math.max(1, Math.round(cssH * scale));
-  canvas.width = pw;
-  canvas.height = ph;
-  g.setTransform(pw / cssW, 0, 0, ph / cssH, 0, 0);
-  g.font = `800 ${fontPx}px ${HEADER_SANS}`;
-  g.textAlign = 'left';
-  g.textBaseline = 'middle';
-  g.lineJoin = 'round';
-  g.lineWidth = lineWidth;
-  g.strokeStyle = 'rgba(20,24,32,.5)';
-  g.strokeText(text, padX, padY);
-  g.fillStyle = SIM_HUD.plusColor;
-  g.fillText(text, padX, padY);
-  const tile: PlusGlyphTile = { canvas, originX: padX, originY: padY, cssW, cssH };
+  const layout = computePlusLayout(g, text, fontPx, lineWidth, scale);
+  canvas.width = layout.pw;
+  canvas.height = layout.ph;
+  paintPlusGlyph(g, text, fontPx, lineWidth, layout);
+  const tile: PlusGlyphTile = {
+    canvas, originX: layout.padX, originY: layout.padY, cssW: layout.cssW, cssH: layout.cssH,
+  };
   putLruEntry(plusTileCache, key, tile, PLUS_TILE_CACHE_LIMIT, (evicted) => {
-    evicted.canvas.width = evicted.canvas.height = 1;
+    releaseSurface(evicted.canvas);
   });
   return tile;
 }
@@ -1970,12 +2162,23 @@ function drawStarFlow(
  * 2026-11-14：填充按 `lifeGaugeInset` 从 `lifeBand` 四边内缩，让 `life-bar.png`
  * 空槽自带的深色框露出来 —— 实机那圈「黑边」就是它，铺满 bbox 会把它盖掉。
  */
-interface SimLifeGauge {
-  canvas: HTMLCanvasElement;
+export interface SimLifeGauge {
+  canvas: CanvasImageSource;
   x: number;
   y: number;
   w: number;
   h: number;
+  sx: number;
+  hud?: SimHudAssets;
+  autoMode?: boolean;
+  hudChromeUnder?: ImageBitmap;
+  chromeW?: number;
+  chromeH?: number;
+  hudLetters?: ImageBitmap;
+  lettersX?: number;
+  lettersY?: number;
+  lettersW?: number;
+  lettersH?: number;
 }
 
 function lifeGaugeRect(s: number) {
@@ -2008,41 +2211,150 @@ function paintLifeGauge(ctx: CanvasRenderingContext2D, rect: ReturnType<typeof l
   ctx.restore();
 }
 
-/** 生命恒满。用舞台的像素比例和坐标相位准备一次，避免播放中反复裁剪。 */
-const LIFE_GAUGE_CACHE_LIMIT = 2;
+/** 生命恒满。用舞台的像素比例和坐标相位准备一次，避免播放中反复裁剪与重复光栅化静态顶栏。 */
+const LIFE_GAUGE_CACHE_LIMIT = 4;
 const lifeGaugeCache = new Map<string, SimLifeGauge>();
+const hudObjectIds = new WeakMap<object, number>();
+let nextHudObjectId = 1;
 
-export function prepareSimLifeGauge(metrics: SimFieldMetrics, density: number): SimLifeGauge | undefined {
+function hudIdentity(hud?: SimHudAssets): number {
+  if (!hud) return 0;
+  let id = hudObjectIds.get(hud);
+  if (!id) {
+    id = nextHudObjectId++;
+    hudObjectIds.set(hud, id);
+  }
+  return id;
+}
+
+function disposePreparedLifeGauge(entry: SimLifeGauge): void {
+  releaseSurface(entry.canvas);
+  entry.hudChromeUnder?.close();
+  entry.hudLetters?.close();
+}
+
+export function prepareSimLifeGauge(
+  metrics: SimFieldMetrics,
+  density: number,
+  hud?: SimHudAssets,
+  autoMode?: boolean,
+  totalNotes?: number,
+): SimLifeGauge | undefined {
   if (typeof document === 'undefined') return;
-  const key = `${Math.round(metrics.w)}x${Math.round(metrics.h)}|${density}`;
+  const s = metrics.w / 1920;
+  const sx = Math.max(1, Math.round(metrics.w * density)) / metrics.w;
+  if (totalNotes && totalNotes > 0) {
+    const inc = scoreIncrement(totalNotes);
+    if (inc > 0) {
+      const fontPx = SIM_HUD.plusFont * s;
+      preparePlusTile(inc, fontPx, Math.max(2, fontPx * 0.14), sx);
+    }
+  }
+  const auto = autoMode ?? false;
+  const key = `${Math.round(metrics.w)}x${Math.round(metrics.h)}|${density}|${hudIdentity(hud)}|${auto ? 1 : 0}`;
   const hit = lifeGaugeCache.get(key);
   if (hit) {
     lifeGaugeCache.delete(key);
     lifeGaugeCache.set(key, hit);
     return hit;
   }
-  const rect = lifeGaugeRect(metrics.w / 1920);
+  const rect = lifeGaugeRect(s);
   if (rect.w <= 1 || rect.h <= 1) return;
-  const sx = Math.max(1, Math.round(metrics.w * density)) / metrics.w;
   const sy = Math.max(1, Math.round(metrics.h * density)) / metrics.h;
   const left = Math.floor(rect.x * sx);
   const top = Math.floor(rect.y * sy);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil((rect.x + rect.w) * sx) - left;
-  canvas.height = Math.ceil((rect.y + rect.h) * sy) - top;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return;
-  ctx.setTransform(sx, 0, 0, sy, -left, -top);
-  paintLifeGauge(ctx, rect);
-  const prepared = { canvas, x: left / sx, y: top / sy, w: canvas.width / sx, h: canvas.height / sy };
-  lifeGaugeCache.set(key, prepared);
-  while (lifeGaugeCache.size > LIFE_GAUGE_CACHE_LIMIT) {
-    const oldest = lifeGaugeCache.keys().next().value;
-    if (oldest == null || oldest === key) break;
-    const evicted = lifeGaugeCache.get(oldest);
-    lifeGaugeCache.delete(oldest);
-    if (evicted) evicted.canvas.width = evicted.canvas.height = 1;
+  const gw = Math.max(1, Math.ceil((rect.x + rect.w) * sx) - left);
+  const gh = Math.max(1, Math.ceil((rect.y + rect.h) * sy) - top);
+
+  let gaugeSurface: CanvasImageSource | null = null;
+  if (canTransferOffscreenBitmap()) {
+    try {
+      const off = new OffscreenCanvas(gw, gh);
+      const octx = off.getContext('2d') as unknown as CanvasRenderingContext2D | null;
+      if (octx) {
+        octx.setTransform(sx, 0, 0, sy, -left, -top);
+        paintLifeGauge(octx, rect);
+        gaugeSurface = off.transferToImageBitmap();
+      }
+    } catch {
+      gaugeSurface = null;
+    }
   }
+  if (!gaugeSurface) {
+    const canvas = document.createElement('canvas');
+    canvas.width = gw;
+    canvas.height = gh;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    ctx.setTransform(sx, 0, 0, sy, -left, -top);
+    paintLifeGauge(ctx, rect);
+    gaugeSurface = canvas;
+  }
+
+  const prepared: SimLifeGauge = {
+    canvas: gaugeSurface,
+    x: left / sx,
+    y: top / sy,
+    w: gw / sx,
+    h: gh / sy,
+    sx,
+    hud,
+    autoMode: auto,
+  };
+
+  // 票 89：在支持 ImageBitmap 的实时舞台上，将顶栏不变组件按严格层序预烘焙为两张物理像素对齐的静态 ImageBitmap：
+  //   1) hudChromeUnder（分数外框 4 切片 + 生命外框 4 切片 + 生命绿槽 + 1000/1000 + 暂停钮 + AUTO LIVE，位于 scoreFill 之下）
+  //   2) hudLetters（C/B/A/S/SS 描边字 + 5 枚 ▽ 刻度，位于 scoreFill 之上）
+  // 消除逐帧 8 次切片重叠 drawImage、10 次 strokeText/fillText、5 次三角路径填充与 2 次 getTransform。
+  if (hud && canTransferOffscreenBitmap()) {
+    try {
+      const bounds = topBarBounds(s);
+      const cw = Math.max(1, Math.round(metrics.w * sx));
+      const ch = Math.max(1, Math.min(Math.round(metrics.h * sy), Math.ceil((bounds.y + bounds.h + 4 * s) * sy)));
+      const chromeOff = new OffscreenCanvas(cw, ch);
+      const cctx = chromeOff.getContext('2d') as unknown as CanvasRenderingContext2D | null;
+      if (cctx) {
+        cctx.setTransform(sx, 0, 0, sy, 0, 0);
+        cctx.textBaseline = 'middle';
+        const sg = scoreGeom(s);
+        drawScoreBarFrame(cctx, hud, sg.x, sg.y, sg.w, sg.h, sg.ky, s);
+        drawLife(cctx, hud, s, prepared);
+        drawPause(cctx, hud, s);
+        drawAutoLive(cctx, metrics, hud, auto);
+        prepared.hudChromeUnder = chromeOff.transferToImageBitmap();
+        prepared.chromeW = cw / sx;
+        prepared.chromeH = ch / sy;
+      }
+
+      const sg = scoreGeom(s);
+      const pad = Math.ceil(16 * s);
+      const lx = Math.max(0, Math.floor((sg.band.x - pad) * sx));
+      const ly = Math.max(0, Math.floor((sg.band.y - pad) * sy));
+      const lw = Math.max(1, Math.ceil((sg.band.x + sg.band.w + pad) * sx) - lx);
+      const lh = Math.max(
+        1,
+        Math.ceil((sg.band.y + sg.band.h + pad + SIM_HUD.tickH * s + Math.abs(SIM_HUD.tickGap * s)) * sy) - ly,
+      );
+      const lettersOff = new OffscreenCanvas(lw, lh);
+      const lctx = lettersOff.getContext('2d') as unknown as CanvasRenderingContext2D | null;
+      if (lctx) {
+        lctx.setTransform(sx, 0, 0, sy, -lx, -ly);
+        drawLetters(lctx, sg.band, s, 1);
+        prepared.hudLetters = lettersOff.transferToImageBitmap();
+        prepared.lettersX = lx / sx;
+        prepared.lettersY = ly / sy;
+        prepared.lettersW = lw / sx;
+        prepared.lettersH = lh / sy;
+      }
+    } catch {
+      prepared.hudChromeUnder?.close();
+      prepared.hudLetters?.close();
+      prepared.hudChromeUnder = undefined;
+      prepared.hudLetters = undefined;
+    }
+  }
+
+  putLruEntry(lifeGaugeCache, key, prepared, LIFE_GAUGE_CACHE_LIMIT, disposePreparedLifeGauge);
   return prepared;
 }
 
@@ -2236,6 +2548,26 @@ function drawTopBarParts(
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textBaseline = 'middle';
+  if (
+    alpha >= 0.999
+    && lifeGauge?.hudChromeUnder
+    && lifeGauge.hudLetters
+    && lifeGauge.hud === hud
+    && lifeGauge.autoMode === autoMode
+    && Math.abs(ctxScale - lifeGauge.sx) < 1e-4
+  ) {
+    const sg = scoreGeom(s);
+    ctx.drawImage(lifeGauge.hudChromeUnder, 0, 0, lifeGauge.chromeW!, lifeGauge.chromeH!);
+    drawScoreFillBar(ctx, hud, sg.band, s, flowSeconds, score, alpha);
+    ctx.drawImage(
+      lifeGauge.hudLetters,
+      lifeGauge.lettersX!, lifeGauge.lettersY!, lifeGauge.lettersW!, lifeGauge.lettersH!,
+    );
+    drawDigits(ctx, sg.x, sg.y, sg.w, sg.h, s, score);
+    drawPlus(ctx, sg.x, sg.w, s, inc, ages, alpha, ctxScale);
+    ctx.restore();
+    return;
+  }
   drawScoreBox(ctx, hud, s, flowSeconds, score, inc, ages, alpha, ctxScale);
   drawLife(ctx, hud, s, lifeGauge);
   drawPause(ctx, hud, s);
@@ -2337,16 +2669,35 @@ export const SIM_COMBO_STYLE: SimComboStyle = {
 /** 实机采样色（`.cache/Combo-Style.mov`，1920×1342 逐帧取平均） */
 const AP_STROKE = { top: '#e35bd2', mid: '#a163d8', bottom: '#3fc9c7' } as const;
 
-/** 描边/白芯瓦片缓存：精灵 → `切图|尺寸` → 画好的瓦片 */
-const apTileCache = new WeakMap<CanvasImageSource, Map<string, HTMLCanvasElement>>();
+interface ComboPackedSlice {
+  canvas: CanvasImageSource;
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+  pad: number;
+  rawCanvas?: HTMLCanvasElement;
+  evict?: () => void;
+}
+
+/** 描边/白芯瓦片缓存：精灵 → `切图|尺寸` → 画好的瓦片（支持合批进单张 ImageBitmap 图集） */
+const apTileCache = new WeakMap<CanvasImageSource, Map<string, ComboPackedSlice>>();
 /** 光晕瓦片缓存：同上，单独一张（太糊了不跟主体共用） */
-const glowTileCache = new WeakMap<CanvasImageSource, Map<string, HTMLCanvasElement>>();
+const glowTileCache = new WeakMap<CanvasImageSource, Map<string, ComboPackedSlice>>();
 /** 每字「墨迹」在切图里的左右边（按 alpha 量一次）—— 居中要靠它，不能按字宽 */
 const inkCache = new WeakMap<CanvasImageSource, Map<string, { left: number; right: number }>>();
+/** 数字 0..9 的切图与墨迹零分配快表 */
+const digitSlotCache = new WeakMap<CanvasImageSource, Array<{
+  rect: { sx: number; sy: number; sw: number; sh: number };
+  ink: { left: number; right: number } | null;
+} | undefined>>();
+/** 快速查找：(tw,th) → 11 槽（0..9 数字 + 10 标签），消除每帧拼接 tileKey 字符串 */
+const apFastSlotCache = new WeakMap<CanvasImageSource, Map<number, Array<ComboPackedSlice | undefined>>>();
+const glowFastSlotCache = new WeakMap<CanvasImageSource, Map<number, Array<ComboPackedSlice | undefined>>>();
+const comboAtlasRing: Array<{ bitmap: ImageBitmap; evict: () => void }> = [];
+const COMBO_ATLAS_RING_LIMIT = 8;
 
-interface ComboShadowTile {
-  canvas: HTMLCanvasElement;
-  pad: number;
+interface ComboShadowTile extends ComboPackedSlice {
   density: number;
 }
 
@@ -2357,17 +2708,83 @@ interface SimComboShadows {
 
 // 每张标签源图按尺寸留两档阴影（窗口 + 全屏），既避免往返 miss 也限制 GPU 离屏占用。
 const COMBO_SHADOW_CACHE_LIMIT = 2;
-const COMBO_TILE_CACHE_LIMIT = 24;
+const COMBO_TILE_CACHE_LIMIT = 64;
 const comboShadowCache = new WeakMap<HTMLImageElement, Map<string, SimComboShadows>>();
 
-function putBoundedTile(map: Map<string, HTMLCanvasElement>, key: string, canvas: HTMLCanvasElement): void {
-  putLruEntry(map, key, canvas, COMBO_TILE_CACHE_LIMIT, (evicted) => {
-    evicted.width = evicted.height = 1;
+function fastSlotIndex(rect: { sx: number; sy: number; sw: number; sh: number }): number {
+  if (rect.sy !== 0 || rect.sw <= 0) return -1;
+  if (rect.sx === 0) {
+    // digits 的第 0 列 sx===0，combo 整图也是 sx===0（两者按各自的 img WeakMap 天然隔离，均占槽 0）
+    return 0;
+  }
+  const col = rect.sx / rect.sw;
+  const rounded = Math.round(col);
+  return Math.abs(col - rounded) < 1e-6 && rounded >= 0 && rounded < 10 ? rounded : -1;
+}
+
+function getFastComboSlot(
+  store: WeakMap<CanvasImageSource, Map<number, Array<ComboPackedSlice | undefined>>>,
+  img: CanvasImageSource,
+  tw: number,
+  th: number,
+  slot: number,
+): ComboPackedSlice | undefined {
+  if (slot < 0) return undefined;
+  return store.get(img)?.get(tw * 8192 + th)?.[slot];
+}
+
+function setFastComboSlot(
+  store: WeakMap<CanvasImageSource, Map<number, Array<ComboPackedSlice | undefined>>>,
+  img: CanvasImageSource,
+  tw: number,
+  th: number,
+  slot: number,
+  slice: ComboPackedSlice,
+): void {
+  if (slot < 0) return;
+  let bySize = store.get(img);
+  if (!bySize) {
+    bySize = new Map();
+    store.set(img, bySize);
+  }
+  const sizeKey = tw * 8192 + th;
+  let arr = bySize.get(sizeKey);
+  if (!arr) {
+    arr = new Array<ComboPackedSlice | undefined>(10);
+    bySize.set(sizeKey, arr);
+  }
+  arr[slot] = slice;
+}
+
+function clearFastComboSlot(
+  store: WeakMap<CanvasImageSource, Map<number, Array<ComboPackedSlice | undefined>>>,
+  img: CanvasImageSource,
+  tw: number,
+  th: number,
+  slot: number,
+  expected: ComboPackedSlice,
+): void {
+  if (slot < 0) return;
+  const arr = store.get(img)?.get(tw * 8192 + th);
+  if (arr && arr[slot] === expected) arr[slot] = undefined;
+}
+
+function putBoundedTile(map: Map<string, ComboPackedSlice>, key: string, slice: ComboPackedSlice): void {
+  putLruEntry(map, key, slice, COMBO_TILE_CACHE_LIMIT, (evicted) => {
+    if (evicted.rawCanvas) {
+      evicted.rawCanvas.width = evicted.rawCanvas.height = 1;
+      evicted.rawCanvas = undefined;
+    }
   });
 }
 
 function makeComboShadow(
-  img: CanvasImageSource, w: number, h: number, blur: number, density: number,
+  img: CanvasImageSource,
+  w: number,
+  h: number,
+  blur: number,
+  density: number,
+  srcRect?: { sx: number; sy: number; sw: number; sh: number },
 ): ComboShadowTile | null {
   const pad = Math.ceil(blur * 1.6);
   const canvas = document.createElement('canvas');
@@ -2380,8 +2797,21 @@ function makeComboShadow(
   g.shadowOffsetX = -offset;
   g.shadowColor = 'rgba(0,0,0,0.5)';
   g.shadowBlur = blur;
-  g.drawImage(img, pad + offset, pad, w * density, h * density);
-  return { canvas, pad, density };
+  if (srcRect) {
+    g.drawImage(img, srcRect.sx, srcRect.sy, srcRect.sw, srcRect.sh, pad + offset, pad, w * density, h * density);
+  } else {
+    g.drawImage(img, pad + offset, pad, w * density, h * density);
+  }
+  return {
+    canvas,
+    sx: 0,
+    sy: 0,
+    sw: canvas.width,
+    sh: canvas.height,
+    pad,
+    density,
+    rawCanvas: canvas,
+  };
 }
 
 function tileKey(rect: { sx: number; sy: number; sw: number; sh: number }, tw: number, th: number): string {
@@ -2403,25 +2833,46 @@ function glyphInk(
   const hit = map.get(key);
   if (hit) return hit;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(rect.sw));
-  canvas.height = Math.max(1, Math.round(rect.sh));
+  const cw = Math.max(1, Math.round(rect.sw));
+  const ch = Math.max(1, Math.round(rect.sh));
+  canvas.width = cw;
+  canvas.height = ch;
   const g = canvas.getContext('2d', { willReadFrequently: true });
   if (!g) return null;
-  g.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
-  const { data } = g.getImageData(0, 0, canvas.width, canvas.height);
-  let left = canvas.width;
-  let right = -1;
-  for (let y = 0; y < canvas.height; y++) {
-    for (let x = 0; x < canvas.width; x++) {
-      if (data[(y * canvas.width + x) * 4 + 3] > 24) {
-        if (x < left) left = x;
-        if (x > right) right = x;
+  try {
+    g.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, cw, ch);
+    const { data } = g.getImageData(0, 0, cw, ch);
+    let left = cw;
+    let right = -1;
+    for (let y = 0; y < ch; y++) {
+      for (let x = 0; x < cw; x++) {
+        if (data[(y * cw + x) * 4 + 3] > 24) {
+          if (x < left) left = x;
+          if (x > right) right = x;
+        }
       }
     }
+    const box = right < 0 ? { left: 0, right: cw - 1 } : { left, right };
+    map.set(key, box);
+    return box;
+  } finally {
+    canvas.width = canvas.height = 1;
   }
-  const box = right < 0 ? { left: 0, right: canvas.width - 1 } : { left, right };
-  map.set(key, box);
-  return box;
+}
+
+function cachedDigitSlot(sprites: SimSprites, digit: number) {
+  let slots = digitSlotCache.get(sprites.digits);
+  if (!slots) {
+    slots = new Array(10);
+    digitSlotCache.set(sprites.digits, slots);
+  }
+  let slot = slots[digit];
+  if (!slot) {
+    const rect = digitRect(sprites, digit);
+    slot = { rect, ink: glyphInk(sprites.digits, rect) };
+    slots[digit] = slot;
+  }
+  return slot;
 }
 
 /**
@@ -2435,10 +2886,15 @@ function apTile(
   h: number,
   /** 描边粗细（字高的比例） */
   strokeRatio = 0.065,
-): { canvas: HTMLCanvasElement; pad: number } | null {
+): ComboPackedSlice | null {
   if (typeof document === 'undefined') return null;
   const tw = Math.max(1, Math.round(w));
   const th = Math.max(1, Math.round(h));
+  const isDefaultRatio = strokeRatio === 0.065 || strokeRatio === 0.045;
+  const slot = isDefaultRatio ? fastSlotIndex(rect) : -1;
+  const fastHit = getFastComboSlot(apFastSlotCache, img, tw, th, slot);
+  if (fastHit) return fastHit;
+
   const key = `${tileKey(rect, tw, th)}|${strokeRatio}`;
   let map = apTileCache.get(img);
   if (!map) {
@@ -2450,7 +2906,8 @@ function apTile(
   if (hit) {
     map.delete(key);
     map.set(key, hit);
-    return { canvas: hit, pad };
+    setFastComboSlot(apFastSlotCache, img, tw, th, slot, hit);
+    return hit;
   }
 
   const white = document.createElement('canvas');
@@ -2482,8 +2939,22 @@ function apTile(
   g.globalCompositeOperation = 'source-over';
   g.drawImage(white, pad, pad);
   white.width = white.height = 1;
-  putBoundedTile(map, key, out);
-  return { canvas: out, pad };
+  const slice: ComboPackedSlice = {
+    canvas: out,
+    sx: 0,
+    sy: 0,
+    sw: out.width,
+    sh: out.height,
+    pad,
+    rawCanvas: out,
+    evict: () => {
+      if (map.get(key) === slice) map.delete(key);
+      clearFastComboSlot(apFastSlotCache, img, tw, th, slot, slice);
+    },
+  };
+  putBoundedTile(map, key, slice);
+  setFastComboSlot(apFastSlotCache, img, tw, th, slot, slice);
+  return slice;
 }
 
 /**
@@ -2497,10 +2968,15 @@ function glowTile(
   h: number,
   /** 糊开的半径（字高的比例） */
   blurRatio = 0.09,
-): { canvas: HTMLCanvasElement; pad: number } | null {
+): ComboPackedSlice | null {
   if (typeof document === 'undefined') return null;
   const tw = Math.max(1, Math.round(w));
   const th = Math.max(1, Math.round(h));
+  const isDefaultRatio = blurRatio === 0.09 || blurRatio === 0.08;
+  const slot = isDefaultRatio ? fastSlotIndex(rect) : -1;
+  const fastHit = getFastComboSlot(glowFastSlotCache, img, tw, th, slot);
+  if (fastHit) return fastHit;
+
   const key = `${tileKey(rect, tw, th)}|${blurRatio}`;
   let map = glowTileCache.get(img);
   if (!map) {
@@ -2512,7 +2988,8 @@ function glowTile(
   if (hit) {
     map.delete(key);
     map.set(key, hit);
-    return { canvas: hit, pad };
+    setFastComboSlot(glowFastSlotCache, img, tw, th, slot, hit);
+    return hit;
   }
 
   const out = document.createElement('canvas');
@@ -2531,8 +3008,114 @@ function glowTile(
   grad.addColorStop(1, AP_STROKE.bottom);
   g.fillStyle = grad;
   g.fillRect(0, 0, out.width, out.height);
-  putBoundedTile(map, key, out);
-  return { canvas: out, pad };
+  const slice: ComboPackedSlice = {
+    canvas: out,
+    sx: 0,
+    sy: 0,
+    sw: out.width,
+    sh: out.height,
+    pad,
+    rawCanvas: out,
+    evict: () => {
+      if (map.get(key) === slice) map.delete(key);
+      clearFastComboSlot(glowFastSlotCache, img, tw, th, slot, slice);
+    },
+  };
+  putBoundedTile(map, key, slice);
+  setFastComboSlot(glowFastSlotCache, img, tw, th, slot, slice);
+  return slice;
+}
+
+/**
+ * 票 89：把当前尺寸下的 22 张 combo 描边/光晕字形贴片 + 2 张标签阴影合并进单张不可变 `ImageBitmap`，
+ * 随后把 24 张临时 `HTMLCanvasElement` 缩为 1×1，减少 GPU SharedImage 数量并让整组 combo 绘制共享单纹理批处理。
+ */
+function packComboSlicesIntoBitmap(
+  slices: ReadonlyArray<ComboPackedSlice | null | undefined>,
+  onEvictExtra?: () => void,
+): void {
+  if (!canTransferOffscreenBitmap()) return;
+  // 同一设计尺寸下仅切 density 时，22 张字形切片已打包在既有图集内，将其在 LRU 环内提升至队尾防误淘汰。
+  for (const s of slices) {
+    if (s && !s.rawCanvas) {
+      const idx = comboAtlasRing.findIndex((entry) => entry.bitmap === s.canvas);
+      if (idx >= 0 && idx < comboAtlasRing.length - 1) {
+        const [hit] = comboAtlasRing.splice(idx, 1);
+        comboAtlasRing.push(hit!);
+      }
+    }
+  }
+  const pending: ComboPackedSlice[] = [];
+  let maxCellW = 0;
+  const margin = 4;
+  for (const s of slices) {
+    if (s?.rawCanvas && s.sw > 0 && s.sh > 0) {
+      pending.push(s);
+      if (s.sw + margin * 2 > maxCellW) maxCellW = s.sw + margin * 2;
+    }
+  }
+  if (pending.length === 0) return;
+
+  const atlasW = Math.max(1024, maxCellW);
+  let curX = 0;
+  let curY = 0;
+  let rowH = 0;
+  const placements: Array<{ slice: ComboPackedSlice; ox: number; oy: number }> = [];
+  for (const slice of pending) {
+    const cellW = slice.sw + margin * 2;
+    const cellH = slice.sh + margin * 2;
+    if (curX > 0 && curX + cellW > atlasW) {
+      curX = 0;
+      curY += rowH;
+      rowH = 0;
+    }
+    placements.push({ slice, ox: curX + margin, oy: curY + margin });
+    curX += cellW;
+    if (cellH > rowH) rowH = cellH;
+  }
+  const atlasH = Math.max(1, curY + rowH);
+  try {
+    const off = new OffscreenCanvas(atlasW, atlasH);
+    const ctx = off.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    for (const { slice, ox, oy } of placements) {
+      ctx.drawImage(slice.rawCanvas!, 0, 0, slice.sw, slice.sh, ox, oy, slice.sw, slice.sh);
+    }
+    const bitmap = off.transferToImageBitmap();
+    try {
+      const warm = new OffscreenCanvas(1, 1);
+      warm.getContext('2d')?.drawImage(bitmap, 0, 0, 1, 1, 0, 0, 1, 1);
+    } catch {
+      /* 忽略预上传异常 */
+    }
+    for (const { slice, ox, oy } of placements) {
+      if (slice.rawCanvas) {
+        slice.rawCanvas.width = slice.rawCanvas.height = 1;
+        slice.rawCanvas = undefined;
+      }
+      slice.canvas = bitmap;
+      slice.sx = ox;
+      slice.sy = oy;
+    }
+    const packedSlices = placements.map((p) => p.slice);
+    comboAtlasRing.push({
+      bitmap,
+      evict: () => {
+        for (const s of packedSlices) s.evict?.();
+        onEvictExtra?.();
+      },
+    });
+    while (comboAtlasRing.length > COMBO_ATLAS_RING_LIMIT) {
+      const evicted = comboAtlasRing.shift();
+      if (evicted) {
+        evicted.evict();
+        evicted.bitmap.close();
+      }
+    }
+  } catch {
+    /* 保留原 HTMLCanvasElement 回退 */
+  }
 }
 
 /**
@@ -2545,15 +3128,16 @@ export function prepareSimComboSprites(
 ): SimComboShadows | undefined {
   if (!sprites) return;
   const { digitW, digitH, labelW, labelH } = comboMetrics(m);
+  const toPack: Array<ComboPackedSlice | null> = [];
   for (let digit = 0; digit < 10; digit++) {
-    const rect = digitRect(sprites, digit);
-    glyphInk(sprites.digits, rect);
-    apTile(sprites.digits, rect, digitW, digitH);
-    glowTile(sprites.digits, rect, digitW, digitH);
+    const slot = cachedDigitSlot(sprites, digit);
+    toPack.push(apTile(sprites.digits, slot.rect, digitW, digitH));
+    toPack.push(glowTile(sprites.digits, slot.rect, digitW, digitH));
   }
   const label = { sx: 0, sy: 0, sw: sprites.combo.width, sh: sprites.combo.height };
   const ap = apTile(sprites.combo, label, labelW, labelH, 0.045);
-  glowTile(sprites.combo, label, labelW, labelH, 0.08);
+  const lg = glowTile(sprites.combo, label, labelW, labelH, 0.08);
+  toPack.push(ap, lg);
   if (typeof document === 'undefined') return;
   const key = `${Math.round(m.w)}x${Math.round(m.h)}|${density}`;
   let cached = comboShadowCache.get(sprites.combo);
@@ -2568,21 +3152,34 @@ export function prepareSimComboSprites(
     return hit;
   }
   const blur = labelH * 0.35;
-  const shadows = {
+  const shadows: SimComboShadows = {
     normal: makeComboShadow(sprites.combo, labelW, labelH, blur, density),
-    ap: ap && makeComboShadow(ap.canvas, labelW + ap.pad * 2, labelH + ap.pad * 2, blur, density),
+    ap: ap && makeComboShadow(ap.canvas, labelW + ap.pad * 2, labelH + ap.pad * 2, blur, density, ap),
   };
+  toPack.push(shadows.normal, shadows.ap);
+  const cacheMap = cached;
+  packComboSlicesIntoBitmap(toPack, () => {
+    if (cacheMap.get(key) === shadows) cacheMap.delete(key);
+  });
   cached.set(key, shadows);
   while (cached.size > COMBO_SHADOW_CACHE_LIMIT) {
     const oldest = cached.keys().next().value;
     if (oldest == null || oldest === key) break;
     const evicted = cached.get(oldest);
     cached.delete(oldest);
-    if (evicted?.normal) evicted.normal.canvas.width = evicted.normal.canvas.height = 1;
-    if (evicted?.ap) evicted.ap.canvas.width = evicted.ap.canvas.height = 1;
+    if (evicted?.normal?.rawCanvas) evicted.normal.rawCanvas.width = evicted.normal.rawCanvas.height = 1;
+    if (evicted?.ap?.rawCanvas) evicted.ap.rawCanvas.width = evicted.ap.rawCanvas.height = 1;
   }
   return shadows;
 }
+
+interface ComboCellScratch {
+  rect: { sx: number; sy: number; sw: number; sh: number };
+  inkLeft: number;
+  inkRight: number;
+}
+
+const comboCellsScratch: ComboCellScratch[] = [];
 
 /**
  * HUD：combo（chart-preview 21 起）—— 有 Bestdori 精灵走 `digits.png` + `combo.png`，
@@ -2621,13 +3218,27 @@ function drawCombo(
   const top = y - dh / 2;
   // 居中按**墨迹**：每个字形在切图里的左右留白不一样（"1" 只占 39/72），
   // 按字宽居中在 2 位以上就会偏 —— 先量出整串的墨迹跨度，再把它对到锚点上。
-  const cells = [...text].map((ch) => {
-    const digit = Math.min(9, Math.max(0, Number(ch) || 0));
-    const rect = digitRect(sprites, digit);
-    const ink = glyphInk(sprites.digits, rect);
+  const cells = comboCellsScratch;
+  cells.length = text.length;
+  for (let idx = 0; idx < text.length; idx++) {
+    const code = text.charCodeAt(idx) - 48;
+    const digit = code >= 0 && code <= 9 ? code : 0;
+    const slot = cachedDigitSlot(sprites, digit);
+    const rect = slot.rect;
+    const ink = slot.ink;
     const k = digitW / Math.max(1, rect.sw);
-    return { rect, inkLeft: ink ? ink.left * k : 0, inkRight: ink ? ink.right * k : digitW };
-  });
+    const inkLeft = ink ? ink.left * k : 0;
+    const inkRight = ink ? ink.right * k : digitW;
+    let cell = cells[idx];
+    if (!cell) {
+      cell = { rect, inkLeft, inkRight };
+      cells[idx] = cell;
+    } else {
+      cell.rect = rect;
+      cell.inkLeft = inkLeft;
+      cell.inkRight = inkRight;
+    }
+  }
   const first = cells[0];
   const last = cells[cells.length - 1];
   const inkSpanLeft = (-cells.length / 2) * digitW + (first ? first.inkLeft : 0);
@@ -2660,7 +3271,7 @@ function drawCombo(
         if (glow) {
           const padPx = glow.pad * k;
           ctx.drawImage(
-            glow.canvas,
+            glow.canvas, glow.sx, glow.sy, glow.sw, glow.sh,
             x + gx * scale - padPx, top - padPx,
             dw * mod.scale + padPx * 2, dh * mod.scale + padPx * 2,
           );
@@ -2671,7 +3282,7 @@ function drawCombo(
       if (labelGlow) {
         const padPx = labelGlow.pad * k;
         ctx.drawImage(
-          labelGlow.canvas,
+          labelGlow.canvas, labelGlow.sx, labelGlow.sy, labelGlow.sw, labelGlow.sh,
           labelLeft - padPx, labelTop - padPx,
           labelW * scale * mod.scale + padPx * 2, labelH * scale * mod.scale + padPx * 2,
         );
@@ -2687,7 +3298,10 @@ function drawCombo(
     const tile = cs.ap ? apTile(sprites.digits, cell.rect, digitW, digitH) : null;
     if (tile) {
       const padPx = tile.pad * scale;
-      ctx.drawImage(tile.canvas, left - padPx, top - padPx, dw + padPx * 2, dh + padPx * 2);
+      ctx.drawImage(
+        tile.canvas, tile.sx, tile.sy, tile.sw, tile.sh,
+        left - padPx, top - padPx, dw + padPx * 2, dh + padPx * 2,
+      );
     } else {
       ctx.drawImage(
         sprites.digits, cell.rect.sx, cell.rect.sy, cell.rect.sw, cell.rect.sh,
@@ -2705,15 +3319,18 @@ function drawCombo(
   const topPx = labelTop - padPx;
   if (shadow) {
     const k = scale / shadow.density;
-    ctx.drawImage(shadow.canvas, left - shadow.pad * k, topPx - shadow.pad * k,
-      shadow.canvas.width * k, shadow.canvas.height * k);
+    ctx.drawImage(
+      shadow.canvas, shadow.sx, shadow.sy, shadow.sw, shadow.sh,
+      left - shadow.pad * k, topPx - shadow.pad * k,
+      shadow.sw * k, shadow.sh * k,
+    );
   } else {
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
     ctx.shadowBlur = labelH * 0.35;
   }
   if (labelTile) {
     ctx.drawImage(
-      labelTile.canvas,
+      labelTile.canvas, labelTile.sx, labelTile.sy, labelTile.sw, labelTile.sh,
       left, topPx,
       labelW * scale + padPx * 2, labelH * scale + padPx * 2,
     );

@@ -78,10 +78,10 @@ function setup(deferList = false) {
     return null;
   }
 
-  const ui = (active: boolean) => (
+  const ui = (active: boolean, activePage: 'projects' | 'workspace' | 'preview' = active ? 'workspace' : 'projects') => (
     <ConfigProvider><PlaybackProvider><UIProvider><EditingProvider>
       <AppNavProvider value={{
-        activePage: active ? 'workspace' : 'projects',
+        activePage,
         setActivePage: vi.fn(),
         pageScope: null,
         navCollapsed: true,
@@ -187,6 +187,33 @@ describe('chart-projects 44 · 冷启动后台工作台延迟预热与竞态守�
       await pending;
     });
     expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(s.getSpy).toHaveBeenCalledWith('p1');
+    expect(s.loadSpy).toHaveBeenCalledOnce();
+  });
+
+  it('切到预览页（activePage="preview"）后停留也不触发冷启动后台预热，退回工程页后再按静默窗口恢复（ticket 89）', async () => {
+    vi.useFakeTimers();
+    const s = setup(true);
+
+    await act(async () => {
+      s.backend.releaseList();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 在 2s 预热计时器落地前切到预览页（active=false, activePage='preview'）
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+    s.rerender(s.ui(false, 'preview'));
+
+    // 即使在预览页播放停留超过 10 秒，也绝不在后台挂载工作台 / 触发 load 与 setChart
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(s.getSpy).not.toHaveBeenCalled();
+    expect(s.getSummarySpy).not.toHaveBeenCalled();
+    expect(s.loadSpy).not.toHaveBeenCalled();
+
+    // 退回工程页并保持静默后，预热正常接管
+    s.rerender(s.ui(false, 'projects'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
     expect(s.getSpy).toHaveBeenCalledWith('p1');
     expect(s.loadSpy).toHaveBeenCalledOnce();
   });

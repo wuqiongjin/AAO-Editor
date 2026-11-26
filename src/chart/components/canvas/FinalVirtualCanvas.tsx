@@ -985,6 +985,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 修复：渲染前先核对 viewport.scale == effectiveScale(新 geometry)；若不等，先同步 setViewport
     // （useLayoutEffect 内的 setState 会在 paint 前引发同步重渲染），本次不绘制；重渲染后 renderCanvas
     // 闭包已带正确 scale，再按正确轨道宽原子绘制。保证 surface 变化帧轨道宽即正确、无陈旧帧。
+    const wasActiveRef = useRef<boolean>(active ?? true);
+    const activeRef = useRef<boolean>(active ?? true);
+    activeRef.current = active ?? true;
+
     useLayoutEffect(() => {
         if (Math.abs(scale - prevScalePropRef.current) > 1e-9) {
             const now = performance.now();
@@ -1001,6 +1005,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             );
             return; // 待重渲染后再绘制
         }
+        if (!activeRef.current) return;
         renderCanvas();
     }, [renderCanvas, viewport.scale, geometry, scale, armZoomGesture]);
 
@@ -1009,7 +1014,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 仅在 active 翻转为 true 时补绘一次，不增加交互帧成本。
     const paintOnActivateRef = useRef<() => void>(() => {});
     paintOnActivateRef.current = renderCanvas;
-    const wasActiveRef = useRef<boolean>(active ?? true);
     useEffect(() => {
         const now = active ?? true;
         if (now && !wasActiveRef.current) {
