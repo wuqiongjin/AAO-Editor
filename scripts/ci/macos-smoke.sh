@@ -19,12 +19,13 @@ dump_log() {
 }
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "此冒烟只能在 macOS runner 上运行"
-[[ -x "$ELECTRON_BIN" ]] || fail "找不到 Electron 二进制：$ELECTRON_BIN（先执行 npm ci）"
+[[ -x "$ELECTRON_BIN" ]] || fail "找不到 Electron 二进制：${ELECTRON_BIN}（先执行 npm ci）"
 
 echo "启动源码模式 Electron（pid 待记录）"
 "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
 APP_PID=$!
-trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
+# 保留原始退出码：trap 内的 kill 成功不能把脚本失败洗成 0（假绿）
+trap 'SMOKE_RC=$?; kill "$APP_PID" 2>/dev/null || true; exit "$SMOKE_RC"' EXIT
 
 process_alive() {
   kill -0 "$APP_PID" 2>/dev/null || return 1
@@ -44,16 +45,20 @@ echo "::group::pmset -g assertions"
 printf '%s\n' "$ASSERTIONS"
 echo "::endgroup::"
 
-# 先记录电源锁结论、不立即退出：两项断言独立，锁还在时也要把 ⌘Q 退出通道跑完并回报
+# 先记录电源锁结论、不立即退出：两项断言独立，锁还在时也要把 ⌘Q 退出通道跑完并回报。
+# 只认本应用持有的断言：GitHub runner 上 Anka(「Anka sleeplessness」) 与 powerd 常驻
+# PreventUserIdleSystemSleep=1，系统汇总值恒为 1，判它等于判 runner 自己的电源策略。
+APP_LOCK_LINES="$(printf '%s\n' "$ASSERTIONS" | grep -iE 'aao editor|electron' | grep 'PreventUserIdleSystemSleep' || true)"
 LOCK_VALUE="$(printf '%s\n' "$ASSERTIONS" | awk '/^[[:space:]]*PreventUserIdleSystemSleep[[:space:]]+[0-9]+/ {print $2; exit}')"
 LOCK_PROBLEM=""
-if [[ -z "$LOCK_VALUE" ]]; then
+if [[ -n "$APP_LOCK_LINES" ]]; then
+  LOCK_PROBLEM="进程级断言仍列出本应用持有 PreventUserIdleSystemSleep：${APP_LOCK_LINES}"
+elif [[ -z "$LOCK_VALUE" ]]; then
   LOCK_PROBLEM="pmset 输出没有 PreventUserIdleSystemSleep 汇总行，无法判定"
-elif [[ "$LOCK_VALUE" != "0" ]]; then
-  LOCK_PROBLEM="空闲后 PreventUserIdleSystemSleep=$LOCK_VALUE，电源锁仍在；按 issue 257 先回报测量值，不动画布/节流"
-elif printf '%s\n' "$ASSERTIONS" | grep -iE 'aao editor|electron' | grep -q 'PreventUserIdleSystemSleep'; then
-  LOCK_PROBLEM="进程级断言仍列出本应用持有 PreventUserIdleSystemSleep"
 fi
+echo "::group::电源锁判定"
+echo "系统汇总 PreventUserIdleSystemSleep=${LOCK_VALUE:-<无>}；本应用持有断言=${APP_LOCK_LINES:-<无>}（runner 基础设施持有不计入）"
+echo "::endgroup::"
 if [[ -n "$LOCK_PROBLEM" ]]; then echo "::warning::$LOCK_PROBLEM"; fi
 
 echo "注入系统级 ⌘Q（不使用 AppleScript quit / app.quit()）"
@@ -73,7 +78,7 @@ for _ in $(seq 1 15); do
 done
 if [[ "$EXITED" != "1" ]]; then
   dump_log "Electron 运行日志" "$LOG_FILE"
-  fail "系统级 ⌘Q 后进程仍在（pid=$APP_PID）"
+  fail "系统级 ⌘Q 后进程仍在（pid=${APP_PID}）"
 fi
 
 # 退出通道验完再判电源锁，保证首次真机跑即使锁没清也能拿到 ⌘Q 结论

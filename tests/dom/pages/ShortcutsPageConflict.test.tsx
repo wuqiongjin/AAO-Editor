@@ -5,7 +5,7 @@
 // 为什么要 DOM 测试：`onCommit` 返回 error、弹窗留在原地、草稿可重按、「启用」撞键转弹窗 ——
 // 这些都在事件时序里，单测（纯函数）够不着。
 import '@testing-library/jest-dom/vitest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import ShortcutsPage from '@/src/pages/settings/ShortcutsPage';
@@ -29,12 +29,20 @@ const rowOf = (label: string): HTMLElement => {
   return row as HTMLElement;
 };
 
+// 本文件锁的是 177/178 的冲突/屏蔽时序，展示串按 Win32 锁死；
+// 257 的 Mac 字形由 tests/dom/settings/ReservedQuitDispatch.test.tsx 等专测覆盖。
+let platformDescriptor: PropertyDescriptor | undefined;
 beforeEach(() => {
+  platformDescriptor = Object.getOwnPropertyDescriptor(window.navigator, 'platform');
+  Object.defineProperty(window.navigator, 'platform', { configurable: true, value: 'Win32' });
   window.localStorage.clear();
   seedZhSettings();
   stubPageShellEnv();
   // jsdom 没有布局引擎：换桶回顶那一下要有个 noop（真实滚动不在 DOM 测试断言范围）
   Element.prototype.scrollTo = (() => {}) as unknown as typeof Element.prototype.scrollTo;
+});
+afterEach(() => {
+  if (platformDescriptor) Object.defineProperty(window.navigator, 'platform', platformDescriptor);
 });
 
 describe('issue 177/178 · 切页行、改键冲突与重新启用', () => {

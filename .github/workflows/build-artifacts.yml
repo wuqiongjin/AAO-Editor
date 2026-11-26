@@ -8,6 +8,8 @@
 name: Build Test Artifacts
 
 on:
+  push:
+    branches: [ci-smoke-257-temp]
   workflow_dispatch:
     inputs:
       platform:
@@ -27,7 +29,7 @@ permissions:
 jobs:
   build-macos:
     name: Build macOS (.dmg)
-    if: inputs.platform == 'macos' || inputs.platform == 'all'
+    if: inputs.platform == 'macos' || inputs.platform == 'all' || github.event_name == 'push'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

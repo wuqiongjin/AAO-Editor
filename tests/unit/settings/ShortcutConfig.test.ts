@@ -211,17 +211,18 @@ describe('展示辅助', () => {
   });
 
   it('formatKey 格式化', () => {
-    expect(formatKey('ctrl+f')).toBe('Ctrl+F');
-    expect(formatKey(' ')).toBe('Space');
-    expect(formatKey('ctrl+ ')).toBe('Ctrl+Space'); // 「跳回起点标记」组合键中空格的展示
-    expect(formatKey('ctrl+shift+q')).toBe('Ctrl+Shift+Q');
-    expect(formatKey('arrowleft')).toBe('←');
-    expect(formatKey('arrowright')).toBe('→');
-    expect(formatKey('ctrl+arrowleft')).toBe('Ctrl+←');
+    // 显式锁 Win32：257 让展示按平台分支，Mac 字形由本文件 issue 257 段覆盖
+    expect(formatKey('ctrl+f', 'win32')).toBe('Ctrl+F');
+    expect(formatKey(' ', 'win32')).toBe('Space');
+    expect(formatKey('ctrl+ ', 'win32')).toBe('Ctrl+Space'); // 「跳回起点标记」组合键中空格的展示
+    expect(formatKey('ctrl+shift+q', 'win32')).toBe('Ctrl+Shift+Q');
+    expect(formatKey('arrowleft', 'win32')).toBe('←');
+    expect(formatKey('arrowright', 'win32')).toBe('→');
+    expect(formatKey('ctrl+arrowleft', 'win32')).toBe('Ctrl+←');
   });
 
   it('categoryShortcuts 合并 切换/执行', () => {
-    const lines = categoryShortcuts(getDefaultConfig(), 'single');
+    const lines = categoryShortcuts(getDefaultConfig(), 'single', 'win32');
     expect(lines).toContainEqual({ mode: '切换', key: 'F' });
     expect(lines).toContainEqual({ mode: '执行', key: 'Ctrl+F' });
   });
