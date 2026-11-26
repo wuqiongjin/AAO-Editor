@@ -89,6 +89,13 @@ dump_log "Electron 启动日志" "$LOG_FILE"
 
 echo "空闲 ${IDLE_SECONDS}s（≥ 30s IDLE_SUSPEND_DELAY_MS）后读 pmset"
 sleep "$IDLE_SECONDS"
+echo "::group::空闲期 CPU（诊断用）"
+ps -axo pid,%cpu,stat,comm | grep -Ei 'electron|aao' || true
+sample "$APP_PID" 1 -file "$RUN_TMP/aao-idle-sample.txt" >/dev/null 2>&1 || true
+if [[ -f "$RUN_TMP/aao-idle-sample.txt" ]]; then
+  sed -n '/Call graph:/,/Binary Images:/p' "$RUN_TMP/aao-idle-sample.txt" | head -50 || true
+fi
+echo "::endgroup::"
 ASSERTIONS="$(pmset -g assertions 2>&1)"
 echo "::group::pmset -g assertions"
 printf '%s\n' "$ASSERTIONS"
