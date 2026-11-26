@@ -68,24 +68,70 @@ if [[ "$AX_STATE" != "true" ]]; then
   fail "runner 未授予 System Events 辅助功能权限（UI elements enabled=${AX_STATE}），无法注入系统级 ⌘Q；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
 fi
 
+# 诊断：记录注入前后的 frontmost / 窗口 / 菜单栏，判断系统级键事件落到了哪、应用是否真起来了
+probe_app() {
+  osascript -e "
+with timeout of 10 seconds
+  tell application \"System Events\"
+    set fm to name of first process whose frontmost is true
+    set p to (first process whose unix id is ${APP_PID})
+    return \"frontmost=\" & fm & \"; windows=\" & ((count of windows of p) as text) & \" \" & ((name of every window of p) as text) & \"; menubar=\" & ((name of every menu bar item of menu bar 1 of p) as text)
+  end tell
+end timeout" 2>&1 || true
+}
+
+wait_exit() {
+  local seconds="$1"
+  local i
+  for i in $(seq 1 "$seconds"); do
+    if ! process_alive; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
 echo "注入系统级 ⌘Q（不使用 AppleScript quit / app.quit()）"
-# 冒烟对象是源码模式 electron .，进程名是 Electron（不是 release/ 里打出来的 AAO Editor.app）；
-# 按 pid 置前，避免 LaunchServices 把刚打好的 App 拉起来、⌘Q 打偏目标。
+echo "注入前 probe=$(probe_app)"
+# 冒烟对象是源码模式 electron .，bundle 是 Electron.app（不是 release/ 里刚打好的 AAO Editor.app）。
+# 先按名激活正在运行的 Electron 实例；失败再按 pid 置前。两者都只记录，不改变验收口径。
+ACTIVATE_LOG="$(osascript -e 'tell application "Electron" to activate' 2>&1 || true)"
+echo "activate Electron=${ACTIVATE_LOG:-ok}"
+sleep 1
+echo "activate 后 probe=$(probe_app)"
+if [[ -n "$ACTIVATE_LOG" ]]; then
+  SETFRONT_LOG="$(osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${APP_PID} to true" 2>&1 || true)"
+  echo "按 pid 置前=${SETFRONT_LOG:-ok}"
+  sleep 1
+  echo "按 pid 置前后 probe=$(probe_app)"
+fi
 if ! osascript \
-  -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${APP_PID} to true" \
-  -e 'delay 1' \
-  -e 'tell application "System Events" to keystroke "q" using command down' \
+  -e 'tell application "System Events" to key code 12 using command down' \
   >"$OSA_LOG" 2>&1; then
   dump_log "osascript 注入错误" "$OSA_LOG"
   fail "系统级 ⌘Q 注入失败（常见原因：runner 未授予辅助功能权限）；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
 fi
 
 EXITED=0
-for _ in $(seq 1 15); do
-  if ! process_alive; then EXITED=1; break; fi
-  sleep 1
-done
+if wait_exit 15; then
+  EXITED=1
+else
+  # 同一条 ⌘Q 的另一种注入写法：某些键盘布局下 key code 与 keystroke 行为不同，两种都算系统级 ⌘Q
+  echo "诊断：key code 12 后进程仍在，改试 keystroke \"q\""
+  osascript -e 'tell application "System Events" to keystroke "q" using command down' >>"$OSA_LOG" 2>&1 || true
+  if wait_exit 10; then EXITED=1; fi
+fi
 if [[ "$EXITED" != "1" ]]; then
+  echo "注入后 probe=$(probe_app)"
+  echo "注入后 frontmost=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1 || true)"
+  ps -axo pid,comm | grep -Ei 'securityagent|loginwindow|electron' || true
+  if screencapture -x "$RUN_TMP/aao-smoke-shot.png" 2>&1; then
+    sips -Z 1000 -s format jpeg "$RUN_TMP/aao-smoke-shot.png" --out "$RUN_TMP/aao-smoke-shot.jpg" >/dev/null 2>&1 || true
+    echo "::group::失败截图 base64（诊断用，非验收证据）"
+    base64 -i "$RUN_TMP/aao-smoke-shot.jpg" 2>/dev/null || true
+    echo "::endgroup::"
+  else
+    echo "screencapture 失败（可能未授予屏幕录制权限）"
+  fi
   dump_log "Electron 运行日志" "$LOG_FILE"
   fail "系统级 ⌘Q 后进程仍在（pid=${APP_PID}）"
 fi
