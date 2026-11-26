@@ -219,3 +219,19 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     handleWindowAllClosed(process.platform, app);
 });
+
+// 临时诊断（issue 257 CI 冒烟排查；AAO_SMOKE_DIAG=1 才启用，排查完删除）
+if (process.env.AAO_SMOKE_DIAG === '1') {
+    for (const ev of ['before-quit', 'will-quit', 'quit', 'window-all-closed']) {
+        app.on(ev, () => console.log(`[smoke-diag] app ${ev}`));
+    }
+    app.on('render-process-gone', (_e, _wc, details) => console.log('[smoke-diag] render-process-gone', JSON.stringify(details)));
+    app.on('child-process-gone', (_e, details) => console.log('[smoke-diag] child-process-gone', JSON.stringify(details)));
+    app.on('browser-window-created', (_e, win) => {
+        console.log('[smoke-diag] window created');
+        win.on('close', () => console.log('[smoke-diag] window close'));
+        win.on('closed', () => console.log('[smoke-diag] window closed'));
+        win.webContents.on('did-fail-load', (_ev, code, desc, url) => console.log('[smoke-diag] did-fail-load', code, desc, url));
+        win.webContents.on('render-process-gone', (_ev, details) => console.log('[smoke-diag] wc render-process-gone', JSON.stringify(details)));
+    });
+}

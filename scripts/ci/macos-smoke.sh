@@ -22,7 +22,7 @@ dump_log() {
 [[ -x "$ELECTRON_BIN" ]] || fail "找不到 Electron 二进制：${ELECTRON_BIN}（先执行 npm ci）"
 
 echo "启动源码模式 Electron（pid 待记录）"
-"$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
+AAO_SMOKE_DIAG=1 "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
 APP_PID=$!
 # 保留原始退出码：trap 内的 kill 成功不能把脚本失败洗成 0（假绿）
 trap 'SMOKE_RC=$?; kill "$APP_PID" 2>/dev/null || true; exit "$SMOKE_RC"' EXIT
@@ -124,6 +124,24 @@ if [[ "$EXITED" != "1" ]]; then
   echo "注入后 probe=$(probe_app)"
   echo "注入后 frontmost=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1 || true)"
   ps -axo pid,comm | grep -Ei 'securityagent|loginwindow|electron' || true
+  # 仅诊断：读应用菜单里 Quit 的快捷键，再点一次菜单 Quit；区分「⌘Q 没送到」与「应用 quit 被卡住」
+  MENU_DUMP="$(osascript -e "
+with timeout of 10 seconds
+  tell application \"System Events\"
+    tell (first process whose unix id is ${APP_PID})
+      set out to {}
+      repeat with it in menu items of menu 1 of menu bar item 2 of menu bar 1
+        set cmdChar to \"\"
+        try
+          set cmdChar to value of attribute \"AXMenuItemCmdChar\" of it
+        end try
+        set end of out to ((name of it) & \"[\" & cmdChar & \"]\")
+      end repeat
+      return out as text
+    end tell
+  end tell
+end timeout" 2>&1 || true)"
+  echo "诊断：应用菜单项=${MENU_DUMP}"
   if screencapture -x "$RUN_TMP/aao-smoke-shot.png" 2>&1; then
     sips -Z 1000 -s format jpeg "$RUN_TMP/aao-smoke-shot.png" --out "$RUN_TMP/aao-smoke-shot.jpg" >/dev/null 2>&1 || true
     echo "::group::失败截图 base64（诊断用，非验收证据）"
@@ -132,6 +150,16 @@ if [[ "$EXITED" != "1" ]]; then
   else
     echo "screencapture 失败（可能未授予屏幕录制权限）"
   fi
+  QUIT_CLICK="$(osascript -e "
+with timeout of 10 seconds
+  tell application \"System Events\"
+    tell (first process whose unix id is ${APP_PID})
+      click (first menu item of menu 1 of menu bar item 2 of menu bar 1 whose name starts with \"Quit\")
+    end tell
+  end tell
+end timeout" 2>&1 || true)"
+  echo "诊断：点击菜单 Quit=${QUIT_CLICK:-ok}"
+  if wait_exit 5; then echo "诊断：菜单 Quit 能退出（⌘Q 键未送达或未生效）"; else echo "诊断：菜单 Quit 后进程仍在（quit 路径本身被卡住）"; fi
   dump_log "Electron 运行日志" "$LOG_FILE"
   fail "系统级 ⌘Q 后进程仍在（pid=${APP_PID}）"
 fi
