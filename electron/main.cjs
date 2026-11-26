@@ -222,16 +222,37 @@ app.on('window-all-closed', () => {
 
 // 临时诊断（issue 257 CI 冒烟排查；AAO_SMOKE_DIAG=1 才启用，排查完删除）
 if (process.env.AAO_SMOKE_DIAG === '1') {
+    const fs = require('fs');
+    const diagFile = process.env.AAO_SMOKE_DIAG_FILE || '/tmp/aao-smoke-diag.log';
+    const log = (...args) => {
+        try {
+            fs.appendFileSync(diagFile, `${new Date().toISOString()} pid=${process.pid} ${args.join(' ')}\n`);
+        } catch {
+            // 诊断写盘失败不影响冒烟
+        }
+    };
+    const describe = () => BrowserWindow.getAllWindows()
+        .map(w => `${w.id}:visible=${w.isVisible()}:min=${w.isMinimized()}`).join(' | ') || 'none';
+    log('diag enabled');
+    app.on('ready', () => log('app ready'));
+    app.on('activate', () => log('app activate', describe()));
     for (const ev of ['before-quit', 'will-quit', 'quit', 'window-all-closed']) {
-        app.on(ev, () => console.log(`[smoke-diag] app ${ev}`));
+        app.on(ev, () => log(`app ${ev}`, describe()));
     }
-    app.on('render-process-gone', (_e, _wc, details) => console.log('[smoke-diag] render-process-gone', JSON.stringify(details)));
-    app.on('child-process-gone', (_e, details) => console.log('[smoke-diag] child-process-gone', JSON.stringify(details)));
+    app.on('render-process-gone', (_e, _wc, details) => log('render-process-gone', JSON.stringify(details)));
+    app.on('child-process-gone', (_e, details) => log('child-process-gone', JSON.stringify(details)));
     app.on('browser-window-created', (_e, win) => {
-        console.log('[smoke-diag] window created');
-        win.on('close', () => console.log('[smoke-diag] window close'));
-        win.on('closed', () => console.log('[smoke-diag] window closed'));
-        win.webContents.on('did-fail-load', (_ev, code, desc, url) => console.log('[smoke-diag] did-fail-load', code, desc, url));
-        win.webContents.on('render-process-gone', (_ev, details) => console.log('[smoke-diag] wc render-process-gone', JSON.stringify(details)));
+        log('window created', win.id, describe());
+        win.on('close', () => log('window close', win.id));
+        win.on('closed', () => log('window closed', win.id));
+        win.on('hide', () => log('window hide', win.id));
+        win.on('show', () => log('window show', win.id));
+        win.on('minimize', () => log('window minimize', win.id));
+        win.on('restore', () => log('window restore', win.id));
+        win.on('unresponsive', () => log('window unresponsive', win.id));
+        win.webContents.on('did-fail-load', (_ev, code, desc, url) => log('did-fail-load', code, desc, url));
+        win.webContents.on('render-process-gone', (_ev, details) => log('wc render-process-gone', JSON.stringify(details)));
+        win.webContents.on('destroyed', () => log('wc destroyed', win.id));
     });
+    setInterval(() => log('heartbeat', describe()), 2000).unref();
 }

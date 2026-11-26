@@ -10,6 +10,7 @@ ELECTRON_BIN="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 RUN_TMP="${RUNNER_TEMP:-/tmp}"
 LOG_FILE="$RUN_TMP/aao-macos-smoke.log"
 OSA_LOG="$RUN_TMP/aao-macos-smoke-osa.log"
+DIAG_FILE="$RUN_TMP/aao-smoke-diag.log"
 
 fail() { echo "::error::$1"; exit 1; }
 dump_log() {
@@ -17,13 +18,17 @@ dump_log() {
   cat "$2" || true
   echo "::endgroup::"
 }
+# 与主进程诊断共用一条时间线（诊断用，非验收证据）
+slog() { printf '%s [smoke] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$DIAG_FILE"; }
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "此冒烟只能在 macOS runner 上运行"
 [[ -x "$ELECTRON_BIN" ]] || fail "找不到 Electron 二进制：${ELECTRON_BIN}（先执行 npm ci）"
 
 echo "启动源码模式 Electron（pid 待记录）"
-AAO_SMOKE_DIAG=1 "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
+AAO_SMOKE_DIAG=1 AAO_SMOKE_DIAG_FILE="$DIAG_FILE" "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
 APP_PID=$!
+echo "APP_PID=${APP_PID}"
+slog "launch electron pid=${APP_PID}"
 # 保留原始退出码：trap 内的 kill 成功不能把脚本失败洗成 0（假绿）
 trap 'SMOKE_RC=$?; kill "$APP_PID" 2>/dev/null || true; exit "$SMOKE_RC"' EXIT
 
@@ -110,6 +115,7 @@ if ! osascript \
   dump_log "osascript 注入错误" "$OSA_LOG"
   fail "系统级 ⌘Q 注入失败（常见原因：runner 未授予辅助功能权限）；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
 fi
+slog "injected key code 12 (cmd+q)"
 
 EXITED=0
 if wait_exit 15; then
@@ -117,12 +123,15 @@ if wait_exit 15; then
 else
   # 同一条 ⌘Q 的另一种注入写法：某些键盘布局下 key code 与 keystroke 行为不同，两种都算系统级 ⌘Q
   echo "诊断：key code 12 后进程仍在，改试 keystroke \"q\""
+  slog "retry injection keystroke q"
   osascript -e 'tell application "System Events" to keystroke "q" using command down' >>"$OSA_LOG" 2>&1 || true
   if wait_exit 10; then EXITED=1; fi
 fi
 if [[ "$EXITED" != "1" ]]; then
+  slog "still alive after injections"
   echo "注入后 probe=$(probe_app)"
   echo "注入后 frontmost=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1 || true)"
+  ps -p "$APP_PID" -o pid,stat,%cpu,etime,comm || true
   ps -axo pid,comm | grep -Ei 'securityagent|loginwindow|electron' || true
   # 仅诊断：读应用菜单里 Quit 的快捷键，再点一次菜单 Quit；区分「⌘Q 没送到」与「应用 quit 被卡住」
   MENU_DUMP="$(osascript -e "
@@ -130,12 +139,12 @@ with timeout of 10 seconds
   tell application \"System Events\"
     tell (first process whose unix id is ${APP_PID})
       set out to {}
-      repeat with it in menu items of menu 1 of menu bar item 2 of menu bar 1
+      repeat with mi in menu items of menu 1 of menu bar item 2 of menu bar 1
         set cmdChar to \"\"
         try
-          set cmdChar to value of attribute \"AXMenuItemCmdChar\" of it
+          set cmdChar to value of attribute \"AXMenuItemCmdChar\" of mi
         end try
-        set end of out to ((name of it) & \"[\" & cmdChar & \"]\")
+        set end of out to ((name of mi) & \"[\" & cmdChar & \"]\")
       end repeat
       return out as text
     end tell
@@ -150,6 +159,7 @@ end timeout" 2>&1 || true)"
   else
     echo "screencapture 失败（可能未授予屏幕录制权限）"
   fi
+  slog "click menu Quit"
   QUIT_CLICK="$(osascript -e "
 with timeout of 10 seconds
   tell application \"System Events\"
@@ -159,7 +169,17 @@ with timeout of 10 seconds
   end tell
 end timeout" 2>&1 || true)"
   echo "诊断：点击菜单 Quit=${QUIT_CLICK:-ok}"
-  if wait_exit 5; then echo "诊断：菜单 Quit 能退出（⌘Q 键未送达或未生效）"; else echo "诊断：菜单 Quit 后进程仍在（quit 路径本身被卡住）"; fi
+  if wait_exit 10; then echo "诊断：菜单 Quit 能退出（⌘Q 键未送达或未生效）"; else echo "诊断：菜单 Quit 后进程仍在（quit 路径本身被卡住）"; fi
+  # 主线程卡住时 sample 能给出卡点（诊断用）
+  if process_alive; then
+    sample "$APP_PID" 2 -file "$RUN_TMP/aao-smoke-sample.txt" >/dev/null 2>&1 || true
+    if [[ -f "$RUN_TMP/aao-smoke-sample.txt" ]]; then
+      echo "::group::sample（诊断用，前 80 行）"
+      sed -n '1,80p' "$RUN_TMP/aao-smoke-sample.txt" || true
+      echo "::endgroup::"
+    fi
+  fi
+  dump_log "主进程诊断时间线" "$DIAG_FILE"
   dump_log "Electron 运行日志" "$LOG_FILE"
   fail "系统级 ⌘Q 后进程仍在（pid=${APP_PID}）"
 fi
