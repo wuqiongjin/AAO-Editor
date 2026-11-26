@@ -76,7 +76,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 - Beat snap shortcuts: factory number keys **Set to 1/N** (Bestdori mapping: `1`/`2`/`3`/`4`/`6`/`8`/`9`/`0` → 1/1, 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16; `5`/`7` left free). If a digit was already taken in an older profile, the new function yields to "disabled". **Step Denser**, **Step Sparser**, and **Cycle Favorite Snaps** remain unbound by default; the cycle modal only edits the rotate list — custom 1–192 still uses the top-bar capsule.
 - Note tools: F single, G flick, A skill, S left directional, D right directional, E slide, W curve, R pointer, T delete, Q mirror, V paste.
 - Workspace preferences: slide drag shaping style (smooth curve / triangle bow), scroll direction inversion, 3-tier time precision (0.1s / 0.01s / 0.001s), and independent SE volume control.
-- The shortcut table writes the modifier as Ctrl; on macOS that's ⌘.
+- On macOS the shortcut table shows Ctrl as ⌘ (joined, e.g. ⌘F; physical Control still works). Mirror is shown as ⌃Q: ⌘Q is reserved for quitting the app, so use Control+Q to mirror. Windows and Linux still show Ctrl.
 
 ## Preview and chart images
 

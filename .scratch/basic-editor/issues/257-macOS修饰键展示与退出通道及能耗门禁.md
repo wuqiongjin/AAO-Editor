@@ -1,7 +1,7 @@
 # 257 · macOS 修饰键展示、⌘Q 退出通道与能耗门禁
 
 - **Type**: grilling
-- **Status**: open（定案于 2026-11-26；待实现）
+- **Status**: claimed（定案于 2026-11-26；代码已实现并锁测，**CI 冒烟待 GitHub `macos-latest` 首跑验收**）
 - **关联**: [ADR-0002](../../../docs/adr/0002-快捷键系统与自定义配置.md) · 前置 [210](./210-macOS能耗异常与音频硬件及应用壳保活优化.md) · [211](./211-macOS应用生命周期与关闭退出处理.md)
 - **相关（本票不改）**: [19](../../release-pipeline/issues/19-macOS未签名与Apple-Silicon提示已损坏.md)（签名 / Gatekeeper，已 resolved）
 
@@ -90,3 +90,21 @@
   - Round 4：Q13 只拆 ⌘Q、不动 ⌘A/⌘S。Q14 / Q14′ GitHub 真 Mac 冒烟验进程退出 + 电源锁，OK。
   - 行业对照：Apple HIG Command-Q = Quit；VS Code / Figma / Electron 均保留；Bestdori 网页在 Mac 上 ⌘Q 本就不会进页面。
 - **2026-11-26 自检**：对照定案修订本票——补症状/根因（分开已核实与未测）；19 从前置降为相关；Q9 写入「不改」；冒烟钉死 ≥30s 与注入 ⌘Q，禁止用 AppleScript quit 冒充；补 Q12「打包 job 顺带跑现有单测」。
+- **2026-11-26 开工确认**（用户答复，补强实现口径，不改 Q1–Q14′ 定案）：
+  - 用户**没有可用真机**，手工清单无法执行 → 不靠手工兜底；用 GitHub `macos-latest`（本身就是真 Mac）跑 CI 冒烟，⌘Q 退出断言放在 CI。先探 runner 上 `System Events` / `CGEvent` 辅助功能权限；若做不到，把实测结论回报用户再定，不用 AppleScript `quit` / `app.quit()` 冒充。
+  - 冒烟对象选**源码模式 `electron .`**（与 dmg 分发包的差异记录在案）。
+  - 若 CI 显示电源锁仍在，**先回报测量值给用户拍板**，不自选阈值改 `AudioEngine`。
+  - 冒烟失败让 `build-macos` job 红、阻断 artifact 上传；`ci.yml gate` 的 `npm test` 不变（macOS job 顺带再跑一遍按定案保留）。
+  - 改键捕获拒绝 ⌘Q 复用现有冲突提示通道（弹窗不关、就地提示、草稿保留可重按），文案「⌘Q 保留给系统退出」。
+- **2026-11-26 实现记录**：
+  - **展示**：`src/settings/ShortcutConfig.ts` 新增 `shortcutPlatform()`（渲染进程先走 `navigator.userAgentData/platform`，Node / 主进程回落 `process.platform`，测试可显式传或桩 `navigator.platform`）；`formatKey(key, platform)` Mac 按 Apple 惯例连写字形（`⌘F` / `⌘⇧Q` / `⌘Space`），仅保留串 `ctrl+q` 显示 `⌃Q`；`categoryShortcuts` 透传平台，快捷键页 / tooltip / 导航提示同源。Win/Linux 展示与绑定串均不变。
+  - **⌘Q 通道**：新增 `isReservedSystemQuit(e, platform)`（`darwin && metaKey && !ctrlKey && q`），`resolveAction` 在命中前直接返回 null ⇒ `useShortcutDispatch` 不 `preventDefault` 不派发，交给系统菜单；物理 Control+Q 仍镜像，⌘A / ⌘S 不动。改键录制弹窗复用冲突提示拒绝 ⌘Q，i18n 中英各加一条。
+  - **文档**：ADR-0002 头部 + §2.2 / §5 / §6，CONTEXT 术语表「执行」，文档站中英 features 同步。
+  - **CI**：`.github/workflows/build-artifacts.yml` 的 `build-macos` 加 `npm test` + `bash scripts/ci/macos-smoke.sh`（在 `electron:dist` 之后、上传 artifact 之前）；新脚本用源码模式 `electron .`，空闲 40s（≥ 30s）后解析 `pmset -g assertions` 的 `PreventUserIdleSystemSleep` 汇总与进程级断言，再用 `osascript` 的 `System Events` 发系统级 ⌘Q 并断言进程消失（僵尸态按已退出处理），失败信息直接指向本票口径。静态锁测在 `tests/static/ReleasePipeline.test.ts`。
+  - **验证**：新增 7 条 257 红测先红后绿；`npm test` 全量 **474 文件 / 5410 用例通过**；改动文件 `eslint` 无报错；`tsc -p tsconfig.test.json` 在本票改动文件中无错误（仓库现存 `ShortcutIndexFilter.test.ts` 的 copy/paste/cut 类型错误属 issue 256 遗留，本票未动）。`bash -n` 校验冒烟脚本通过。
+  - **未验证 / 下一步**：本机 Linux，**CI 冒烟脚本未在真 Mac 上跑过**。需手动 dispatch `build-artifacts.yml`（platform=macos）首次实跑：若 `osascript` 辅助功能权限不足 → 按开工确认回报用户，不改口径；若电源锁仍为 1 → 先回报测量值，再由用户拍板是否改 `AudioEngine` 空闲挂起。两者都绿再把状态改 `resolved`。未改 `AudioEngine` / `backgroundThrottling` / TILE_DPR / 120Hz / 生命周期 / 出厂串。
+- **2026-11-26 双轴 code-review 后修订**：
+  - **已改 6 项**：① 删掉 `tests/static/ReleasePipeline.test.ts` 里断言冒烟脚本源码文本的 2 条用例（违反 `tests/README.md` §各类型的取舍：static 只留接线事实），只保留 workflow 接线锁；脚本内电源锁 / ⌘Q 契约交真机首跑验。② `scripts/README.md` CI 脚本表补 `ci/macos-smoke.sh` 一行。③ 冒烟脚本抽 `dump_log()` 去掉四段重复日志打印。④ `formatKey` 用局部 `mac` 收敛重复平台分支。⑤ 去掉无调用方的 `IDLE_SECONDS` 环境覆盖，固定 40s。⑥ 冒烟脚本把「电源锁结论」与「⌘Q 退出断言」拆开：先 `::warning::` 记录锁测量值，仍跑完 ⌘Q 注入与退出断言，最后再按锁结论 fail——锁没清也能拿到退出通道结论（评审指出原实现在锁失败时提前 return，恰好漏掉用户最关心的 ⌘Q 验证）。
+  - **补 2 个 DOM 锁测**（评审指出原锁测只测纯函数）：`tests/dom/settings/ReservedQuitDispatch.test.tsx` 锁住 darwin ⌘Q 不派发 / 不 `preventDefault`、Control+Q 仍派发 `execMirror`；`tests/dom/pages/ShortcutsPageReservedQuit.test.tsx` 锁住录制弹窗按 ⌘Q 后不关窗、草稿不写入、Control+Q 可继续录制。两者桩 `navigator.platform='MacIntel'` 锁 darwin 分支。
+  - **未改 2 项及理由**：跨文件文档同步（ADR / CONTEXT / 文档站 / i18n）是本票实现落点明确要求，不是 Shotgun Surgery；Mac 连写与 `⇧`/`⌥` 字形是 `formatKey('ctrl+f') → ⌘F` 锁测 + Apple HIG 的自然延伸，已写进本票实现记录，不回退成 `⌘+Shift+Q`。
+  - **复验**：`npm test` 全量 **476 文件 / 5411 用例通过**（新增 3 条 DOM、删去 2 条越界 static）；改动文件 `eslint` 无报错；`bash -n` 通过。CI 冒烟仍待真 Mac 首跑，状态维持 `claimed`。

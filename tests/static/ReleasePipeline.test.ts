@@ -14,6 +14,7 @@ const mirror = readSource('scripts/ci/ci-mirror-github.sh');
 const installersMirror = readSource('scripts/ci/ci-mirror-installers.mjs');
 const assets = readSource('scripts/ci/ci-assets.sh');
 const assetsSync = readSource('scripts/assets-sync.mjs');
+const buildArtifacts = readSource('.github/workflows/build-artifacts.yml');
 const pkg = JSON.parse(readSource('package.json')) as {
   scripts: Record<string, string>;
 };
@@ -257,4 +258,20 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(runtime).toContain('?format=json');
     expect(runtime).toContain('pickLatestCnbReleaseTag');
   });
+});
+
+// issue 257：门禁挂在现有 macOS 打包 job 上（不给每次 PR 加 Mac），冒烟验进程与电源锁。
+describe('issue 257 · macOS 打包 job 冒烟接线静态锁', () => {
+  const macJob = buildArtifacts.slice(
+    buildArtifacts.indexOf('build-macos:'),
+    buildArtifacts.indexOf('build-windows:'),
+  );
+
+  it('build-macos 顺带跑现有单测，构建后跑冒烟，冒烟在上传 artifact 之前', () => {
+    expect(macJob).toContain('run: npm test');
+    expect(macJob).toContain('bash scripts/ci/macos-smoke.sh');
+    expect(macJob.indexOf('npm run electron:dist')).toBeLessThan(macJob.indexOf('scripts/ci/macos-smoke.sh'));
+    expect(macJob.indexOf('scripts/ci/macos-smoke.sh')).toBeLessThan(macJob.indexOf('upload-artifact'));
+  });
+  // 冒烟脚本内部的电源锁 / ⌘Q 契约由真机首跑验，不在这里断言源码文本（tests/README.md §各类型的取舍）
 });
