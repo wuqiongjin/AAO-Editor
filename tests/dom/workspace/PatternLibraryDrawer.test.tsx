@@ -965,7 +965,8 @@ describe('issue 207 · 渲染隔离与 memo 保护', () => {
     try {
       setup({ seed: [makePattern({ id: 'p1', name: '片段 1' }), makePattern({ id: 'p2', name: '片段 2' })] });
       await waitFor(() => expect(screen.getByText('片段 1')).toBeInTheDocument());
-      expect(observedElements.length).toBe(2);
+      // 卡片由异步库载入后提交；passive effect 可能晚于文本落地，observe 也要等
+      await waitFor(() => expect(observedElements.length).toBe(2));
     } finally {
       (window as unknown as { IntersectionObserver?: unknown }).IntersectionObserver = originalIO;
     }

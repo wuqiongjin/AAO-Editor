@@ -61,9 +61,18 @@ echo "系统汇总 PreventUserIdleSystemSleep=${LOCK_VALUE:-<无>}；本应用�
 echo "::endgroup::"
 if [[ -n "$LOCK_PROBLEM" ]]; then echo "::warning::$LOCK_PROBLEM"; fi
 
+echo "探测 System Events 辅助功能权限（issue 257 开工确认：先探权限再决定是否注入）"
+AX_STATE="$(osascript -e 'tell application "System Events" to get UI elements enabled' 2>&1 || true)"
+echo "System Events UI elements enabled=${AX_STATE}"
+if [[ "$AX_STATE" != "true" ]]; then
+  fail "runner 未授予 System Events 辅助功能权限（UI elements enabled=${AX_STATE}），无法注入系统级 ⌘Q；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
+fi
+
 echo "注入系统级 ⌘Q（不使用 AppleScript quit / app.quit()）"
+# 冒烟对象是源码模式 electron .，进程名是 Electron（不是 release/ 里打出来的 AAO Editor.app）；
+# 按 pid 置前，避免 LaunchServices 把刚打好的 App 拉起来、⌘Q 打偏目标。
 if ! osascript \
-  -e 'tell application "AAO Editor" to activate' \
+  -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${APP_PID} to true" \
   -e 'delay 1' \
   -e 'tell application "System Events" to keystroke "q" using command down' \
   >"$OSA_LOG" 2>&1; then
