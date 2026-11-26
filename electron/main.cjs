@@ -236,6 +236,12 @@ if (process.env.AAO_SMOKE_DIAG === '1') {
     log('diag enabled');
     app.on('ready', () => log('app ready'));
     app.on('activate', () => log('app activate', describe()));
+    const heartbeat = setInterval(() => log('heartbeat', describe()), 2000);
+    heartbeat.unref();
+    app.on('before-quit', () => {
+        clearInterval(heartbeat);
+        log('heartbeat stopped');
+    });
     for (const ev of ['before-quit', 'will-quit', 'quit', 'window-all-closed']) {
         app.on(ev, () => log(`app ${ev}`, describe()));
     }
@@ -244,7 +250,8 @@ if (process.env.AAO_SMOKE_DIAG === '1') {
             try {
                 const handles = process._getActiveHandles?.().map(h => h?.constructor?.name) ?? [];
                 const requests = process._getActiveRequests?.().length ?? -1;
-                log('active handles after quit', JSON.stringify(handles), 'requests=', requests);
+                const resources = process.getActiveResourcesInfo?.() ?? [];
+                log('active handles after quit', JSON.stringify(handles), 'requests=', requests, 'resources=', JSON.stringify(resources));
             } catch (err) {
                 log('active handles probe failed', String(err));
             }
