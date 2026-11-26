@@ -198,10 +198,33 @@ function dedupeCandidates(list: readonly TargetCandidate[]): TargetCandidate[] {
 /** 一次导出的帧时间线（纯数据；`secondsAt` / `timestampUsAt` 是它上面的自由函数） */
 export interface ExportTimeline {
   fps: number;
-  /** 谱面长度（秒，ADR-0005 第一性：有音频 = 音频时长） */
+  /**
+   * 成片总长（秒）= 开场 + 前导 + 谱面 + 末击尾段 + 结尾。
+   * 生产路径由 `buildExportTimeline(segments)` 一次加出；不要在消费方再加一遍。
+   */
   durationSeconds: number;
   /** 总帧数 = `ceil(duration × fps)` */
   frameCount: number;
+  /** 谱面 0 秒在成片里的绝对秒 = 开场 + 前导 */
+  simStartSeconds: number;
+  /**
+   * 结尾切点与结尾 SE 的绝对秒 = simStart + 谱面 + 末击尾段。
+   * 画面 `t >= endingAt` 与 `endingSfxCues.at` 必须读这一份，禁止从总长倒推。
+   * 关掉结尾时等于总长（切点落在成片之外，永不命中）。
+   */
+  endingAt: number;
+}
+
+/**
+ * 五段输入（票 90）：公式仍是 `leadInSeconds` / `endingTailSeconds`，
+ * **组合只在 `buildExportTimeline` 这一处**。`chartDurationSeconds` = 谱面长度 D（音频时长）。
+ */
+export interface ExportTimelineSegments {
+  openingSeconds: number;
+  leadIn: number;
+  chartDurationSeconds: number;
+  chartTailSeconds: number;
+  endingSeconds: number;
 }
 
 /** 浮点收味：`duration × fps` 正好落在整数上时（30 × 60）不该被尾数顶到 +1 帧 */
@@ -265,7 +288,9 @@ export function leadInNoteAlphaAt(
 // 谱面段末尾按「最后一个可击打物的绝对秒 + 特效 / 判定字寿命」补一段真实时长，让末击
 // 自然播完再切结算。与开头的 lead-in 不同：tail 是连续量且可能为 0（谱面比音频短就不补），
 // BGM 已结束所以尾段静音，但画面继续推进（特效在衰减）。
-// **公式与 life 只在这里定义一次**：`endingAt` / 总长 / `stage.seconds` / 轨长都由它派生，
+// **公式与 life 只在这里定义一次**：`endingAt` 与成片总长由 `buildExportTimeline(segments)`
+// 一次加出（票 90：画面切点与结尾 SE 读同一 `endingAt`，禁止从总长倒推）；
+// 舞台秒 = `endingAt − simStart`。轨长仍按段相加（硬化成读总长不是本票必做项）。
 // 成片验收后若仍有残留或尾段偏长，只改 life 或公式，不动帧循环 / 结算三段 / 素材。
 
 /** 末击之后要留的寿命（秒）：打击特效 0.6 与判定字 1.0 取长者 */
@@ -375,19 +400,50 @@ export function videoHudAlphaAt(t: number, tl: VideoHudTimeline): number {
   return hudClamp01(Math.min(rise, fall));
 }
 
+function finiteNonNeg(n: number): number {
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+function timelineFromDuration(durationSeconds: number, fps: number): ExportTimeline {
+  const safeDuration = finiteNonNeg(durationSeconds);
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const raw = safeDuration * safeFps;
+  const frameCount = Math.max(1, Math.ceil(raw - FRAME_EPS));
+  return {
+    fps: safeFps,
+    durationSeconds: safeDuration,
+    frameCount,
+    simStartSeconds: 0,
+    endingAt: safeDuration,
+  };
+}
+
 /**
  * 建导出时间线。
  *
  * - **帧数 = `ceil(duration × fps)`**：不早停（末帧的秒仍 < duration，故最后一帧是"还没到终点"
  *   的那一拍），也不重复末帧（帧数不 +1 —— 多出来那一帧会与末帧同一秒）。
  * - `duration <= 0` → 至少 1 帧（空谱也要出一个可播的文件，不是 0 帧）。
+ * - 传入五段时一次加出 `simStartSeconds` / `endingAt` / 总长（票 90）；只传秒数时
+ *   `endingAt` = 总长（给帧数单测 / 无分段的旧调用）。
  */
-export function buildExportTimeline(durationSeconds: number, fps: number = EXPORT_FPS): ExportTimeline {
-  const safeDuration = Number.isFinite(durationSeconds) ? Math.max(0, durationSeconds) : 0;
-  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
-  const raw = safeDuration * safeFps;
-  const frameCount = Math.max(1, Math.ceil(raw - FRAME_EPS));
-  return { fps: safeFps, durationSeconds: safeDuration, frameCount };
+export function buildExportTimeline(segments: ExportTimelineSegments, fps?: number): ExportTimeline;
+export function buildExportTimeline(durationSeconds: number, fps?: number): ExportTimeline;
+export function buildExportTimeline(
+  durationOrSegments: number | ExportTimelineSegments,
+  fps: number = EXPORT_FPS,
+): ExportTimeline {
+  if (typeof durationOrSegments === 'object' && durationOrSegments) {
+    const openingSeconds = finiteNonNeg(durationOrSegments.openingSeconds);
+    const leadIn = finiteNonNeg(durationOrSegments.leadIn);
+    const chartDurationSeconds = finiteNonNeg(durationOrSegments.chartDurationSeconds);
+    const chartTailSeconds = finiteNonNeg(durationOrSegments.chartTailSeconds);
+    const endingSeconds = finiteNonNeg(durationOrSegments.endingSeconds);
+    const simStartSeconds = openingSeconds + leadIn;
+    const endingAt = simStartSeconds + chartDurationSeconds + chartTailSeconds;
+    return { ...timelineFromDuration(endingAt + endingSeconds, fps), simStartSeconds, endingAt };
+  }
+  return timelineFromDuration(durationOrSegments, fps);
 }
 
 /** 第 k 帧的**秒**（喂 `drawSimFrameAt`） */

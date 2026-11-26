@@ -80,6 +80,7 @@ export {
   type EndingInput,
   type ExportGeometry,
   type ExportTimeline,
+  type ExportTimelineSegments,
   type OpeningInput,
   type TargetCandidate,
   type VideoContainer,

@@ -59,21 +59,17 @@ export interface FrameDriverRequest {
    * 非 null 时时间轴最前面 `OPENING_SECONDS` 秒走开场四段，其后是前导补偿与谱面。
    */
   opening?: OpeningFrameInput | null;
-  /** 开场段长度（秒）：仅用于旧调用方回落；票 74 起谱面秒由 `simStartSeconds` 定 */
+  /**
+   * 开场段长度（秒）：只给前导淡入算 `leadIn = simStart − opening`。
+   * 谱面 0 秒与结尾切点读 `timeline.simStartSeconds` / `timeline.endingAt`（票 90）。
+   */
   openingSeconds?: number;
   /**
-   * 谱面 0 秒在整条视频里的绝对秒（票 74）= 开场段 + 前导补偿。
-   * 音轨的 BGM / 键音也按它后移；关掉开场时它就是 lead-in 本身。
-   */
-  simStartSeconds?: number;
-  /**
    * 结尾画面（chart-preview 52）：`null` = 关掉（时间轴到谱面 + 末击尾段结束为止）。
-   * 非 null 时其后那段（`endingSeconds`）由它画，**场地用谱面末帧**（`drawSimFrameAt` 同一份）。
+   * 非 null 时从 `timeline.endingAt` 起由它画，**场地用谱面末帧**（`drawSimFrameAt` 同一份）。
    * 票 75：舞台固定秒 = `D + tail`，所有音符 / 特效 / 按住环已过寿命窗口 ⇒ 结算下零残留。
    */
   ending?: EndingContentInput | null;
-  /** 结尾段长度（秒）：与 `ending` 成对给（关掉时是 0） */
-  endingSeconds?: number;
   /**
    * 每画出一帧就调（画布已就绪，`VideoFrame` 由本模块建好并在回调后 `close()`）。
    * 返回 Promise 会被 await —— 编码入队有背压时靠它把帧节奏压下来。
@@ -118,27 +114,22 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
 
   // 谱面 0 秒的绝对位置（票 74）= 开场 + 前导。③④ 开场段仍按 `openingSegmentAt(t)` 画干净场地，
   // 之后到 `simStartSeconds` 之前是负秒前导帧，画面由 `drawSimFrameAt` 自己按可见窗口剔除。
+  // 票 90：切点与 SE 都读 builder 写下的字段，不再从总长倒推 endingAt。
   const openingSeconds = Math.max(0, req.openingSeconds ?? 0);
-  const simStartSeconds = Math.max(0, req.simStartSeconds ?? req.openingSeconds ?? 0);
+  const simStartSeconds = Math.max(0, timeline.simStartSeconds);
   // 票 74 回修：封顶生效（慢速档）时，前导头 15 帧（0.25s @60fps）给音符层一层极短淡入，收掉 A≈0.22 直现的突变。
   // 只在帧循环里算 alpha，总长 / 音轨 / 实时回放都不动。
   const leadIn = Math.max(0, simStartSeconds - openingSeconds);
   const approachS = input.chart.approachS;
-  // 结尾段的起点 = 谱面 0 秒 + 谱面长度 + 末击尾段（票 75：总长已含 tail，故这里自然得出
-  // `chartSeconds = D + tail`；关掉结尾时 `endingAt` 落在总长之外，永不命中）。
+  // 舞台固定秒 = D + tail = endingAt − simStart（关掉结尾时 endingAt 等于总长，切点永不命中）。
   // 尾段沿用同一条 `seconds = t − simStartSeconds`，帧循环不新增分支。
-  const endingSeconds = req.ending ? Math.max(0, req.endingSeconds ?? 0) : 0;
-  const chartSeconds = Math.max(
-    0,
-    timeline.durationSeconds - simStartSeconds - endingSeconds,
-  );
-  const endingAt = simStartSeconds + chartSeconds;
+  const endingAt = timeline.endingAt;
+  const chartSeconds = Math.max(0, endingAt - simStartSeconds);
 
   // 票 76：跨段 HUD 的入 / 出锚点按生产常量拼成绝对秒。关开场时开场锚点归 0（入场从第 0 帧起）；
   // 关结尾时 `endingAt` 落在总长之外，`stampEnd` 自然超尾 ⇒ 末帧仍常驻、不淡出。
   const hudTimeline: VideoHudTimeline = {
-    // 开场四段由 `openingSegmentAt(t)` 按 `OPENING_TIMING` 常量切，锚点也取同一份常量：
-    // 旧调用方可能只给 `simStartSeconds` 而省掉 `openingSeconds`，那时不能用 0 当转场终点。
+    // 开场四段由 `openingSegmentAt(t)` 按 `OPENING_TIMING` 常量切，锚点也取同一份常量。
     openEnd: req.opening ? OPENING_SECONDS : 0,
     endingAt,
     stampDur: ENDING_SPEC.stampDur,
