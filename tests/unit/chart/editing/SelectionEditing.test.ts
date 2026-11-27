@@ -13,16 +13,21 @@ const slide = (): ChartNote => ({
   ]
 });
 
-// issue 59：beat 0 的 BPM 线不可删除 —— 删除退化为「重置为初始状态（120）」
-describe('deleteSelection · 初始 BPM 线保底', () => {
+// issue 62（2026-11-27 修正）：beat 0 不再特殊，BPM 线照常删除；
+// 只有删掉最后一条 BPM 时退化为「重置出默认 BPM（120@0）」。
+describe('deleteSelection · BPM 线删除与保底', () => {
   const bpm = (beat: number, v: number): ChartNote => ({ type: 'BPM', beat, bpm: v });
 
-  it('删除 beat0 BPM（值为 180）→ 不消失，数值重置为 120', () => {
+  it('删除 beat0 BPM（还有其它 BPM）→ 只删该线，不重置', () => {
+    const notes = [bpm(0, 180), bpm(8, 150)];
+    const out = deleteSelection(notes, [{ kind: 'note', noteIndex: 0 }]);
+    expect(out).toEqual([bpm(8, 150)]);
+  });
+
+  it('删除 beat0 BPM（它是最后一条）→ 重置为默认 BPM（120@0）', () => {
     const notes = [bpm(0, 180), { type: 'Single', beat: 4, lane: 0 } as ChartNote];
     const out = deleteSelection(notes, [{ kind: 'note', noteIndex: 0 }]);
-    expect(out).toHaveLength(2);
-    expect(out[0]).toEqual(bpm(0, 120));
-    expect(out[1]).toBe(notes[1]);
+    expect(out).toEqual([bpm(0, 120), { type: 'Single', beat: 4, lane: 0 }]);
   });
 
   it('非 beat0 的 BPM 线照常删除', () => {
@@ -31,7 +36,7 @@ describe('deleteSelection · 初始 BPM 线保底', () => {
     expect(out).toEqual([bpm(0, 120)]);
   });
 
-  it('框选含 beat0 BPM 的一组 → BPM 重置、其余照删', () => {
+  it('框选含 beat0 BPM 的一组 → 全部照删；删光所有 BPM 才重置出默认', () => {
     const notes = [bpm(0, 180), { type: 'Single', beat: 4, lane: 0 } as ChartNote, bpm(8, 150)];
     const out = deleteSelection(notes, [
       { kind: 'note', noteIndex: 0 },
@@ -44,6 +49,22 @@ describe('deleteSelection · 初始 BPM 线保底', () => {
   it('已经是 120 时删除 → 内容不变（仍重置一次，快照去重由 pushHistoryIfChanged 负责）', () => {
     const notes = [bpm(0, 120)];
     expect(deleteSelection(notes, [{ kind: 'note', noteIndex: 0 }])).toEqual(notes);
+  });
+
+  // issue 62 Q2b：谱面至少要有一条 BPM —— 删掉最后一条（且无 beat 0）同样退化为重置
+  it('删除最后一条 BPM（非 beat0）→ 重置为默认 BPM（120@0）', () => {
+    const notes = [bpm(8, 150), { type: 'Single', beat: 4, lane: 0 } as ChartNote];
+    const out = deleteSelection(notes, [{ kind: 'note', noteIndex: 0 }]);
+    expect(out).toEqual([bpm(0, 120), { type: 'Single', beat: 4, lane: 0 }]);
+  });
+
+  it('删掉唯一一条 BPM 与其它音符一起 → 仍重置出默认 BPM', () => {
+    const notes = [bpm(8, 150), { type: 'Single', beat: 4, lane: 0 } as ChartNote];
+    const out = deleteSelection(notes, [
+      { kind: 'note', noteIndex: 0 },
+      { kind: 'note', noteIndex: 1 },
+    ]);
+    expect(out).toEqual([bpm(0, 120)]);
   });
 });
 

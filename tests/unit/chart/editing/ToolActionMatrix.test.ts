@@ -132,10 +132,13 @@ describe('§2 BPM 工具单击', () => {
     expect(clickOps(input({ tool: 'bpm', notes, hit: noteSel(0)[0], pos: sp(4, 0), lastBpm: 150 })))
       .toEqual([{ t: 'setSelection', items: [] }]);
   });
-  it('删除工具单击已有 BPM 线 = 删除该线（issue 59 定案例外）', () => {
+  it('删除工具单击已有 BPM 线 = 删除该线（issue 59 定案例外；issue 62：删最后一条 → 重置默认 BPM）', () => {
     const notes: ChartNote[] = [bpm(4, 120), single(1, 1)];
     expect(clickOps(input({ tool: 'delete', notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
-      .toEqual([{ t: 'setNotes', notes: [single(1, 1)] }, { t: 'setSelection', items: [] }]);
+      .toEqual([
+        { t: 'setNotes', notes: [bpm(0, 120), single(1, 1)] },
+        { t: 'setSelection', items: [] },
+      ]);
   });
   it('镜像工具单击已有 BPM 线 = 不生效（无效果 + 清选区）', () => {
     const notes: ChartNote[] = [bpm(4, 120)];
@@ -646,19 +649,19 @@ describe('§2 框选矩阵', () => {
     expect(boxSelectOps('bpm', [bpm(2, 120)], noteSel(0))).toEqual([]);
     expect(boxSelectOps('paste', [single(1, 1)], noteSel(0))).toEqual([]);
   });
-  it('issue 71：delete 行例外 —— bpmInBox 里的 BPM 线被删（不进选区）', () => {
+  it('issue 71：delete 行例外 —— bpmInBox 里的 BPM 线被删（不进选区）；删最后一条 → 重置默认 BPM', () => {
     const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
     // 画布侧：items 只含音符（BPM 不在 computeItemsInBox 结果里），BPM 另由 computeBpmLinesInBox 给出
     const ops = boxSelectOps('delete', notes, noteSel(0), noteSel(1));
     expect(ops).toEqual([
-      { t: 'setNotes', notes: [] },
+      { t: 'setNotes', notes: [bpm(0, 120)] },
       { t: 'setSelection', items: [] },
     ]);
   });
-  it('issue 71：delete 行只框住 BPM（items 为空）→ 仍删掉该 BPM 线', () => {
+  it('issue 71：delete 行只框住 BPM（items 为空）→ 仍删掉该 BPM 线；它是最后一条 → 重置默认 BPM', () => {
     const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
     const ops = boxSelectOps('delete', notes, [], noteSel(1));
-    expect((ops[0] as any).notes).toEqual([single(1, 1)]);
+    expect((ops[0] as any).notes).toEqual([bpm(0, 120), single(1, 1)]);
   });
   it('回归：delete 行不带 bpmInBox 时不碰 BPM（旧行为）', () => {
     const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
@@ -824,10 +827,10 @@ describe('actionOnItemOps（删除工具点音符 ≡ 右键删除，issue 70）
     ]);
   });
 
-  it('删除 BPM 线同样生效（56 定的三条通路之一）', () => {
+  it('删除 BPM 线同样生效（56 定的三条通路之一）；删最后一条 → 重置默认 BPM（issue 62）', () => {
     const r = actionOnItemOps('delete', notes, { kind: 'note', noteIndex: 1 });
     expect(r[0]).toMatchObject({ t: 'setNotes' });
-    expect((r[0] as { notes: ChartNote[] }).notes.map(n => n.type)).toEqual(['Single', 'Single']);
+    expect((r[0] as { notes: ChartNote[] }).notes.map(n => n.type)).toEqual(['BPM', 'Single', 'Single']);
   });
 
   it('镜像单个条目：先建选区再改谱面（与 delete 的次序不同，不可互换）', () => {

@@ -10,6 +10,7 @@
 //   ⑤ 封面缺失照样建（警告由界面 Toast 说）。
 // 音频 / 封面的落名规则（票 35）由 assetNames.test.ts 与 songs/posts 的命名用例锁，这里只断言编排产出。
 import { describe, expect, it } from 'vitest';
+import { t as translate } from '@/src/i18n';
 import { CommunityError } from '@/src/community/transport';
 import { toPostCandidate, toSongCandidates, type PostCandidate } from '@/src/community/bestdori/mapping';
 import type { ChartProject, ProjectBinarySources } from '@/src/project/ChartProject';
@@ -326,12 +327,66 @@ describe('票 09 · 谱面是主线（没有「空白谱降级」）', () => {
     expect(t.writes).toHaveLength(0);
   });
 
-  it('Apply 闸门拒绝（空谱面代码没有 beat 0 BPM）：整笔不落盘', async () => {
+  it('Apply 闸门拒绝空谱面：整笔不落盘', async () => {
     const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart: [] } } } });
 
     const result = await t.run(post(CUSTOM_POST));
 
     expect(result).toMatchObject({ ok: false, reason: 'apply' });
+    if (!result.ok) expect(result.errors[0].reason).toBe(translate('chartCode.emptyChart'));
+    expect(t.writes).toHaveLength(0);
+  });
+
+  it('issue 62：#263678 缺 beat 0、首条 BPM 在 1 拍也能导入，源文本保真', async () => {
+    const chart = [
+      { bpm: 150, beat: 2, type: 'BPM' },
+      { bpm: 165, beat: 1, type: 'BPM' },
+      { type: 'Single', lane: 0, beat: 19 },
+    ];
+    const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart } } } });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved).not.toBeNull();
+    expect(saved!.charts[0].chartCodePristine).toBe(true);
+    expect(saved!.charts[0].appliedChartCodeText).toBe(JSON.stringify(chart));
+    expect(saved!.charts[0].notes.filter((note) => note.type === 'BPM').map((note) => [note.beat, note.bpm]))
+      .toEqual([[2, 150], [1, 165]]);
+    expect(saved!.charts[0].notes.some((note) => note.type === 'Single' && note.beat === 19)).toBe(true);
+  });
+
+  it('issue 62：首条 BPM 在负拍也可导入（beat 0 不再是要求）', async () => {
+    const chart = [
+      { bpm: 120, beat: -4, type: 'BPM' },
+      { type: 'Single', lane: 0, beat: 0 },
+    ];
+    const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart } } } });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved).not.toBeNull();
+    expect(saved!.charts[0].notes.filter((note) => note.type === 'BPM').map((note) => [note.beat, note.bpm]))
+      .toEqual([[-4, 120]]);
+  });
+
+  it('非空但没有 BPM：Apply 闸门拒绝，整笔不落盘', async () => {
+    const t = deps({
+      json: {
+        [DETAIL_URL]: {
+          result: true,
+          post: { ...CUSTOM_POST, chart: [{ type: 'Single', lane: 0, beat: 19 }] },
+        },
+      },
+    });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result).toMatchObject({ ok: false, reason: 'apply' });
+    if (!result.ok) expect(result.errors[0].reason).toBe(translate('chartCode.needBpm'));
     expect(t.writes).toHaveLength(0);
   });
 });

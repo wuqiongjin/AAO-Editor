@@ -18,7 +18,8 @@ import {
 
 const NOW = 1_700_000_000_000;
 const CHART_OK = JSON.stringify([{ type: 'BPM', bpm: 120, beat: 0 }]);
-const CHART_BAD = JSON.stringify([{ type: 'BPM', bpm: 185, beat: 4 }]);
+// issue 62：缺 beat 0 不再是拒绝理由；Apply 闸门现在的硬要求是「至少一条 BPM」
+const CHART_BAD = JSON.stringify([{ type: 'Single', lane: 1, beat: 4 }]);
 
 interface TestInput {
   withChart: boolean;

@@ -258,6 +258,7 @@ async function runChartImport<Input extends { withChart: boolean }>(
     ...meta,
     durationSeconds: preProbedDuration ?? meta.durationSeconds,
     chartCodeText: chart?.codeText ?? '',
+    chartProvided: chart != null && !chart.degraded,
     audioName: audio?.name ?? null,
     coverName: cover?.name ?? null,
   });

@@ -1,5 +1,6 @@
 import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, LongNote, SystemNote, OpaqueNote, ConnectionNote, ChartSourceObject } from '../types';
 import { t } from '../../i18n';
+import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import { checkChartDomainRules } from './ChartDomainRules';
 
 // 谱面代码类型定义
@@ -681,17 +682,45 @@ export function formatValidationError(error: ValidationError): string {
 }
 
 /**
- * 谱面代码是否包含第 0 拍的 BPM 音符（ADR-0001 谱面必须有初始 BPM）。
- * 保底语义的唯一权威判定：空/未指定初始 BPM 的代码应回到默认 120bpm 状态。
+ * 完整谱面代码是否包含第 0 拍的 BPM 音符。
+ * issue 62 起 beat 0 不再特殊：生产链路不再用它把关，仅保留给压力测试脚本盘点语料。
  */
-export function hasBeat0Bpm(chartCode: ChartCodeNote[]): boolean {
+export function hasBeat0Bpm(chartCode: readonly ChartCodeNote[]): boolean {
     return chartCode.some(note => note.type === 'BPM' && note.beat === 0);
 }
 
 /**
- * 同一保底语义的另一侧判定：直接看内部音符数组（不经代码序列化）。
- * 单音符 / 结点回写等"局部编辑"路径用它守住"不因局部编辑而失去第 0 拍 BPM"。
+ * 谱面代码是否至少包含一条 BPM 音符（位置不限，可为负拍）。
+ * issue 62 的数据有效性规则：首条 BPM 决定时间原点，完全没有 BPM 的谱面没有可用的时间轴。
  */
-export function hasBeat0BpmNote(notes: readonly ChartNote[]): boolean {
-    return notes.some(note => note.type === 'BPM' && note.beat === 0);
+export function hasBpm(chartCode: readonly ChartCodeNote[]): boolean {
+    return chartCode.some(note => note.type === 'BPM');
+}
+
+/** `hasBpm` 的内部音符数组版本：画布删除 / 局部编辑的最后一条 BPM 保护。 */
+export function hasAnyBpmNote(notes: readonly ChartNote[]): boolean {
+    return notes.some(note => note.type === 'BPM');
+}
+
+/** 默认谱面代码：beat 0 的 `DEFAULT_BPM`（空代码应用与"重置"共用，issue 62 Q4b）。 */
+export function defaultChartCode(): ChartCodeNote[] {
+    return [{ beat: 0, type: 'BPM', bpm: DEFAULT_BPM }];
+}
+
+export interface ChartCodeBpmEnsured {
+    code: ChartCodeNote[];
+    /** true = 原代码没有任何 BPM，已插入默认 `120@0`（调用方需刷新代码文本） */
+    injected: boolean;
+}
+
+/**
+ * 完整谱面代码「应用」前的 BPM 保底（issue 62，2026-11-27 用户修正口径）：
+ * 只保证应用后**至少一条 BPM** —— 允许删 beat 0（时间原点自动变成剩余首条 BPM）；
+ * 一条 BPM 都没有时强制在 beat 0 插入 `DEFAULT_BPM`，由调用方刷新代码文本。
+ *
+ * 外部来源（官方 / 社区导入、新增谱面）仍按 `hasBpm` 拒绝，不替来源补数据。
+ */
+export function ensureChartCodeBpm(chartCode: readonly ChartCodeNote[]): ChartCodeBpmEnsured {
+    if (hasBpm(chartCode)) return { code: [...chartCode], injected: false };
+    return { code: [...defaultChartCode(), ...chartCode], injected: true };
 }

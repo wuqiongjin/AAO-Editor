@@ -19,7 +19,7 @@ import { isSlide } from './SelectionEditing';
 import { slideSpans, regionIdentity } from './SlideSegments';
 import { countVisibleNodes, pruneSpanParam } from './SpanCurve';
 import {
-    convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasBeat0BpmNote, parseCodeRaw,
+    convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasAnyBpmNote, parseCodeRaw,
     type ChartCodeNote, type ChartCodeSingle, type ValidationError,
 } from './ChartConverter';
 
@@ -210,12 +210,13 @@ export function applyNoteCode(
         (converted as { subBeat?: number }).subBeat = note.subBeat;
     }
     const newNotes = notes.map((n, i) => (i === target.noteIndex ? converted : n));
-    // ADR-0001 保底：单音符编辑也不得把谱面拖进"无初始 BPM"的非法态（原本就没有则不追究）
-    if (hasBeat0BpmNote(notes) && !hasBeat0BpmNote(newNotes)) {
+    // issue 62（2026-11-27 修正）：beat 0 不再特殊，删掉它允许；唯一保底是「至少一条 BPM」——
+    // 原本有 BPM 的谱面不能经对象视图变成"无 BPM"（单条编辑不静默造线）。
+    if (hasAnyBpmNote(notes) && !hasAnyBpmNote(newNotes)) {
         return fail({
-            noteIndex: target.noteIndex, field: 'beat',
-            reason: t('noteCode.lostBpm0'),
-            expected: t('noteCode.lostBpm0Expected'),
+            noteIndex: target.noteIndex, field: 'type',
+            reason: t('noteCode.lostBpm'),
+            expected: t('noteCode.lostBpmExpected'),
         });
     }
     return { ok: true, notes: newNotes };

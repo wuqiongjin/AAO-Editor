@@ -13,16 +13,50 @@ describe('getBpmEvents', () => {
     expect(getBpmEvents([])).toEqual([{ beat: 0, bpm: DEFAULT_BPM }]);
   });
 
-  it('首事件不在 0 拍时补默认，其余按 beat 升序', () => {
+  it('首条 BPM 即时间原点，不再补 120；其余按 beat 升序', () => {
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 60, bpm: 240 },
       { type: 'BPM', beat: 30, bpm: 180 },
     ];
     expect(getBpmEvents(notes)).toEqual([
-      { beat: 0, bpm: DEFAULT_BPM },
       { beat: 30, bpm: 180 },
       { beat: 60, bpm: 240 },
     ]);
+  });
+
+  it('首条 BPM 之前按首条 BPM 向前外推（负秒），不夹到 0', () => {
+    const events = getBpmEvents([
+      { type: 'BPM', beat: 30, bpm: 180 },
+      { type: 'BPM', beat: 60, bpm: 240 },
+    ]);
+    expect(beatToSeconds(events, 30)).toBeCloseTo(0);
+    expect(beatToSeconds(events, 60)).toBeCloseTo(10);
+    expect(beatToSeconds(events, 0)).toBeCloseTo(-10);
+  });
+
+  it('#263678：首条 BPM 在 1 拍（165）时，19 拍 = 7.164s', () => {
+    const events = getBpmEvents([
+      { type: 'BPM', beat: 2, bpm: 150 },
+      { type: 'BPM', beat: 1, bpm: 165 },
+    ]);
+    expect(beatToSeconds(events, 19)).toBeCloseTo(60 / 165 + 17 * 60 / 150, 6);
+  });
+
+  it('首条 BPM 在负拍：原点仍在首条 BPM（负拍 → 负秒，beat 0 = 正值）', () => {
+    const events = getBpmEvents([{ type: 'BPM', beat: -4, bpm: 120 }]);
+    expect(events).toEqual([{ beat: -4, bpm: 120 }]);
+    expect(beatToSeconds(events, -4)).toBeCloseTo(0);
+    expect(beatToSeconds(events, -2)).toBeCloseTo(1);
+    expect(beatToSeconds(events, 0)).toBeCloseTo(2);
+  });
+
+  it('同拍多条 BPM：后者生效（稳定排序 + 后段优先）', () => {
+    const events = getBpmEvents([
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'BPM', beat: 0, bpm: 60 },
+    ]);
+    expect(events).toEqual([{ beat: 0, bpm: 120 }, { beat: 0, bpm: 60 }]);
+    expect(beatToSeconds(events, 1)).toBeCloseTo(1);
   });
 
   it('普通音符不产出 BPM 事件', () => {

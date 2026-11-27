@@ -29,6 +29,27 @@ export function indexOfLastBpm(notes: readonly ChartNote[]): number {
 }
 
 /**
+ * 最小 beat 上的**生效** BPM 事件下标（首条 BPM = 时间原点；同 beat 取数组序最后一条，
+ * 与 `indexOfPrecedingBpm` 的生效口径一致）。没有 BPM 事件 → -1。
+ */
+export function indexOfFirstBpm(notes: readonly ChartNote[]): number {
+  let first = -1;
+  let firstBeat = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < notes.length; i++) {
+    const note = notes[i]!;
+    if (note.type !== 'BPM') continue;
+    const beat = note.beat;
+    if (!Number.isFinite(beat)) continue;
+    // `<=` 同 beat 取后者：与稳定排序口径一致
+    if (first < 0 || beat <= firstBeat) {
+      first = i;
+      firstBeat = beat;
+    }
+  }
+  return first;
+}
+
+/**
  * 稳定排序后最后一条 `beat ≤ target` 的 BPM 事件下标 —— 即 `target` 处的**生效 BPM**来源。
  * 没有（含 target 非有限）→ -1。
  */

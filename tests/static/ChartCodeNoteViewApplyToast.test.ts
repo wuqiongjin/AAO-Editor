@@ -16,7 +16,8 @@ const APPLY_OK_TOAST = "showToast(t('chartCode.applyOk'), 'success')";
 /** 取 handleApply 里「对象视图 if」到「完整视图 commitApply 调用」之间的片段 */
 function noteViewBranch(src: string): string {
   const from = src.indexOf("if (target.kind === 'note')");
-  const to = src.indexOf('commitApply(parsedCode, chartCode)', from);
+  // issue 62 起完整视图经 BPM 保底后回写（缺 BPM → 自动补 120@0），不再直接 commitApply(parsedCode, …)
+  const to = src.indexOf('commitApply(ensured.code, appliedText)', from);
   expect(from).toBeGreaterThan(-1);
   expect(to).toBeGreaterThan(from);
   return src.slice(from, to);

@@ -12,9 +12,10 @@ export const DEFAULT_BPM = 120;
 
 /**
  * 从谱面音符提取 BPM 事件并按 beat 升序。
- * 与 FinalCanvas 的时间语义一致：首拍（beat 0）缺省时补默认 120。
+ * 首条 BPM（最小 beat）即时间原点：不再在 beat 0 补 120；只有完全无 BPM 时才补 120 兜底。
+ * 首条 BPM 之前的音符按首条 BPM 向前外推（负秒），与 Sonolus 实际一致（issue 62）。
  */
-export function getBpmEvents(notes: ChartNote[]): BpmEvent[] {
+export function getBpmEvents(notes: readonly ChartNote[]): BpmEvent[] {
   const events: BpmEvent[] = [];
   for (const note of notes) {
     if (note.type === 'BPM') {
@@ -22,7 +23,7 @@ export function getBpmEvents(notes: ChartNote[]): BpmEvent[] {
     }
   }
   events.sort((a, b) => a.beat - b.beat);
-  if (events.length === 0 || events[0].beat > 0) {
+  if (events.length === 0) {
     events.unshift({ beat: 0, bpm: DEFAULT_BPM });
   }
   return events;

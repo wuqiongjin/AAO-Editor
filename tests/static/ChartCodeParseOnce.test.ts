@@ -51,8 +51,9 @@ describe('谱面代码 · 一个入口（ChartConverter.parseCodeText）', () =>
     expect(body).toMatch(/parseCodeText\(/);
     const apply = functionBody(readStripped(MODAL), 'const handleApply');
     expect(apply).toMatch(/const \{ code: parsedCode, errors \} = validateCode\(chartCode\)/);
-    expect(apply).toMatch(/hasBeat0Bpm\(parsedCode\)/);
-    expect(apply).toMatch(/commitApply\(parsedCode, chartCode\)/);
+    // issue 62（修正口径）：编辑器只保证至少一条 BPM —— 缺 BPM 时补默认 120@0（不再有阻断提示）
+    expect(apply).toMatch(/ensureChartCodeBpm\(parsedCode \?\? \[\]\)/);
+    expect(apply).toMatch(/commitApply\(ensured\.code, appliedText\)/);
   });
 
   it('解析侧唯一真相源：ChartConverter 里 JSON.parse 只有一处（解析原语）', () => {

@@ -34,7 +34,7 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/** 从发帖载荷抽 BPM 事件；首条不在 beat 0 时补默认 120（与编辑器 / 导出头带同口径） */
+/** 从发帖载荷抽 BPM 事件；首条 BPM 即时间原点，只有完全没有 BPM 时才补 120（issue 62） */
 function bpmEventsOf(chartCode: readonly ChartCodeNote[]): BpmEvent[] {
   const events: BpmEvent[] = [];
   for (const note of chartCode) {
@@ -45,7 +45,7 @@ function bpmEventsOf(chartCode: readonly ChartCodeNote[]): BpmEvent[] {
     events.push({ beat, bpm });
   }
   events.sort((a, b) => a.beat - b.beat);
-  if (events.length === 0 || events[0].beat > 0) {
+  if (events.length === 0) {
     events.unshift({ beat: 0, bpm: DEFAULT_BPM });
   }
   return events;

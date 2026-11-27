@@ -2,7 +2,7 @@
 // 新建 / 复制工程 / 新增谱面（Apply 闸门）/ 复制谱面 / 切换器标签文案。
 import {
   convertChartCodeToNotes,
-  hasBeat0Bpm,
+  hasBpm,
   parseCodeText,
   type ValidationError,
 } from '../chart/editing/ChartConverter';
@@ -119,28 +119,41 @@ export interface AppliedChartCode {
   notes: ChartNote[];
   appliedChartCodeText: string | null;
   chartCodePristine: boolean;
+  /** 输入为空文本或空数组 `[]`：调用方据此决定「默认空谱」还是「拒绝」。 */
+  emptyInput: boolean;
 }
 
 export type ApplyChartCodeResult =
   | ({ ok: true } & AppliedChartCode)
   | { ok: false; errors: ValidationError[] };
 
+function emptyAppliedChartCode(): AppliedChartCode {
+  return {
+    notes: emptyChartNotes(),
+    appliedChartCodeText: null,
+    chartCodePristine: false,
+    emptyInput: true,
+  };
+}
+
 export function applyChartCodeText(codeText: string): ApplyChartCodeResult {
   const trimmed = codeText.trim();
-  if (!trimmed) {
-    return { ok: true, notes: emptyChartNotes(), appliedChartCodeText: null, chartCodePristine: false };
-  }
+  if (!trimmed) return { ok: true, ...emptyAppliedChartCode() };
   // 一次解析同时给出 code 与全部错误（不再「先 parse 校验、再 parse 取数组」）
   const parsed = parseCodeText(trimmed);
   if (!parsed.ok) return { ok: false, errors: parsed.errors };
-  if (!hasBeat0Bpm(parsed.code)) {
-    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm0') }] };
+  // issue 62：空数组按「空谱面」处理——新增谱面落默认 BPM，导入由调用方按 chartProvided 拒绝。
+  if (parsed.code.length === 0) return { ok: true, ...emptyAppliedChartCode() };
+  // issue 62：不再要求 beat 0；但必须至少有一条 BPM（位置不限）。
+  if (!hasBpm(parsed.code)) {
+    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm') }] };
   }
   return {
     ok: true,
     notes: convertChartCodeToNotes(parsed.code),
     appliedChartCodeText: trimmed,
     chartCodePristine: true,
+    emptyInput: false,
   };
 }
 
@@ -212,8 +225,13 @@ export interface OfficialProjectInput {
   diff: ChartDifficulty;
   /** 等级：只有勾了「带官方谱面」才给（等级是作品属性，人还没作谱，不预填） */
   level: number | null;
-  /** 官方谱面代码原文（勾了才给）；走 Apply 闸门，过不了就整笔不建 */
+  /** 外部谱面代码原文（勾了 / 帖子带了才给）；走 Apply 闸门，过不了就整笔不建 */
   chartCodeText?: string;
+  /**
+   * 来源是否真的提供了谱面内容（issue 62）：用于区分「没带谱面 → 建默认空谱」与
+   * 「带了但解析为空（如 `[]`）→ 整笔拒绝」。官方谱面降级 / 不勾选时为 false。
+   */
+  chartProvided?: boolean;
 }
 
 export type OfficialProjectResult =
@@ -223,6 +241,10 @@ export type OfficialProjectResult =
 export function createOfficialProject(input: OfficialProjectInput): OfficialProjectResult {
   const applied = applyChartCodeText(input.chartCodeText ?? '');
   if (!applied.ok) return { ok: false, errors: applied.errors };
+  // issue 62：来源确实带了谱面，却是空数组 → 不是「没带谱面」，整笔拒绝。
+  if (input.chartProvided && applied.emptyInput) {
+    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.emptyChart') }] };
+  }
 
   const base = createUnnamedProject({ id: input.id, chartId: input.chartId, now: input.now });
   const chart: ProjectChart = {

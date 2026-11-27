@@ -92,9 +92,22 @@ describe('issue 186 · 带 BPM 的写入判定', () => {
     expect(bpmLines(pastedNotes(ops))).toEqual([bpm(0, 120), bpm(8, -120), bpm(9, -60)]);
   });
 
-  it('落点在首条 BPM 之前：目标生效值按 DEFAULT_BPM 比（同速仍不写线）', () => {
+  it('落点在首条 BPM 之前：目标生效值按首条 BPM 比（不同则写线）', () => {
     const notes = [bpm(20, 180)];
     const ops = clickOps(input({ notes, pos: { beat: 4, lane: 3 }, pastePattern: { pattern: makePattern(), withBpm: true } }));
+    // 载荷追加在末尾，数组序不保证按 beat —— 只锁两条线都在且值正确
+    const lines = bpmLines(pastedNotes(ops));
+    expect(lines).toHaveLength(2);
+    expect(lines).toContainEqual(bpm(4, 120));
+    expect(lines).toContainEqual(bpm(20, 180));
+  });
+
+  it('落点在首条 BPM 之前且同速：仍不写线', () => {
+    const notes = [bpm(20, 180)];
+    const ops = clickOps(input({
+      notes, pos: { beat: 4, lane: 3 },
+      pastePattern: { pattern: makePattern({ bpmContext: { startBpm: 180, events: [] } }), withBpm: true },
+    }));
     expect(bpmLines(pastedNotes(ops))).toEqual([bpm(20, 180)]);
   });
 });

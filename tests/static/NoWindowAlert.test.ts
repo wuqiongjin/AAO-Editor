@@ -54,12 +54,12 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it('谱面代码弹窗的 9 处提示全接了 showToast', () => {
+  it('谱面代码弹窗的 8 处提示全接了 showToast', () => {
     // 应用成功（完整视图 commitApply）/ 应用成功（对象视图·issue 227）/ 应用失败 /
-    // 校验不过（两条）/ 缺第 0 拍 BPM / 复制成功 / 复制失败 / 另存失败
-    expect(toastCalls(codeModal)).toBe(9);
+    // 校验不过（两条）/ 复制成功 / 复制失败 / 另存失败
+    // （issue 62 修正后编辑器不再有 BPM 阻断提示：缺 BPM 自动补默认 120@0）
+    expect(toastCalls(codeModal)).toBe(8);
     expect(codeModal).toMatch(/showToast\(t\('chartCode\.applyOk'\), 'success'\)/);
-    expect(codeModal).toMatch(/showToast\(t\('chartCode\.needBpm0'\), 'danger'\)/);
   });
 
   it('工程页（删最后一张 / 待确认拦删 / 新增被拒 / 官方导入降级警告·票 26 / 社区导入缺封面警告·票 09 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {

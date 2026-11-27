@@ -211,10 +211,10 @@ describe('票 08 · 素材缺失与闸门拒绝', () => {
     expect(t.notified()).toBe(0);
   });
 
-  it('官方谱面代码过不了闸门（缺 beat 0 的 BPM）→ 整笔不建', async () => {
+  it('官方谱面代码过不了闸门（一条 BPM 都没有）→ 整笔不建', async () => {
     const { store, writes } = recordingStore();
     const transport = makeFakeCommunityTransport({
-      text: { [CHART_URL]: JSON.stringify([{ type: 'BPM', bpm: 185, beat: 4 }]) },
+      text: { [CHART_URL]: JSON.stringify([{ type: 'Single', lane: 1, beat: 4 }]) },
       binary: { [AUDIO_URL]: STAGED_AUDIO, [JACKET_URL]: STAGED_COVER },
     });
 

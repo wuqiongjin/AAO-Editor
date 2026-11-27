@@ -1,6 +1,6 @@
-// issue 186 锁测：片段粘贴的「目标落点生效 BPM」取值（ADR-0023 §2 的判定输入端）。
+// issue 186 / issue 62 锁测：片段粘贴的「目标落点生效 BPM」取值（ADR-0023 §2 的判定输入端）。
 // 口径 = 稳定排序后最后一条 `beat ≤ 落点` 的 BPM（与采集侧 startBpm 同一份前驱函数）；
-// 落点之前没有 BPM 时按 DEFAULT_BPM —— 与播放/几何侧对"首条 BPM 之前"的假定一致。
+// 落点之前没有 BPM 时按首条 BPM（它就是时间原点）；完全没有 BPM 才回 DEFAULT_BPM。
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BPM } from '@/src/audio/AudioTiming';
 import { effectiveBpmAt } from '@/src/patterns/PasteBpmDecision';
@@ -25,10 +25,18 @@ describe('issue 186 · 目标落点生效 BPM', () => {
     expect(effectiveBpmAt(notes, 5)).toBe(160);
   });
 
-  it('落点在首条 BPM 之前 → DEFAULT_BPM（谱面域对"还没定速"的假定）', () => {
+  it('落点在首条 BPM 之前 → 取首条 BPM（issue 62：首条 BPM 即时间原点）', () => {
     const notes = [bpm(4, 180), single(5, 1)];
-    expect(effectiveBpmAt(notes, 1)).toBe(DEFAULT_BPM);
-    expect(effectiveBpmAt(notes, 0)).toBe(DEFAULT_BPM);
+    expect(effectiveBpmAt(notes, 1)).toBe(180);
+    expect(effectiveBpmAt(notes, 0)).toBe(180);
+  });
+
+  it('一条 BPM 都没有 → DEFAULT_BPM 兜底', () => {
+    expect(effectiveBpmAt([single(1, 1)], 0)).toBe(DEFAULT_BPM);
+  });
+
+  it('首条 BPM 同拍多条：仍取数组序最后一条', () => {
+    expect(effectiveBpmAt([bpm(4, 180), bpm(4, 200), single(5, 1)], 1)).toBe(200);
   });
 
   it('beat 非有限 / bpm 非有限的条目跳过，不污染取值', () => {

@@ -104,16 +104,36 @@ describe('§5 applyNoteCode 整条音符', () => {
         expect((r.notes[1] as SlideNote).connections).toHaveLength(1);
     });
 
-    test('改动会丢掉第 0 拍 BPM → 报错不回写（ADR-0001 保底）', () => {
+    test('把 beat 0 的 BPM 移到其它拍 → 允许（beat 0 不再特殊，谱面仍有 BPM）', () => {
         const r = applyNoteCode(notes, whole(0), [{ beat: 4, type: 'BPM', bpm: 150 }]);
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.notes[0]).toEqual({ type: 'BPM', beat: 4, bpm: 150 });
+    });
+
+    test('把 beat 0 的 BPM 改成单键、但还有其它 BPM → 允许', () => {
+        const ns: ChartNote[] = [bpm(0, 120), bpm(8, 150), single(1, 2)];
+        const r = applyNoteCode(ns, whole(0), [{ beat: 0, lane: 0, type: 'Single' }]);
+        expect(r.ok).toBe(true);
+    });
+
+    test('把 beat 0 的 BPM 改成单键、且它是最后一条 BPM → 拒绝（lostBpm）', () => {
+        const r = applyNoteCode(notes, whole(0), [{ beat: 0, lane: 0, type: 'Single' }]);
         expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.errors[0].reason).toContain('第 0 拍');
+        if (!r.ok) expect(r.errors[0].reason).toContain('最后一条 BPM');
     });
 
     test('原本就没有第 0 拍 BPM 时，不做追究（不把既有脏数据当成新错误）', () => {
         const ns: ChartNote[] = [single(1, 1)];
         const r = applyNoteCode(ns, whole(0), [{ beat: 1, lane: 5, type: 'Single' }]);
         expect(r.ok).toBe(true);
+    });
+
+    // issue 62 Q2b：至少一条 BPM 是数据有效性 —— 对象视图也不能把最后一条 BPM 改没
+    test('改动会让最后一条 BPM（非 beat 0）消失 → 报错不回写', () => {
+        const ns: ChartNote[] = [bpm(20, 180), single(21, 1)];
+        const r = applyNoteCode(ns, whole(0), [{ beat: 20, type: 'Single', lane: 1 }]);
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.errors[0].reason).toContain('最后一条 BPM');
     });
 
     // issue 103 / ADR-0010 结论 8：对象视图按**片段**校验（跳过"末条 BPM 必须为正"），

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BpmTimeline } from '@/src/chart/geometry/BpmTimeline';
-import { DEFAULT_BPM, getBpmEvents, beatToSeconds, secondsToBeat } from '@/src/audio/AudioTiming';
+import { getBpmEvents, beatToSeconds, secondsToBeat } from '@/src/audio/AudioTiming';
 import type { ChartNote } from '@/src/chart/types';
 
 describe('BpmTimeline（秒坐标系）', () => {
@@ -50,14 +50,15 @@ describe('BpmTimeline（秒坐标系）', () => {
 });
 
 describe('AudioTiming 复用 BpmTimeline 后行为不变', () => {
-  it('beatToSeconds / secondsToBeat 与 getBpmEvents 协作', () => {
+  it('beatToSeconds / secondsToBeat 与 getBpmEvents 协作（首条 BPM 即原点）', () => {
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 60, bpm: 240 },
       { type: 'BPM', beat: 30, bpm: 180 },
     ];
     const events = getBpmEvents(notes);
-    expect(events[0]).toEqual({ beat: 0, bpm: DEFAULT_BPM });
-    expect(beatToSeconds(events, 0)).toBe(0);
+    expect(events[0]).toEqual({ beat: 30, bpm: 180 });
+    expect(beatToSeconds(events, 30)).toBe(0);
+    expect(beatToSeconds(events, 0)).toBeCloseTo(-10);
     expect(secondsToBeat(events, beatToSeconds(events, 30))).toBeCloseTo(30, 6);
   });
 });

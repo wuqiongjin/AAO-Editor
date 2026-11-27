@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { convertNotesToChartCode } from '@/src/chart/editing/ChartConverter';
 import {
   addChartToProject,
+  applyChartCodeText,
   chartSwitchLabel,
   diffPillLabel,
   createBlankProject,
+  createOfficialProject,
   deleteChartFromProject,
   duplicateChartInProject,
   duplicateProject,
@@ -19,9 +21,9 @@ import {
   updateChartTags,
   updateUploadedChartMeta,
 } from '@/src/project/projectCatalog';
-import { createUnnamedProject } from '@/src/project/workspaceProject';
+import { createUnnamedProject, emptyChartNotes } from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
-import { setActiveUiLanguage } from '@/src/i18n';
+import { setActiveUiLanguage, t } from '@/src/i18n';
 
 const untitled = '未命名工程';
 
@@ -103,6 +105,92 @@ describe('addChartToProject · 谱面代码 Apply 闸门', () => {
     }, { chartId: 'cBad', now: 9 });
     expect(result.ok).toBe(false);
     expect(src.charts).toHaveLength(1);
+  });
+});
+
+describe('issue 62 · beat 0 / BPM 规则', () => {
+  const official = (overrides: Record<string, unknown> = {}) => createOfficialProject({
+    id: 'pOfficial1',
+    chartId: 'cOfficial1',
+    now: 7,
+    name: '测试曲',
+    artist: null,
+    source: { type: 'bandori', id: 1 },
+    durationSeconds: 30,
+    audioName: null,
+    coverName: null,
+    diff: 3,
+    level: null,
+    ...overrides,
+  });
+
+  it('接受没有 beat 0、但至少有一条 BPM 的谱面代码', () => {
+    const result = applyChartCodeText(JSON.stringify([
+      { type: 'BPM', bpm: 165, beat: 1 },
+      { type: 'BPM', bpm: 150, beat: 2 },
+      { type: 'Single', lane: 0, beat: 19 },
+    ]));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.emptyInput).toBe(false);
+    expect(result.chartCodePristine).toBe(true);
+    expect(result.notes.filter((note) => note.type === 'BPM')).toEqual([
+      { type: 'BPM', bpm: 165, beat: 1 },
+      { type: 'BPM', bpm: 150, beat: 2 },
+    ]);
+  });
+
+  it('非空但没有 BPM：拒绝并指向 needBpm', () => {
+    const result = applyChartCodeText(JSON.stringify([{ type: 'Single', lane: 0, beat: 19 }]));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toEqual([{ noteIndex: -1, reason: t('chartCode.needBpm') }]);
+  });
+
+  it('空数组 []：按空谱面处理（新增谱面落默认 BPM）', () => {
+    const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });
+    const result = addChartToProject(src, {
+      title: null,
+      diff: 2,
+      level: null,
+      codeText: '[]',
+    }, { chartId: 'cHd1', now: 2 });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chart.notes).toEqual(emptyChartNotes());
+    expect(result.chart.appliedChartCodeText).toBeNull();
+    expect(result.chart.chartCodePristine).toBe(false);
+  });
+
+  it('导入来源真的带了谱面但为空：拒绝为 emptyChart', () => {
+    const result = official({ chartCodeText: '[]', chartProvided: true });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toEqual([{ noteIndex: -1, reason: t('chartCode.emptyChart') }]);
+  });
+
+  it('导入来源没带谱面：空文本仍建默认 BPM 空谱', () => {
+    const result = official({ chartCodeText: '', chartProvided: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chart.notes).toEqual(emptyChartNotes());
+  });
+
+  it('导入的来源谱面没有 beat 0：接受', () => {
+    const result = official({
+      chartProvided: true,
+      chartCodeText: JSON.stringify([
+        { type: 'BPM', bpm: 165, beat: 1 },
+        { type: 'Single', lane: 0, beat: 19 },
+      ]),
+    });
+
+    expect(result.ok).toBe(true);
   });
 });
 
