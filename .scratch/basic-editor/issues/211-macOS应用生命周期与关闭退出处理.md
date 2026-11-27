@@ -54,3 +54,5 @@ AAO Editor 点击红叉关闭后，它仍然会在后台常驻运行，无法通
 - 锁测：新增 `tests/static/ElectronMenuPlatform.test.ts`（静态锁）与 `tests/unit/electronLifecycle.test.ts`（单测）；全量 385 个测试文件（4302 测试用例）及 `npm run build` 全部通过。
 
 ## Comments
+
+- **2026-11-26**：用户再次反馈「正常关闭无法退出、须活动监视器」。本票方案 B（红叉关窗不退出）**维持**（257 Q1）。后续把 ⌘Q 从镜像里拆出来、CI 断言进程能退出，见 [257](./257-macOS修饰键展示与退出通道及能耗门禁.md)。
