@@ -37,7 +37,7 @@ describe('滚到开头时 beat 0 BPM 整盒可见', () => {
         const g = new ChartGeometry(bpm120, { endBeat: 32 }, { w: 750, h });
         const es = g.effectiveScale(scale);
         const lineY = lineYAt(g, es, g.chartEndVirtualY);
-        const anchor = bpmLabelAnchorY(0, lineY, FONT, h);
+        const anchor = bpmLabelAnchorY(0, lineY, FONT, 0);
         expect(classify(anchor, h, FONT), `h=${h} es=${es} lineY=${lineY}`).toBe('full');
       }
     }
@@ -54,7 +54,7 @@ describe('滚到开头时 beat 0 BPM 整盒可见', () => {
         for (const top of [maxScroll, Math.max(0, maxScroll - 1)]) {
           const sy = model.scrollTopToCanvasScrollY(top, maxScroll);
           const lineY = lineYAt(g, es, sy);
-          const anchor = bpmLabelAnchorY(0, lineY, FONT, h);
+          const anchor = bpmLabelAnchorY(0, lineY, FONT, 0);
           expect(classify(anchor, h, FONT), `h=${h} es=${es} top=${top}`).toBe('full');
         }
       }

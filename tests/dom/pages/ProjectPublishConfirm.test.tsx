@@ -8,6 +8,7 @@
 //   ⑤ 失败就地内联在弹窗里（不 Toast、不关窗）；**已发布过的谱面不再禁用**，而是进「更新」态
 //      （标题「更新谱面」、主按钮「更新」、无二次确认）——票 51 起的口径。
 import '@testing-library/jest-dom/vitest';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
@@ -70,7 +71,13 @@ function renderDialog(options: {
   chartCode?: ChartCodeNote[];
   onPublish?: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
   onEdit?: (input: { diff: number; level: number; tags: { type: 'text'; data: string }[] }) => Promise<EditChartOutcome>;
+  onRecover?: (postId?: number) => Promise<boolean>;
+  onClose?: () => void;
+  onUpdateProject?: (updater: (project: ChartProject) => ChartProject | null) => Promise<void> | void;
+  onOpenAudio?: () => void;
   uploadRefs?: ProjectUploadRefs | null;
+  /** 需要观察「封面写回后重取引用」时给函数桩；优先于 uploadRefs */
+  loadUploadRefs?: () => Promise<ProjectUploadRefs | null>;
 } = {}) {
   const onPublish = options.onPublish ?? vi.fn(async () => ({ ok: true as const, postId: 1, recordWritten: true }));
   render(
@@ -80,9 +87,15 @@ function renderDialog(options: {
       chartCode={options.chartCode ?? CHART_CODE}
       onPublish={onPublish}
       onEdit={options.onEdit}
-      {...(options.uploadRefs === undefined
-        ? {}
-        : { loadUploadRefs: async () => options.uploadRefs as ProjectUploadRefs | null })}
+      onRecover={options.onRecover}
+      onClose={options.onClose}
+      onUpdateProject={options.onUpdateProject}
+      onOpenAudio={options.onOpenAudio}
+      {...(options.loadUploadRefs
+        ? { loadUploadRefs: options.loadUploadRefs }
+        : options.uploadRefs === undefined
+          ? {}
+          : { loadUploadRefs: async () => options.uploadRefs as ProjectUploadRefs | null })}
     />,
   );
   return onPublish;
@@ -154,7 +167,9 @@ describe('票 11 · 发布弹窗：必填预检与确认门', () => {
       chart: makeChart({ notes: [{ beat: 0, type: 'System', data: 'bgm1020.wav' }] as never }),
       chartCode: [{ type: 'System', beat: 0, data: 'bgm1020.wav' }],
     });
-    expect(await screen.findByRole('alert')).toHaveTextContent('这张谱面还没有可发布的音符');
+    const stat = screen.getByText('0', { selector: '.ppc-stat__v' }).closest('.ppc-stat');
+    expect(stat).toHaveClass('is-missing');
+    expect(stat).toHaveAttribute('title', '这张谱面还没有可发布的音符');
     expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
   });
 
@@ -245,6 +260,106 @@ describe('票 11 · 发布弹窗：递出去的入参', () => {
     });
   });
 
+  it('custom 缺封面：封面卡标必填缺失，发布键禁用', async () => {
+    renderDialog({
+      project: makeProject({ source: { type: 'custom' } }),
+      onUpdateProject: vi.fn(),
+      uploadRefs: {
+        audio: { path: '/data/projects/p1/audio.bin', size: 1024, hash: 'a'.repeat(40) },
+        cover: null,
+      },
+    });
+    fillDescription('x');
+    expect(screen.getByText('添加封面')).toBeInTheDocument();
+    expect(screen.getByText('自定义曲目必填')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '发布' })).toBeDisabled());
+  });
+
+  it('custom 可就地设置封面：选图后写回工程', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:cover' });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
+    const onUpdateProject = vi.fn(async (updater: (p: ChartProject) => ChartProject | null) => {
+      updater(makeProject({ source: { type: 'custom' } }));
+    });
+    renderDialog({
+      project: makeProject({ source: { type: 'custom' } }),
+      onUpdateProject,
+      uploadRefs: {
+        audio: { path: '/data/projects/p1/audio.bin', size: 1024, hash: 'a'.repeat(40) },
+        cover: null,
+      },
+    });
+    const file = new File([new Uint8Array([1])], 'cover.png', { type: 'image/png' });
+    const input = document.querySelector('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [file] } });
+    await waitFor(() => expect(onUpdateProject).toHaveBeenCalledTimes(1));
+
+    const updater = onUpdateProject.mock.calls[0][0];
+    const next = updater(makeProject({ source: { type: 'custom' } }));
+    expect(next?.coverBlob).toBe(file);
+    expect(next?.coverName).toBe('cover.png');
+  });
+
+  it('就地设置封面后重取上传引用：发帖载荷带上新封面', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:cover' });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
+    const audio = { path: '/data/projects/p1/audio.bin', size: 1024, hash: 'a'.repeat(40) };
+    const cover = { path: '/data/projects/p1/cover.bin', size: 512, hash: 'b'.repeat(40) };
+    const onUpdateProject = vi.fn(async (updater: (p: ChartProject) => ChartProject | null) => {
+      updater(makeProject({ source: { type: 'custom' } }));
+    });
+    // 第一次（打开弹窗）没有封面；写回后第二次才读得到——载荷若吃旧 refs 就会漏封面
+    const loadUploadRefs = vi.fn(async () => ({
+      audio,
+      cover: loadUploadRefs.mock.calls.length > 1 ? cover : null,
+    }));
+    const onPublish = renderDialog({
+      project: makeProject({ source: { type: 'custom' } }),
+      onUpdateProject,
+      loadUploadRefs,
+    });
+    fillDescription('x');
+    await waitFor(() => expect(loadUploadRefs).toHaveBeenCalledTimes(1));
+
+    const file = new File([new Uint8Array([1])], 'cover.png', { type: 'image/png' });
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    await waitFor(() => expect(loadUploadRefs).toHaveBeenCalledTimes(2));
+
+    const input = await confirmAndPublish(onPublish);
+    expect(input.song).toEqual({
+      kind: 'custom',
+      audio: { ...audio, fileName: 'official-413- excite.mp3' },
+      cover: { ...cover, fileName: 'cover.png' },
+    });
+  });
+
+  it('保存封面期间不把整个弹窗切成「发布中」：无状态行、取消仍可点、主键文案不变', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:cover' });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const onUpdateProject = vi.fn(async () => { await pending; });
+    renderDialog({
+      project: makeProject({ source: { type: 'custom' } }),
+      onUpdateProject,
+      uploadRefs: {
+        audio: { path: '/data/projects/p1/audio.bin', size: 1024, hash: 'a'.repeat(40) },
+        cover: null,
+      },
+    });
+    const file = new File([new Uint8Array([1])], 'cover.png', { type: 'image/png' });
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    await waitFor(() => expect(document.querySelector('.cover-card')?.className).toContain('is-busy'));
+
+    expect(document.querySelector('.off-status--busy')).toBeNull();
+    expect(screen.getByRole('button', { name: '取消' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '发布' })).toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(document.querySelector('.cover-card')?.className).not.toContain('is-busy'));
+  });
+
   it('custom 上传引用读不到：发布键禁用 + 就地一行（不静默放行）', async () => {
     renderDialog({ project: makeProject({ source: { type: 'custom' } }), uploadRefs: null });
     fillDescription('x');
@@ -285,6 +400,91 @@ describe('票 11 · 发布弹窗：失败就地内联', () => {
     fireEvent.click(screen.getByRole('button', { name: '发布' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认发布' }));
     expect(await screen.findByText('连不上社区平台，检查网络后重试。')).toBeInTheDocument();
+  });
+});
+
+describe('票 58 · 发布结果待确认', () => {
+  it('结果不明后只提供查帖操作，不再提供发布与重试', async () => {
+    const onPublish = vi.fn(async () => ({ ok: false as const, failure: 'pending-confirmation' as const }));
+    const onRecover = vi.fn(async () => false);
+    renderDialog({ onPublish, onRecover });
+    fillDescription();
+    await confirmAndPublish(onPublish);
+    expect(await screen.findByText('发布结果待确认')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+    expect(screen.getByRole('button', { name: '打开社区' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '重新核对' }));
+    expect(onRecover).toHaveBeenCalledWith(undefined);
+    expect(onPublish).toHaveBeenCalledOnce();
+  });
+
+  it('核对过程中不把发布键以「发布中」形态放回来', async () => {
+    let finish!: (ok: boolean) => void;
+    const onRecover = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const onPublish = vi.fn(async () => ({ ok: false as const, failure: 'pending-confirmation' as const }));
+    renderDialog({ onPublish, onRecover });
+    fillDescription();
+    await confirmAndPublish(onPublish);
+    fireEvent.click(await screen.findByRole('button', { name: '重新核对' }));
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '发布中…' })).toBeNull();
+    finish(false);
+    await waitFor(() => expect(screen.getByRole('button', { name: '重新核对' })).toBeEnabled());
+  });
+
+  it('关联已有帖子放在底栏，不占发布表单正文', () => {
+    renderDialog({ onRecover: vi.fn(async () => false) });
+    const associate = screen.getByRole('button', { name: '关联已有帖子' });
+    expect(associate.closest('.dialog__foot')).not.toBeNull();
+    expect(screen.queryByRole('textbox', { name: '帖子 ID' })).toBeNull();
+  });
+
+  it('手动关联已有帖子走独立的核对入口，无需补齐发布必填项', async () => {
+    const onRecover = vi.fn(async () => true);
+    const onClose = vi.fn();
+    const onPublish = renderDialog({ onRecover, onClose });
+    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '关联已有帖子' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '帖子 ID' }), { target: { value: '267296' } });
+    fireEvent.click(screen.getByRole('button', { name: '核对并关联' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(onRecover).toHaveBeenCalledWith(267296);
+    expect(onPublish).not.toHaveBeenCalled();
+  });
+
+  it('关联已有帖子：点弹层外部自动收起（票 61）', () => {
+    renderDialog({ onRecover: vi.fn(async () => false) });
+    fireEvent.click(screen.getByRole('button', { name: '关联已有帖子' }));
+    expect(screen.getByRole('textbox', { name: '帖子 ID' })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('textbox', { name: '帖子 ID' })).toBeNull();
+  });
+
+  it('补记后弹窗切到已上传态', async () => {
+    function RecoverThenUploaded() {
+      const [chart, setChart] = useState(makeChart());
+      return (
+        <PublishDialog
+          project={makeProject({ charts: [chart] })}
+          chart={chart}
+          chartCode={CHART_CODE}
+          onPublish={vi.fn()}
+          onRecover={async (postId) => {
+            setChart(makeChart({ upload: { postId: postId ?? 71, at: AT } }));
+            return true;
+          }}
+        />
+      );
+    }
+    render(<RecoverThenUploaded />);
+    fireEvent.click(screen.getByRole('button', { name: '关联已有帖子' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '帖子 ID' }), { target: { value: '267296' } });
+    fireEvent.click(screen.getByRole('button', { name: '核对并关联' }));
+    expect(await screen.findByRole('heading', { name: '更新谱面' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更新' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '关联已有帖子' })).toBeNull();
   });
 });
 
@@ -334,7 +534,7 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'New Title' } });
     fireEvent.change(screen.getByLabelText('歌手'), { target: { value: 'New Artist' } });
-    fireEvent.change(screen.getByLabelText('难度'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Expert' }));
     fireEvent.change(screen.getByLabelText('等级'), { target: { value: '28' } });
     fillDescription('new desc');
 
@@ -359,7 +559,7 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
         onClose={onClose}
       />,
     );
-    fireEvent.change(screen.getByLabelText('难度'), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Special' }));
     expect(onUpdateProject).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(onClose).toHaveBeenCalledOnce();
@@ -380,15 +580,37 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
     expect(onUpdateProject).not.toHaveBeenCalled();
   });
 
-  it('信息区清晰展示 7 个独立字段标签，包含「音符」与「时长」，无挤压', () => {
+  it('信息区按「曲目标识 / 谱面概览」分组展示字段', () => {
     renderDialog();
     expect(screen.getByText('标题')).toBeInTheDocument();
     expect(screen.getByText('歌手')).toBeInTheDocument();
-    expect(screen.getByText('难度')).toBeInTheDocument();
-    expect(screen.getByText('等级')).toBeInTheDocument();
+    expect(screen.getByText('难度 / 等级')).toBeInTheDocument();
+    expect(screen.getByText('谱面概览')).toBeInTheDocument();
     expect(screen.getByText('音符')).toBeInTheDocument();
-    expect(screen.getByText('音频')).toBeInTheDocument();
     expect(screen.getByText('时长')).toBeInTheDocument();
+    expect(screen.getByText('BPM')).toBeInTheDocument();
+    expect(screen.getByText('平均 NPS')).toBeInTheDocument();
+    expect(screen.getByText('音频')).toBeInTheDocument();
+    expect(document.querySelector('.ppc-identity > .ppc-field > .dialog-audio-bar')).not.toBeNull();
+  });
+
+  it('custom 缺音频时复用编辑工程信息的音轨条，设置入口带工程作用域跳转', async () => {
+    const onOpenAudio = vi.fn();
+    const onClose = vi.fn();
+    renderDialog({
+      project: makeProject({ source: { type: 'custom' }, audioName: null }),
+      uploadRefs: {
+        audio: null,
+        cover: { path: '/data/projects/p1/cover.bin', size: 512, hash: 'b'.repeat(40) },
+      },
+      onOpenAudio,
+      onClose,
+    });
+    await waitFor(() => expect(document.querySelector('.dialog-audio-bar.is-missing')).not.toBeNull());
+    const bar = document.querySelector('.dialog-audio-bar.is-missing') as HTMLElement;
+    fireEvent.click(within(bar).getByRole('button', { name: /设置/ }));
+    expect(onOpenAudio).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -409,7 +631,10 @@ describe('票 51 · 标签芯片与已发态', () => {
 
   it('已发：标题/歌手/描述只读，难度/等级/标签可改；点更新直接 onEdit，无二次确认', async () => {
     const onPublish = vi.fn(async () => ({ ok: true as const, postId: 1, recordWritten: true }));
-    const onEdit = vi.fn(async () => ({ ok: true as const }));
+    const onEdit = vi.fn(async (input: { diff: number; level: number; tags: { type: 'text'; data: string }[] }) => {
+      void input;
+      return { ok: true as const };
+    });
     renderDialog({
       chart: makeChart({
         upload: { postId: 254203, at: AT },
@@ -424,10 +649,10 @@ describe('票 51 · 标签芯片与已发态', () => {
     expect(screen.getByLabelText('歌手')).toHaveAttribute('readOnly');
     expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveAttribute('readOnly');
     expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveValue('当时那份描述');
-    expect(screen.getByLabelText('难度')).not.toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Special' })).toBeEnabled();
     expect(screen.getByLabelText('等级')).not.toHaveAttribute('readOnly');
 
-    fireEvent.change(screen.getByLabelText('难度'), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Special' }));
     fireEvent.change(screen.getByLabelText('等级'), { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: '移除标签 old' }));
     const tagInput = screen.getByPlaceholderText('输入后按回车添加');
@@ -473,11 +698,10 @@ describe('票 52 · 描述自动生成', () => {
     expect(screen.getByRole('button', { name: '拖动调整描述高度' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '自动生成' }));
     const generated = [
-      '标题：Expert',
-      '难度：Expert',
-      '等级：24',
-      '音符：1',
-      '时长：1:40',
+      'Difficulty: 24',
+      'Notes: 1',
+      'Length: 1:40',
+      'BPM: 210',
     ].join('\n');
     expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveValue(generated);
     expect(screen.getByRole('button', { name: '发布' })).toBeEnabled();
@@ -502,8 +726,8 @@ describe('票 52 · 描述自动生成', () => {
       renderDialog();
       fillDescription('旧稿');
       fireEvent.click(screen.getByRole('button', { name: '自动生成' }));
-      expect(exec).toHaveBeenCalledWith('insertText', false, expect.stringContaining('难度：Expert'));
-      expect(exec).toHaveBeenCalledWith('insertText', false, expect.stringContaining('等级：24'));
+      expect(exec).toHaveBeenCalledWith('insertText', false, expect.stringContaining('Difficulty: 24'));
+      expect(exec).toHaveBeenCalledWith('insertText', false, expect.stringContaining('Notes: 1'));
     } finally {
       Reflect.deleteProperty(document, 'execCommand');
     }

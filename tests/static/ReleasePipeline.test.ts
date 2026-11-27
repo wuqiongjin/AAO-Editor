@@ -14,6 +14,7 @@ const mirror = readSource('scripts/ci/ci-mirror-github.sh');
 const installersMirror = readSource('scripts/ci/ci-mirror-installers.mjs');
 const assets = readSource('scripts/ci/ci-assets.sh');
 const assetsSync = readSource('scripts/assets-sync.mjs');
+const buildArtifacts = readSource('.github/workflows/build-artifacts.yml');
 const pkg = JSON.parse(readSource('package.json')) as {
   scripts: Record<string, string>;
 };
@@ -199,6 +200,7 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(assetsSync).not.toContain('***@');
   });
 
+  // 全仓静态扫描在并行满载时会被抢到超过默认 5s（见 test-infra/02）：显式放宽，断言本身不变
   it('素材快照仓名不出现在任何公开文档 / 配置里（地址走 secret 与脚本内置编码）', () => {
     const scanDirs = ['docs', '.scratch', 'scripts', 'tests', 'src', 'electron', '.github'];
     const TEXT = /\.(md|yml|yaml|ts|mjs|js|cjs|sh|json)$/;
@@ -210,7 +212,7 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
       if (readSource(rootFile).includes(ASSETS_SLUG_NEEDLE)) hits.push(rootFile);
     }
     expect(hits).toEqual([]);
-  });
+  }, 30_000);
 
   it('国内副本脚本打 CNB Release API 的路径无多余前缀层：仓库级路由一律 /{repo}/-/…（2026-10-21 实测：多一层前缀全站 404，且 GET 的 404 被当成「release 不存在」吞掉，一路憋到 POST 创建才响亮失败，release-pipeline/15）', () => {
     // 正锁：CNB 端点都是 api.cnb.cool/{slug}/-/… 形态
@@ -257,4 +259,20 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(runtime).toContain('?format=json');
     expect(runtime).toContain('pickLatestCnbReleaseTag');
   });
+});
+
+// issue 257：门禁挂在现有 macOS 打包 job 上（不给每次 PR 加 Mac），冒烟验进程与电源锁。
+describe('issue 257 · macOS 打包 job 冒烟接线静态锁', () => {
+  const macJob = buildArtifacts.slice(
+    buildArtifacts.indexOf('build-macos:'),
+    buildArtifacts.indexOf('build-windows:'),
+  );
+
+  it('build-macos 顺带跑现有单测，构建后跑冒烟，冒烟在上传 artifact 之前', () => {
+    expect(macJob).toContain('run: npm test');
+    expect(macJob).toContain('bash scripts/ci/macos-smoke.sh');
+    expect(macJob.indexOf('npm run electron:dist')).toBeLessThan(macJob.indexOf('scripts/ci/macos-smoke.sh'));
+    expect(macJob.indexOf('scripts/ci/macos-smoke.sh')).toBeLessThan(macJob.indexOf('upload-artifact'));
+  });
+  // 冒烟脚本内部的电源锁 / ⌘Q 契约由真机首跑验，不在这里断言源码文本（tests/README.md §各类型的取舍）
 });

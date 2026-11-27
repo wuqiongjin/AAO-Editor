@@ -1,6 +1,140 @@
-/* 画布左上角曲线选项胶囊（票 182）：外壳见 CanvasCapsule.css，这里只有面板内部。 */
+/* 画布左上角曲线选项胶囊（票 182 / issue 235）：外壳见 CanvasCapsule.css，这里只有迷你图标与展开面宽度。 */
+
+/* 展开态是「顶栏 + 可滚面板」的竖排：面板吃掉胶囊的余量。胶囊有高度上限（`.ccap` 的 max-height），
+   面板若按内容撑住不肯缩（flex 项默认 min-height: auto），整枚胶囊就会顶破上限、末行落到可视区外。 */
+.coc {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  max-width: min(92vw, 480px);
+
+  /* 预览砖与迷你曲线的明暗两套口径（issue 242 亮色补齐）。
+     缩略图跟界面主题走、不跟谱面走：画布虽恒为深色，但胶囊本身是浅色浮层，
+     里面再嵌一排深砖在亮色下就成了最重的色块。亮色砖上必须同时换深墨——
+     原来的荧光绿 / 荧光蓝在浅底只有 1.6 / 1.9:1，远低于图形元素 3:1。 */
+  --curve-stage-bg: #f6f8fa;
+  --curve-stage-hover: var(--bg-hover);
+  --curve-ink-shape: #15803d;
+  --curve-ink-easing: #0369a1;
+  --curve-band-shape: rgba(21, 128, 61, 0.14);
+  --curve-band-easing: rgba(3, 105, 161, 0.12);
+  --curve-dot-shape: #15803d;
+  --curve-dot-easing: #0369a1;
+  --curve-dot-ring-shape: #ffffff;
+  --curve-dot-ring-easing: #ffffff;
+  --curve-chord: rgba(15, 23, 42, 0.22);
+  --curve-chord-easing: rgba(15, 23, 42, 0.22);
+  --curve-active-shape: #e9f7ef;
+  --curve-active-easing: #e6f4fc;
+  --curve-glyph-bg: var(--bg-inset);
+  --curve-glyph-border: var(--border-faint);
+}
+
+/* 暗色：深砖 + 荧光墨，端点环形状带深描边、缓动无描边；弦线分两档（形状 .18 / 缓动 .16），
+   缓动图的曲线更密，弦线跟形状同档会压住曲线 */
+[data-theme="dark"] .coc {
+  --curve-stage-bg: #0d131f;
+  --curve-stage-hover: #131c2e;
+  --curve-ink-shape: #4ade80;
+  --curve-ink-easing: #38bdf8;
+  --curve-band-shape: rgba(74, 222, 128, 0.26);
+  --curve-band-easing: rgba(56, 189, 248, 0.22);
+  --curve-dot-shape: #86efac;
+  --curve-dot-easing: #bae6fd;
+  --curve-dot-ring-shape: #14532d;
+  --curve-dot-ring-easing: transparent;
+  --curve-chord: rgba(255, 255, 255, 0.18);
+  --curve-chord-easing: rgba(255, 255, 255, 0.16);
+  --curve-active-shape: #112421;
+  --curve-active-easing: #0e2233;
+  --curve-glyph-bg: rgba(15, 23, 42, 0.72);
+  --curve-glyph-border: rgba(255, 255, 255, 0.1);
+}
+
+.coc__head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding-right: 4px;
+}
+
+.coc__pill-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ccap.coc.is-open .ccap__sum {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 顶栏右侧「档位 | 自由」：一条无外框的浅槽垫一枚滑块（有框就会和胶囊自己的描边打架，
+   在 30px 顶栏里显成第二个盒子）。字号必须写成 `.coc .coc__mode-btn`（0,2,0）：
+   `.app-shell button { font: inherit }` 是 (0,1,1)，比单类选择器高一级——单类写的
+   font-size / font-weight 会被它整条顶掉、按父级 14px 渲染，两个词就把 88px 的槽撑满。 */
+.coc__mode-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex-shrink: 0;
+  width: 88px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--bg-inset);
+}
+
+.coc .coc__mode-btn {
+  height: 20px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.coc .coc__mode-btn.is-active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* 暗色下胶囊底本身就是 --bg-elevated，滑块再用它就与槽底粘成一片；抬到 --bg-active 才分得开 */
+[data-theme="dark"] .coc .coc__mode-btn.is-active {
+  background: var(--bg-active);
+  box-shadow: none;
+}
+
+.coc__mode-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.coc__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--curve-glyph-bg);
+  border: 1px solid var(--curve-glyph-border);
+}
 
 .coc__body {
-  min-width: 220px;
-  padding: 8px 10px 10px;
+  /* 吃剩余高度；`min-height: 0` 是让它在胶囊触到上限时肯缩（flex 项默认 min-height:auto
+     会按内容撑住，面板就顶破上限）。缩下来的部分由面板自己滚，滚到底也不许把滚轮
+     链给画布（overscroll-behavior）。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: 348px;
+  min-width: 310px;
+  padding: 10px;
 }

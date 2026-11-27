@@ -62,9 +62,10 @@ const okFetch = async () => ({
 });
 
 describe('票 07 + 14 · preload 白名单：网络一条、缓存两条', () => {
-  it('暴露 communityNet.request，且只走 communityNet:request', () => {
+  it('暴露 communityNet.request 与 cancel，走对应 IPC 通道', () => {
     expect(preloadSrc).toMatch(/communityNet\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]communityNet:request['"]/);
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]communityNet:cancel['"]/);
     expect(preloadSrc).toMatch(/exposeInMainWorld\(\s*'electronAPI'/);
     expect(preloadSrc).not.toMatch(/nodeIntegration/);
   });
@@ -192,7 +193,7 @@ describe('票 15 · 本机素材协议接线（aao-asset://）', () => {
     expect(privilegedAt).toBeGreaterThan(-1);
     expect(readyAt).toBeGreaterThan(-1);
     expect(privilegedAt).toBeLessThan(readyAt);
-    expect(mainSrc.slice(readyAt)).toMatch(/registerAssetProtocol\(protocol,\s*assetCache\)/);
+    expect(mainSrc.slice(readyAt)).toMatch(/registerAssetProtocol\(protocol,\s*assetCache\b/);
   });
 
   it('缩略图产出器接在缓存上，nativeImage 由 main 注入（协议 / 缓存模块不 require electron）', () => {
@@ -235,6 +236,11 @@ describe('票 11 · 上传接线（multipart + uploadRefs）', () => {
   it('project:uploadRefs 通道在主进程与 preload 各就各位（形态照既有 projectStore 桥）', () => {
     expect(mainSrc).toMatch(/ipcMain\.handle\(\s*['"]project:uploadRefs['"]/);
     expect(preloadSrc).toMatch(/uploadRefs:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\(\s*['"]project:uploadRefs['"],\s*id\)/);
+  });
+
+  it('票 42 · project:getLiveBg 通道在主进程与 preload 各就各位', () => {
+    expect(mainSrc).toMatch(/ipcMain\.handle\(\s*['"]project:getLiveBg['"]/);
+    expect(preloadSrc).toMatch(/getLiveBg:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\(\s*['"]project:getLiveBg['"],\s*id\)/);
   });
 
   it('上传引用只回「事实」：接口是 path / size / hash，没有字节字段', () => {

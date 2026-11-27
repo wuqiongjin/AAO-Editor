@@ -71,8 +71,8 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 来源地址不直写明文（编码在脚本常量里）；要换来源用环境变量或参数：
 `ASSETS_SOURCE=<本地目录|git 地址> npm run assets:sync`（或 `--from <…>`）。
 
-取回的产物（都在 `.gitignore` 里）：`public/assets/skins/`、`public/assets/sim/`、
-`src/assets/audio/keysounds/`、`src/rendering/skin/gen/`、`src/audio/gen/`。
+取回的产物（都在 `.gitignore` 里）：`public/assets/skins/`、`public/assets/sim/`、`public/assets/game-ui/`、
+`src/assets/audio/keysounds/`、`src/rendering/skin/gen/`、`src/audio/gen/`、`src/preview/video/sim/gen/`。
 仿真场的 URL 约定见 `src/preview/video/sim/simAssets.ts`；口径与决策见
 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`。
 
@@ -86,6 +86,7 @@ CI 脚本住 `scripts/ci/`（门禁与发版链路共用，入口文件 `.cnb.ym
 | `ci/ci-gate.sh` | 质量门禁：`npm ci` → 取素材 → `npm test` → `npm run build` → `npm run assets:check`（`lint` / `test:types` 存量债清一项收一项）。三处共用：CNB 门禁 job、GitHub PR 门禁（`ci.yml`）、GitHub 发版门禁（release.yml `gate` job） |
 | `ci/ci-mirror-github.sh` | CNB → GitHub 代码镜像：**非 force** 推 `main` + tags，分叉即失败（PR 回流纪律见 ADR-0022 §2） |
 | `ci/ci-mirror-installers.mjs` | 国内下载副本（cron）：GitHub latest release → CNB release，并改写 `latest*.yml` 为匿名 generic feed；幂等（缺谁补谁，yml 未改写则补） |
+| `ci/macos-smoke.sh` | issue 257 无界面冒烟（挂在 `build-artifacts.yml` 的 `build-macos`，手动 dispatch）：源码模式 `electron .` 空闲 40s → 查 `PreventUserIdleSystemSleep` → 发系统级 ⌘Q 断言进程退出；失败阻断 artifact 上传 |
 
 GitHub 侧门禁（ADR-0022 §9）：`ci.yml` 只在 `pull_request → main` 上跑（镜像 push 不触发，不与 CNB 双边重复跑），必过检查名 `gate`；`main` 分支规则与 `v*` tag 规则、PAT bypass 名单、Actions 权限收紧见 ADR-0022 §9 与票 09「人工步骤」。
 

@@ -9,8 +9,8 @@ const bpm120 = [{ beat: 0, bpm: 120 }];
 const TEST_SURFACE = { w: 750, h: 900 };
 
 /** 构造一个 scale=1、scrollY=0 的视图，画布坐标 == 虚拟坐标（x 含 trackBgX 偏移） */
-function makeDeps(notes: ChartNote[], chartEndBeat = 100): { deps: HitTestDeps; viewport: { scrollX: number; scrollY: number; scale: number }; canvas: (lane: number, beat: number, subBeat?: number) => { x: number; y: number } } {
-  const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , TEST_SURFACE);
+function makeDeps(notes: ChartNote[], chartEndBeat = 100, bpmEvents: { beat: number; bpm: number }[] = bpm120): { deps: HitTestDeps; viewport: { scrollX: number; scrollY: number; scale: number }; canvas: (lane: number, beat: number, subBeat?: number) => { x: number; y: number } } {
+  const geometry = new ChartGeometry(bpmEvents, { endBeat: chartEndBeat } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const beatDisplay = 4;
   const canvas = (lane: number, beat: number, subBeat = 0) =>
@@ -86,6 +86,65 @@ describe('findItemAt', () => {
     ];
     const { deps, canvas } = makeDeps(notes);
     expect(findItemAt(canvas(3, 40).x, canvas(3, 40).y, deps)).toEqual({ kind: 'note', noteIndex: 1 });
+  });
+});
+
+describe('issue 63 · 首条 BPM 之前 / 负拍但时间 ≥ 0 的命中', () => {
+  it('负首拍时，负拍但时间 ≥ 0 的键型可命中', () => {
+    const bpm = [{ beat: -4, bpm: 120 }];
+    const notes: ChartNote[] = [{ type: 'Single', lane: 2, beat: -2 }];
+    const { deps, canvas } = makeDeps(notes, 8, bpm);
+    const p = canvas(2, -2);
+    expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+  });
+
+  it('首条 BPM 之前的键型不可命中（拍域便宜过滤）', () => {
+    const bpm = [{ beat: -4, bpm: 120 }];
+    const notes: ChartNote[] = [{ type: 'Single', lane: 2, beat: -5 }];
+    const { deps, canvas } = makeDeps(notes, 8, bpm);
+    const p = canvas(2, -5);
+    expect(findItemAt(p.x, p.y, deps)).toBeNull();
+  });
+
+  it('正首拍时 [0, 首BPM) 的键型不可命中', () => {
+    const bpm = [{ beat: 1, bpm: 120 }];
+    const notes: ChartNote[] = [{ type: 'Single', lane: 2, beat: 0 }];
+    const { deps, canvas } = makeDeps(notes, 8, bpm);
+    const p = canvas(2, 0);
+    expect(findItemAt(p.x, p.y, deps)).toBeNull();
+  });
+
+  it('滑条结点同样按 startBeat 过滤：负拍但时间 ≥ 0 可命中，首条之前不可', () => {
+    const bpm = [{ beat: -4, bpm: 120 }];
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { lane: 0, beat: -2 },
+        { lane: 3, beat: 2 },
+        { lane: 6, beat: 4 },
+      ],
+    }];
+    const { deps, canvas } = makeDeps(notes, 8, bpm);
+    expect(findItemAt(canvas(0, -2).x, canvas(0, -2).y, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+
+    const behind: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { lane: 0, beat: -5 },
+        { lane: 3, beat: 2 },
+      ],
+    }];
+    const d2 = makeDeps(behind, 8, bpm);
+    expect(findItemAt(d2.canvas(0, -5).x, d2.canvas(0, -5).y, d2.deps)).toBeNull();
+  });
+
+  it('倒流区里时间 < 0 的键型落在画布下方，画布内点不中', () => {
+    const bpm = [{ beat: 0, bpm: 120 }, { beat: 4, bpm: -120 }];
+    const notes: ChartNote[] = [{ type: 'Single', lane: 2, beat: 10 }]; // t = 2 − 3 = −1s
+    const { deps, canvas } = makeDeps(notes, 8, bpm);
+    const p = canvas(2, 10);
+    expect(p.y).toBeGreaterThan(TEST_SURFACE.h);
+    expect(findItemAt(p.x, TEST_SURFACE.h - 5, deps)).toBeNull();
   });
 });
 
@@ -478,5 +537,40 @@ describe('hover 命中盒 = 墨迹矩形 + 2px 余量（issue 82）', () => {
       const p = canvas(lane, 50);
       expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
     }
+  });
+
+  it('issue 63 回归：框选与滑条子段对时间原点之前的音符全部排除', () => {
+    const geometry = new ChartGeometry([{ beat: 4, bpm: 120 }], { endBeat: 40 }, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 };
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2 },
+      { type: 'LDirectional', beat: 2, lane: 3, length: 2 } as ChartNote,
+      // 全段在首条 BPM（beat 4）之前
+      { type: 'Slide', connections: [{ beat: 0, lane: 1 }, { beat: 2, lane: 1 }] },
+      // 首段 (0→2) 全在原点前，第二段 (2→6) 跨过原点
+      { type: 'Slide', connections: [{ beat: 0, lane: 5 }, { beat: 2, lane: 5 }, { beat: 6, lane: 5 }] },
+    ];
+    const deps: HitTestDeps = { geometry, viewport, beatDisplay: 4, notes };
+    const canvas = (lane: number, beat: number) => geometry.virtualToCanvas(
+      geometry.noteVirtualX(lane),
+      geometry.noteVirtualY(beat, 0, 1, 4),
+      viewport,
+    );
+
+    // 1. 滑条子段 (0→2) 两端均 < 0：findItemAt 不可点中；跨原点子段 (2→6) 可点中
+    const preSubMid = canvas(5, 1);
+    expect(findItemAt(preSubMid.x, preSubMid.y, deps)).toBeNull();
+    const crossMid = canvas(5, 4.5);
+    expect(findItemAt(crossMid.x, crossMid.y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 3, connIndex: 1 });
+
+    // 2. 即使框选矩形拖到判定线下方（覆盖 beat 0..3），原点前单键/方向键/全负滑条/负结点均不入选
+    const top = canvas(0, 6);
+    const bot = canvas(6, -1);
+    const boxed = computeItemsInBox({ x1: top.x - 50, y1: top.y - 50, x2: bot.x + 50, y2: bot.y + 50 }, deps);
+    // 只有跨原点滑条的 beat 6 结点（connIndex 2）与跨原点段（connIndex 1）入选；原点前结点/全负段/单键/方向键均排除
+    expect(boxed).toEqual([
+      { kind: 'slideNode', noteIndex: 3, connIndex: 2 },
+      { kind: 'slideRegion', noteIndex: 3, connIndex: 1 },
+    ]);
   });
 });

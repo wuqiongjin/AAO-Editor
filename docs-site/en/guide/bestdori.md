@@ -38,7 +38,7 @@ Open a chart and choose **Publish**. The dialog runs a pre-check and lists anyth
 | Notes | At least one publishable note |
 | Audio | Import audio first for custom songs; official songs don't need it |
 
-Audio, cover, and the post are uploaded in one go; cancelling midway leaves no half-post.
+Publishing uploads the audio and cover first and creates the community post last; cancelling midway creates no post.
 
 Before publishing, be sure: **once posted, the chart itself can't be edited or deleted** — only difficulty, level, and tags can change on the community site. To change a chart, copy it, edit the copy, and publish that. A chart can be published only once.
 

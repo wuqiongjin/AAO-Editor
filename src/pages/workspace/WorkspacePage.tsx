@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Lock, Copy, X } from 'lucide-react';
+import { Lock, Copy, X, LoaderCircle } from 'lucide-react';
 import WorkspaceTopBar from './WorkspaceTopBar';
 import WorkspaceToolRail from './WorkspaceToolRail';
 import PatternLibraryDrawer from './PatternLibraryDrawer';
@@ -15,8 +15,10 @@ import PlaybackRate from '../../playback/PlaybackRate';
 import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
 import {
   PLAYBACK_SHORTCUT_IDS,
+  SEEK_SHORTCUT_IDS,
   stepAudioVolume,
   stepPlaybackRatePreset,
+  stepSeekSeconds,
 } from '../../playback/playbackShortcuts';
 import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
 import { useEditing, useUI, useConfig, usePlaybackState, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
@@ -40,6 +42,7 @@ import { usePatternLibrary } from '../../patterns/usePatternLibrary';
 import { useSaveSelectionPattern } from './useSaveSelectionPattern';
 import { t } from '../../i18n';
 import { CrashBoundaryHost } from '../../diagnostics/CrashBoundary';
+import { WorkspacePrewarmContext } from './WorkspacePrewarmContext';
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -144,7 +147,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onChartDurationChange: setSessionChartDuration,
     judgeLineOffsetRatio,
   });
-  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker: sessionJumpToMarker, stopPlayback, resetToStart } = viewSession;
+  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, setScrubbing, jumpToMarker: sessionJumpToMarker, stopPlayback, resetToStart } = viewSession;
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -160,14 +163,89 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onIsPlayingChange: syncIsPlaying,
   });
   // 关键：把音频元数据稳定暴露给持久化层（替换旧的 audioMetaRef ref 环）
-  // 引用稳定：audioName 和 audioBlob 在 importAudio/clearAudio 时一起变，session 是单例
+  // 引用稳定：audioName/audioLoadGeneration 和 audioBlob 在 importAudio/clearAudio 时一起变（含同名替换），session 是单例
   const audioForPersist = useMemo(
     () => ({ audioName: audioSnap.audioName, audioBlob: audioSession.getAudioBlob() }),
-    [audioSnap.audioName, audioSession],
+    [audioSnap.audioName, audioSnap.audioLoadGeneration, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, notifyProjectEdited, flushPersist } = useCurrentProject();
-  const { setActivePage } = useAppNav();
+  const {
+    projectId,
+    chartId,
+    store,
+    catalogEpoch,
+    catalogSettled,
+    registerPersistFlush,
+    registerRestoreWaiter,
+    registerRestoreWakeup,
+    open,
+    notifyCatalogChanged,
+    notifyProjectEdited,
+    flushPersist,
+  } = useCurrentProject();
+  const { activePage, setActivePage } = useAppNav();
+
+  // 冷启动后台工作台延迟预热（chart-projects 44 Q1=A）：
+  // 挂载时 active===true 零延迟立即恢复；active===false（冷启动停在工程启动台）时，
+  // 仅在停留在工程启动台且用户停止滚动/交互后的短暂空闲窗口再预热上次工程与 BGM（票 89：切进预览等其他页期间不得在后台抢跑唤醒）；
+  // 若在此前主动切进工作台（active→true）或触发 waitForRestore（点卡片播放/进入工作台），立刻取消延迟开始恢复。
+  const [prewarmReady, setPrewarmReady] = useState(() => active);
+  const restoreEnabled = prewarmReady || active;
+  useEffect(() => {
+    if (active && !prewarmReady) setPrewarmReady(true);
+  }, [active, prewarmReady]);
+  useEffect(() => {
+    registerRestoreWakeup(() => setPrewarmReady(true));
+    return () => registerRestoreWakeup(null);
+  }, [registerRestoreWakeup]);
+  useEffect(() => {
+    if (restoreEnabled || !catalogSettled || !projectId || activePage !== 'projects') return;
+    let cancelled = false;
+    let timer: number | null = null;
+    let idleId: number | null = null;
+    const cancelScheduled = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+        idleId = null;
+      }
+    };
+    const trigger = () => {
+      if (!cancelled) setPrewarmReady(true);
+    };
+    const schedule = () => {
+      cancelScheduled();
+      timer = window.setTimeout(() => {
+        timer = null;
+        if (cancelled) return;
+        if (typeof window.requestIdleCallback === 'function') {
+          idleId = window.requestIdleCallback(() => {
+            idleId = null;
+            trigger();
+          }, { timeout: 600 });
+        } else {
+          trigger();
+        }
+      }, 1200);
+    };
+    const onActivity = () => schedule();
+    schedule();
+    window.addEventListener('scroll', onActivity, { passive: true, capture: true });
+    window.addEventListener('wheel', onActivity, { passive: true });
+    window.addEventListener('pointerdown', onActivity, { passive: true });
+    window.addEventListener('keydown', onActivity, { passive: true });
+    return () => {
+      cancelled = true;
+      cancelScheduled();
+      window.removeEventListener('scroll', onActivity, { capture: true });
+      window.removeEventListener('wheel', onActivity);
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('keydown', onActivity);
+    };
+  }, [restoreEnabled, catalogSettled, projectId, activePage]);
 
   // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
   // 丢失（半态）在恢复时判；替换等解码落地（audioLoadGeneration +1）后判。写路径收口
@@ -203,6 +281,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   }, []);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isPublishPending, setIsPublishPending] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
   const readonlyTimerRef = useRef<number | null>(null);
 
@@ -237,6 +316,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return () => editing.setReadonlyGate?.(null);
   }, [editing, triggerReadonlyPrompt]);
 
+  const clearMarkerState = useCallback(() => {
+    setMarker(null);
+    virtualCanvasRef.current?.clearMarker?.();
+  }, [setMarker]);
+
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
     project: ChartProject,
@@ -245,6 +329,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   ) => {
     const readonly = isChartReadonly(chart);
     setIsReadOnly(readonly);
+    setIsPublishPending(Boolean(chart.pendingPublish));
     const audioLocked = isProjectAudioLocked(project);
     resetNotes(chart.notes, {
       // 记录的两个扁平字段 → 编辑态的保真字段（映射在边界做，记录形状不变）
@@ -257,16 +342,16 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }
     // 无论是切工程还是切谱面，播放进度必须归零、停止播放并清除临时回跳标记
     seek(0);
-    // issue 166：视口也要显式归零到 beat 0（ADR-0005 §7）。`seek(0)` 只按**旧几何**写了一帧，
+    // issue 166：视口也要显式归零到时间原点（首条 BPM，issue 63；ADR-0005 §7）。`seek(0)` 只按**旧几何**写了一帧，
     // 随后到达的新几何会走「按秒重锚」（语义 = 保留当前秒）把视图留在非开头位置；
     // `resetToStart` 在几何/高度落地后再落一次权威值（冷启动首次恢复就是这条路径）。
     resetToStart();
-    setMarker(null);
+    clearMarkerState();
     if (!opts.restoreAudio) {
       audioSession.setAudioLocked(audioLocked);
       return;
     }
-    audioSession.hydrateFromProject({
+    const audioReady = audioSession.hydrateFromProject({
       audioName: project.audioName,
       audioBlob: project.audioBlob,
       durationSeconds: project.durationSeconds,
@@ -276,7 +361,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 33 票：音频资源异常检测落在 hydrate 路径——丢失（半态）这里就判；
     // 替换等解码落地（会话时长落到音频实际值）后由 useAudioAnomaly 的 effect 判。
     audioAnomaly.noteRestoredProject(project, opts);
-  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker, audioAnomaly]);
+    await audioReady;
+  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, clearMarkerState, audioAnomaly]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
   // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
@@ -286,8 +372,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     project: import('../../project/ChartProject').ChartProject,
   ) => {
     seek(0);
-    resetToStart(); // issue 166：同上，音频换掉后时长会变，视口同样归零到 beat 0
-    setMarker(null);
+    resetToStart(); // issue 166：同上，音频换掉后时长会变，视口同样归零到时间原点（首条 BPM）
+    clearMarkerState();
     if (project.durationSeconds > 0) setCtxDuration(project.durationSeconds);
     audioSession.hydrateFromProject({
       audioName: project.audioName,
@@ -298,14 +384,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 33 票：这条路径不是 restore，检测入口得自己调用一次——否则替换信号拿的是换音频之前
     // 那份记录的时长（音频页换完音频就误报「与工程记录不一致」，清除音频则旧横幅赖着不走）。
     audioAnomaly.noteRecordAudioChanged(project);
-  }, [audioSession, audioAnomaly, seek, resetToStart, setMarker, setCtxDuration]);
+  }, [audioSession, audioAnomaly, seek, resetToStart, clearMarkerState, setCtxDuration]);
 
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
   // 持久化 hook 的 saveNow 直接注入到 session.setPersistNow。
   const persistence = useChartProjectPersistence({
-    projectId,
-    chartId,
+    projectId: restoreEnabled ? projectId : null,
+    chartId: restoreEnabled ? chartId : null,
+    deferred: !restoreEnabled && projectId != null,
     catalogEpoch,
     store,
     notes,
@@ -318,6 +405,27 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     registerRestoreWaiter,
     onProjectEdited: notifyProjectEdited,
   });
+  // issue 238：只在首次恢复 / 换工程时等待真实准备完成；切页保活和同工程切谱不重新等待。
+  // 导航等待器有超时兜底，不能用它判断音频是否已就绪；此处逐帧观察恢复结算，不设固定延时。
+  const [preparation, setPreparation] = useState({ projectId, ready: false });
+  if (preparation.projectId !== projectId) {
+    setPreparation({ projectId, ready: false });
+  }
+  const preparing = !restoreEnabled || preparation.projectId !== projectId || !preparation.ready;
+  useEffect(() => {
+    if (!restoreEnabled) return;
+    let frame = 0;
+    const check = () => {
+      if (persistence.isSettled && !audioSession.isLoading) {
+        setPreparation(current => current.projectId === projectId ? { projectId, ready: true } : current);
+      } else {
+        frame = requestAnimationFrame(check);
+      }
+    };
+    check();
+    return () => cancelAnimationFrame(frame);
+  }, [restoreEnabled, audioSession, persistence, projectId]);
+
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
     audioSession.setPersistNow(persistNow);
@@ -448,11 +556,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       // issue 185：收藏选区为片段。**故意不进 `CHART_EDIT_FUNCTIONS`** —— 它读的是选区、
       // 不写谱面，只读（已上传）谱面也允许；上面的闸门判断因此不会拦它。
       case 'execSavePattern': void saveSelection(); break;
+      case 'switchCopy': setArmedTool('copy'); break;
       case 'execCopy': copy(); break;
       // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
       // 与工具栏按钮同步：不进态。键鼠一致（避免"界面无、键盘有"的错位）。
       case 'switchPaste': if (clipboard.length > 0) setArmedTool('paste'); break;
       case 'execPaste': pasteAtCursor(); break;
+      case 'switchCut': setArmedTool('cut'); break;
       case 'execCut': cut(); break;
       case 'switchDelete': setArmedTool('delete'); break;
       case 'execDelete': deleteSelectedNotes(); break;
@@ -472,22 +582,39 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'beatSnapNext': setBeatDisplay(stepBeatSnap(beatDisplay, 1)); break;
       case 'beatSnapPrev': setBeatDisplay(stepBeatSnap(beatDisplay, -1)); break;
       case 'beatSnapCycle': setBeatDisplay(cycleBeatSnap(beatDisplay, settings.beatSnapCycleList)); break;
+      // issue 239：设为 1/N（Bestdori 数字键，不是轮切）
+      case 'beatSnapSet1': setBeatDisplay(1); break;
+      case 'beatSnapSet2': setBeatDisplay(2); break;
+      case 'beatSnapSet3': setBeatDisplay(3); break;
+      case 'beatSnapSet4': setBeatDisplay(4); break;
+      case 'beatSnapSet6': setBeatDisplay(6); break;
+      case 'beatSnapSet8': setBeatDisplay(8); break;
+      case 'beatSnapSet12': setBeatDisplay(12); break;
+      case 'beatSnapSet16': setBeatDisplay(16); break;
       // issue 230：倍速按 7 档预设跳（封顶 2×）、音量每次 0.05；两者端点停住、按住不连发。
       // 倍速读共享内存单点的当前值（不把 rate 塞进回调依赖），音量走统一入口 handleVolumeChange。
       case 'rateDown': setRate(stepPlaybackRatePreset(getPlaybackRate(), -1)); break;
       case 'rateUp': setRate(stepPlaybackRatePreset(getPlaybackRate(), 1)); break;
       case 'volumeDown': handleVolumeChange(stepAudioVolume(volumeRef.current, -1)); break;
       case 'volumeUp': handleVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
+      // issue 251：键盘 seek 只动播放时钟；读引擎当前秒，不订阅 80ms HUD。
+      case 'seekBack':
+        seek(stepSeekSeconds(engine.getSeconds(), -1, settings.seekStepBackSeconds, ctxDuration));
+        break;
+      case 'seekForward':
+        seek(stepSeekSeconds(engine.getSeconds(), 1, settings.seekStepForwardSeconds, ctxDuration));
+        break;
     }
   }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
-      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList, setRate, handleVolumeChange]);
+      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList, settings.seekStepBackSeconds, settings.seekStepForwardSeconds, setRate, handleVolumeChange, engine, seek, ctxDuration]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
     shortcutConfig,
-    active,
+    active: active && !preparing,
     runFunction,
     noRepeat: PLAYBACK_SHORTCUT_IDS,
+    holdRepeat: SEEK_SHORTCUT_IDS,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
     // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
     // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 183 起开合片段库）。
@@ -516,10 +643,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   return (
     // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（顶栏）与「音符代码」工具（画布）
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
-    // workspaceProject.test.ts 契约：切工程时谱面代码弹窗随当前工程卸载 (key={projectId})
-    // issue 169：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
-    <ChartCodeEditorProvider key={projectId ?? 'none'} projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
-    <div className="ws-shell">
+    // issue 45：拆除 key={projectId} 破坏性整页重挂载，由 ChartCodeEditorProvider.projectId、
+    // ChartSwitcher 与 FinalVirtualCanvas 各自随 projectId 显式重置瞬态状态，保留 Canvas 与缓存壳。
+    <WorkspacePrewarmContext.Provider value={restoreEnabled}>
+    <ChartCodeEditorProvider projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
+    <div className="ws-loading-host" aria-busy={preparing}>
+    <div className="ws-shell" inert={preparing || undefined} aria-hidden={preparing || undefined}>
       <WorkspaceToolRail />
 
       <div className="ws-canvas-col">
@@ -564,11 +693,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             <CrashBoundaryHost scope="canvas" pageId="workspace">
               <FinalVirtualCanvas
                 ref={virtualCanvasRef}
+                projectId={projectId}
                 scrollHostRef={chartAreaRef}
                 onScrollChange={viewSession.onCanvasScrollChange}
                 geometry={geometry}
                 surface={surface}
-                active={active}
+                active={active && !preparing}
                 readOnly={isReadOnly}
                 onReadonlyReject={triggerReadonlyPrompt}
                 judgeLineOffsetY={surface && judgeLineOffsetRatio > 0 ? Math.round(judgeLineOffsetRatio * surface.h) : undefined}
@@ -599,6 +729,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           onTogglePlay={handleTogglePlay}
           onVolumeChange={handleVolumeChange}
           onSeek={seek}
+          onScrubChange={setScrubbing}
         />
       </div>
 
@@ -616,10 +747,17 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       )}
     </div>
-    {showReadonlyToast && createPortal(
+    {preparing && (
+      <div className="ws-preparing" role="status">
+        <LoaderCircle className="ws-preparing__spinner" size={20} aria-hidden />
+        <span>{t('workspace.preparing')}</span>
+      </div>
+    )}
+    </div>
+    {active && showReadonlyToast && createPortal(
       <div className="readonly-toast" role="alert">
         <Lock size={14} className="readonly-toast__icon" />
-        <span className="readonly-toast__text">{t('workspace.readonlyPrompt')}</span>
+        <span className="readonly-toast__text">{t(isPublishPending ? 'workspace.pendingPublishReadonly' : 'workspace.readonlyPrompt')}</span>
         <button
           type="button"
           className="readonly-toast__copy-btn"
@@ -640,6 +778,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       document.body,
     )}
     </ChartCodeEditorProvider>
+    </WorkspacePrewarmContext.Provider>
   );
 };
 

@@ -1,7 +1,7 @@
 // 曲线工具深模块（issue 136 / ADR-0009 §3）：配置、草稿、两击/框选/执行键/点段重应用、带组合落子。
 // 烘焙仍在 SpanCurve（hidden 采样点是唯一真相）。矩阵只调度持工具态行。
 // 单击选区内走曲线框选行（组合 + 刷缓动）；框选/执行键选区≥2 同 `curveBoxOps`。
-import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
+import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam, TemplateExtraValue } from '../types';
 import { removeOverlappedNotes } from './NoteReplacementRules';
 import { combineSelectionIntoSlide, compareAbsorbable, mergeChainWithSlides } from './SlideCombination';
 import { slideSpans, regionIdentity } from './SlideSegments';
@@ -10,16 +10,34 @@ import {
   countVisibleNodes, effectiveSpanParams, regenerateSpan,
 } from './SpanCurve';
 import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
-import { shapeTemplateById } from './ShapeTemplates';
+import {
+  TEMPLATE_BASELINE_RANGE, TEMPLATE_CATEGORIES, TEMPLATE_DENSITY_RANGE, TEMPLATE_SCALE_RANGE, clampTemplateNumber,
+  shapeTemplateById, snapTemplateRangeValue, stripDefaultTemplateExtra, templateSupportsAmplitude,
+  templateSupportsBaseline, templateSupportsMirror, type ShapeTemplate,
+} from './ShapeTemplates';
 import {
   clickOps,
   combineOps,
-  sameSelectionItem,
+  expandWholeSlideItems,
+  selectionCoversHit,
   type ExecInput,
   type MatrixOp,
   type SlidePoint,
   type SnapPos,
 } from './ToolActionMatrix';
+
+export const TEMPLATE_PARAM_MODES = ['preset', 'free'] as const;
+export type TemplateParamMode = (typeof TEMPLATE_PARAM_MODES)[number];
+
+/** 模板页分类筛选的白名单（`all` + 内置分类，单一来源）；issue 242 起随 `settings.curve` 持久化。
+ *  从 `TEMPLATE_CATEGORIES` 派生而不是手抄一遍：加一档分类时 Tab 与归一化必须同时认它，
+ *  否则新 Tab 点下去的值会被 `pickEnum` 当场丢掉、界面弹回「全部」。 */
+export const TEMPLATE_CATEGORY_FILTERS = ['all', ...TEMPLATE_CATEGORIES] as const;
+export type TemplateCategoryFilter = (typeof TEMPLATE_CATEGORY_FILTERS)[number];
+
+/** 「上次选用的模板」的出厂回落（issue 242）。沿用旧面板 ref 的 `s-curve`：
+ *  它是最接近出厂缓动（Sine / In）的平滑形状，首次切到模板页不会跳到突兀的形态。 */
+export const DEFAULT_LAST_TEMPLATE_ID = 's-curve';
 
 /** 曲线工具当前配置（issue 114 起持久化于 `settings.curve`，全局一份、跨会话沿用；放置与段重应用共用）。
  *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略。 */
@@ -28,10 +46,23 @@ export interface CurveConfig {
   type: EasingType;
   precision: CurvePrecision;
   templateId?: string | null;
+  templateParamMode?: TemplateParamMode;
+  templateMirrored?: boolean;
+  templateScale?: number;
+  templateDensity?: number;
+  /** 振荡基线百分比（-200…200，步长 5）：与偏向/幅度/段密同层的**跨模板通用单值**，
+   *  切模板不归零；仅声明了 `baseline` 的模板生效。 */
+  templateBaseline?: number;
+  templateExtras?: Record<string, Record<string, TemplateExtraValue>>;
+  /** 模板页的分类筛选（issue 242）：只影响浏览，不改生效模板；跨会话忠实恢复上次点击的分类 */
+  templateCategory?: TemplateCategoryFilter;
+  /** 上次选用的模板 ID（issue 242）：缓动页把 `templateId` 摘成 null 后，靠它把模板页恢复回来 */
+  lastTemplateId?: string;
 }
 
 /**
- * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`）。
+ * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`；issue 235 追加模板三正交默认；issue 241 追加参数模式默认 `'preset'`；
+ * issue 242 追加分类筛选与上次模板）。
  * 放本模块——`AppSettings` 需要它做持久化归一化，且不依赖任何 Provider。
  */
 export const DEFAULT_CURVE_CONFIG: CurveConfig = {
@@ -39,7 +70,91 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   type: 'in',
   precision: 16,
   templateId: null,
+  templateParamMode: 'preset',
+  templateMirrored: false,
+  templateScale: 1,
+  templateDensity: 1,
+  templateBaseline: 0,
+  templateCategory: 'all',
+  lastTemplateId: DEFAULT_LAST_TEMPLATE_ID,
 };
+
+const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
+  allowed.includes(raw as T) ? (raw as T) : fallback;
+
+/** 只把「普通对象」当记录看：数组 / null / 标量一律视为缺失 */
+const asRecord = (raw: unknown): Record<string, unknown> | undefined =>
+  raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+
+/** 能解析到现存内置模板的 ID 才算数（模板库改名 / 删项后老设置不该带出幽灵 id） */
+function validTemplateId(raw: unknown): string | null {
+  return typeof raw === 'string' && shapeTemplateById(raw) ? raw : null;
+}
+
+/**
+ * 「上次选用的模板」的唯一解析口径（面板与归一化共用）：
+ * 显式记忆 > 当前生效模板 > 出厂回落。
+ * 中间一档是 242 之前落盘设置的迁移——那时只有 `templateId`，它同时就是"上次选用的"，
+ * 漏了它会让升级后第一次「缓动 → 模板」把用户的形状悄悄换成 S 形。
+ * 入参收 `unknown`：这里读的就是持久化原值，脏值由本函数自己筛。
+ */
+export function resolveLastTemplateId(raw: {
+  lastTemplateId?: unknown;
+  templateId?: unknown;
+}): string {
+  return validTemplateId(raw.lastTemplateId) ?? validTemplateId(raw.templateId) ?? DEFAULT_LAST_TEMPLATE_ID;
+}
+
+function normalizeTemplateExtras(
+  raw: unknown,
+): Record<string, Record<string, TemplateExtraValue>> | undefined {
+  const extras = asRecord(raw);
+  if (!extras) return undefined;
+  const out: Record<string, Record<string, TemplateExtraValue>> = {};
+  for (const [tplId, tplRaw] of Object.entries(extras)) {
+    const tp = shapeTemplateById(tplId);
+    const ownRaw = asRecord(tplRaw);
+    if (!tp || !tp.extraParams?.length || !ownRaw) continue;
+    // extras 只承载模板自有语义：基线的旧键在此剔除（迁移见 resolveTemplateBaseline）
+    const own = { ...ownRaw };
+    delete own.baseline;
+    const cleaned = stripDefaultTemplateExtra(tp, own);
+    if (cleaned) out[tplId] = cleaned;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * 振荡基线归一化：显式字段（跨模板单值）优先；缺省时兼容旧设置里按模板记的
+ * `templateExtras[模板].baseline`——当前模板的记忆值优先，其次按对象键序取第一个非零值。
+ */
+function resolveTemplateBaseline(
+  explicit: unknown,
+  rawExtras: unknown,
+  templateId: string | null,
+): number {
+  const fallback = TEMPLATE_BASELINE_RANGE.defaultValue;
+  if (typeof explicit === 'number' && Number.isFinite(explicit)) {
+    return snapTemplateRangeValue(explicit, TEMPLATE_BASELINE_RANGE);
+  }
+  const extras = asRecord(rawExtras);
+  if (!extras) return fallback;
+  const baselineOf = (tplId: string): number | undefined => {
+    const val = asRecord(extras[tplId])?.baseline;
+    return typeof val === 'number' && Number.isFinite(val) ? val : undefined;
+  };
+  const current = templateId ? baselineOf(templateId) : undefined;
+  if (current !== undefined && current !== fallback) {
+    return snapTemplateRangeValue(current, TEMPLATE_BASELINE_RANGE);
+  }
+  for (const tplId of Object.keys(extras)) {
+    const val = baselineOf(tplId);
+    if (val !== undefined && val !== fallback) {
+      return snapTemplateRangeValue(val, TEMPLATE_BASELINE_RANGE);
+    }
+  }
+  return fallback;
+}
 
 /**
  * 持久化归一化（白名单校验 + 缺字段回落）：老设置文件没有 `curve` 段、或存了已下线的模板 id
@@ -48,22 +163,65 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
 export function normalizeCurveConfig(raw: unknown): CurveConfig {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_CURVE_CONFIG;
-  const family = (EASING_FAMILIES as readonly string[]).includes(o.family as string)
-    ? (o.family as EasingFamily) : d.family;
-  const type = (EASING_TYPES as readonly string[]).includes(o.type as string)
-    ? (o.type as EasingType) : d.type;
-  const precision = (CURVE_PRECISIONS as readonly number[]).includes(o.precision as number)
-    ? (o.precision as CurvePrecision) : d.precision;
-  const templateId = typeof o.templateId === 'string' && shapeTemplateById(o.templateId)
-    ? o.templateId : null;
-  return { family, type, precision, templateId };
+  const templateId = validTemplateId(o.templateId);
+  const templateExtras = normalizeTemplateExtras(o.templateExtras);
+  return {
+    family: pickEnum(EASING_FAMILIES, o.family, d.family),
+    type: pickEnum(EASING_TYPES, o.type, d.type),
+    precision: pickEnum(CURVE_PRECISIONS, o.precision, d.precision),
+    templateId,
+    templateParamMode: pickEnum(TEMPLATE_PARAM_MODES, o.templateParamMode, d.templateParamMode ?? 'preset'),
+    templateMirrored: typeof o.templateMirrored === 'boolean' ? o.templateMirrored : false,
+    templateScale: clampTemplateNumber(o.templateScale, TEMPLATE_SCALE_RANGE, 1),
+    templateDensity: clampTemplateNumber(o.templateDensity, TEMPLATE_DENSITY_RANGE, 1),
+    templateBaseline: resolveTemplateBaseline(o.templateBaseline, o.templateExtras, templateId),
+    templateCategory: pickEnum(TEMPLATE_CATEGORY_FILTERS, o.templateCategory, 'all'),
+    lastTemplateId: resolveLastTemplateId({ lastTemplateId: o.lastTemplateId, templateId }),
+    ...(templateExtras ? { templateExtras } : {}),
+  };
+}
+
+/**
+ * 配置 → 模板额外参数视图：面板 / 摘要 / SVG 预览与段参数共用同一份取值口径。
+ * 振荡基线是跨模板通用单值，在此投影成 `extra.baseline`；模板自有项（如 `pulsePos`）原样透传。
+ * 未声明基线能力的模板不注入该键。
+ */
+export function curveConfigExtraView(
+  template: ShapeTemplate,
+  config: CurveConfig,
+): Record<string, TemplateExtraValue> | undefined {
+  const own = config.templateExtras?.[template.id];
+  if (!templateSupportsBaseline(template)) return own;
+  return { ...own, baseline: config.templateBaseline ?? TEMPLATE_BASELINE_RANGE.defaultValue };
 }
 
 /** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */
-export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam =>
-  config.templateId
-    ? { kind: 'template', templateId: config.templateId, precision: config.precision }
-    : { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
+export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam => {
+  if (!config.templateId) {
+    return { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
+  }
+  const tp = shapeTemplateById(config.templateId);
+  const param: SpanParam = {
+    kind: 'template',
+    templateId: config.templateId,
+    precision: config.precision,
+  };
+  if (!tp || templateSupportsMirror(tp)) {
+    if (config.templateMirrored) param.mirrored = true;
+  }
+  if (!tp || templateSupportsAmplitude(tp)) {
+    if (config.templateScale && config.templateScale !== 1) param.amplitudeScale = config.templateScale;
+  }
+  if (!tp || tp.adjustableDensity) {
+    if (config.templateDensity && config.templateDensity !== 1) param.densityScale = config.templateDensity;
+  }
+  if (tp) {
+    // 段上仍写 `extra.baseline`：烘焙与旧谱读取只认段参数，配置层单值在此投影
+    const extra = stripDefaultTemplateExtra(tp, curveConfigExtraView(tp, config));
+    if (extra) param.extra = extra;
+  }
+  return param;
+};
 
 /** 曲线工具链式草稿：可见锚点序列 + 各段参数 + 首段落地后的滑条下标（完整性检查用） */
 export interface CurveDraft {
@@ -260,11 +418,12 @@ export function curveToolClickOps(
   clearSel: MatrixOp,
 ): MatrixOp[] {
   const { notes, hit, pos, selectedItems, beatDisplay } = input;
-  const hitInSelection = hit !== null && selectedItems.some(it => sameSelectionItem(it, hit));
+  const hitInSelection = selectionCoversHit(hit, selectedItems);
   if (hitInSelection) {
+    const actionItems = expandWholeSlideItems(notes, selectedItems);
     const ops = input.curveConfig
-      ? curveBoxOps(notes, selectedItems, input.curveConfig, beatDisplay)
-      : combineOps(notes, selectedItems);
+      ? curveBoxOps(notes, actionItems, input.curveConfig, beatDisplay)
+      : combineOps(notes, actionItems);
     if (ops.length > 0) return ops;
   }
   if (hit && hit.kind === 'slideRegion' && input.curveConfig) {

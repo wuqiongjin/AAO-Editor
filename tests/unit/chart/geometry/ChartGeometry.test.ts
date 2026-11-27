@@ -112,6 +112,65 @@ describe('坐标换算', () => {
   });
 });
 
+describe('issue 63 · startBeat（时间原点 = 首条 BPM）', () => {
+  it('无 BPM 事件 → 0（对齐 getBpmEvents 的 120@0 兜底）', () => {
+    expect(new ChartGeometry([], { endBeat: 8 }, surface()).startBeat).toBe(0);
+  });
+
+  it('负首拍 / 正首拍都取 timeline 首段（事件按 beat 升序是构造契约）', () => {
+    expect(new ChartGeometry([{ beat: -4, bpm: 120 }, { beat: 8, bpm: 150 }], { endBeat: 16 }, surface()).startBeat).toBe(-4);
+    expect(new ChartGeometry([{ beat: 1, bpm: 120 }], { endBeat: 8 }, surface()).startBeat).toBe(1);
+    expect(new ChartGeometry([{ beat: 2, bpm: 120 }, { beat: 6, bpm: 150 }], { endBeat: 8 }, surface()).startBeat).toBe(2);
+  });
+
+  it('laneBeatFromCanvas：首条 BPM 到 beat 0 之间可落点，首条之前拒绝', () => {
+    const g = new ChartGeometry([{ beat: -4, bpm: 120 }], { endBeat: 8 }, surface());
+    const viewport = { scrollX: 0, scrollY: g.chartEndVirtualY, scale: 1 };
+    const { trackBgX } = g.trackGeometry(1);
+    const cx = trackBgX + LANE_WIDTH * 2 + LANE_WIDTH / 2;
+    const cyOf = (beat: number) => g.virtualToCanvas(0, g.beatToVirtualY(beat, 1), viewport).y;
+
+    // [startBeat, 0) 里的负拍现在可放置
+    const mid = g.laneBeatFromCanvas(cx, cyOf(-2), viewport, 4);
+    expect(mid?.preciseBeat).toBeCloseTo(-2, 6);
+    // 起点本身可放置（时间 0）
+    expect(g.laneBeatFromCanvas(cx, cyOf(-4), viewport, 4)?.preciseBeat).toBeCloseTo(-4, 6);
+    // 首条之前 → null
+    expect(g.laneBeatFromCanvas(cx, cyOf(-5), viewport, 4)).toBeNull();
+  });
+
+  it('正首拍：beat 0 落在负秒，不可放置', () => {
+    const g = new ChartGeometry([{ beat: 1, bpm: 120 }], { endBeat: 8 }, surface());
+    const viewport = { scrollX: 0, scrollY: g.chartEndVirtualY, scale: 1 };
+    const { trackBgX } = g.trackGeometry(1);
+    const cx = trackBgX + LANE_WIDTH * 2 + LANE_WIDTH / 2;
+    expect(g.laneBeatFromCanvas(cx, g.virtualToCanvas(0, g.beatToVirtualY(0, 1), viewport).y, viewport, 4)).toBeNull();
+    expect(g.laneBeatFromCanvas(cx, g.virtualToCanvas(0, g.beatToVirtualY(2, 1), viewport).y, viewport, 4)?.preciseBeat).toBeCloseTo(2, 6);
+  });
+
+  // issue 63 P3 允许把首条 BPM 改成负值（编辑面不拦）：此时可见区落在 startBeat **之前**，
+  // 一切可见/可放置/可点都必须按**时间**判，不能按 `beat < startBeat`。
+  it('负首拍（bpm < 0）：可见性与落点按时间判，而不是 beat 与 startBeat 的大小', () => {
+    const g = new ChartGeometry([{ beat: 0, bpm: -120 }], { seconds: 5 }, surface());
+    expect(g.startBeat).toBe(0);
+    expect(g.isBeforeOrigin(-2)).toBe(false); // 负拍但时间 +1s
+    expect(g.isBeforeOrigin(2)).toBe(true);   // 正拍但时间 −1s
+
+    const notes: ChartNote[] = [
+      { type: 'Single', lane: 0, beat: -2 },
+      { type: 'Single', lane: 1, beat: 2 },
+    ];
+    const viewport = { scrollX: 0, scrollY: g.chartEndVirtualY, scale: 1 };
+    expect(g.visibleNotes(notes, viewport, 4).map((v) => v.index)).toEqual([0]);
+
+    const { trackBgX } = g.trackGeometry(1);
+    const cx = trackBgX + LANE_WIDTH * 0.5;
+    const cyOf = (beat: number) => g.virtualToCanvas(0, g.beatToVirtualY(beat, 1), viewport).y;
+    expect(g.laneBeatFromCanvas(cx, cyOf(-2), viewport, 4)?.preciseBeat).toBeCloseTo(-2, 6);
+    expect(g.laneBeatFromCanvas(cx, cyOf(2), viewport, 4)).toBeNull();
+  });
+});
+
 describe('laneBeatFromCanvas', () => {
   it('轨道内命中返回 lane 与吸附后的精确拍', () => {
     const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());

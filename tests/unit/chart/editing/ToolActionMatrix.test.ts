@@ -85,6 +85,13 @@ describe('§2 键型工具单击（single/flick/skill/l/r）', () => {
     const ops = clickOps(input({ tool: 'single', notes, pos: sp(1, 1) }));
     expect(ops[0]?.t).toBe('setNotes');
   });
+  // issue 63：下界由 `snapChartPos`（时间原点）裁决；矩阵只消费已判合法的 pos，
+  // 不得自己再加 `beat >= 0` 假定 —— 负拍落点（≥ startBeat）照常放置。
+  it('pos 为负拍（时间 ≥ 0）照常放置，矩阵不另做 beat ≥ 0 判定', () => {
+    const ops = clickOps(input({ tool: 'single', notes, pos: sp(-2, 3) }));
+    expect(ops[0]?.t).toBe('setNotes');
+    expect((ops[0] as { notes: ChartNote[] }).notes.at(-1)).toMatchObject({ type: 'Single', beat: -2, lane: 3 });
+  });
 });
 
 // ══════════════════ §2 单击矩阵·BPM 行（含 §5 放置语义）══════════════════
@@ -132,15 +139,25 @@ describe('§2 BPM 工具单击', () => {
     expect(clickOps(input({ tool: 'bpm', notes, hit: noteSel(0)[0], pos: sp(4, 0), lastBpm: 150 })))
       .toEqual([{ t: 'setSelection', items: [] }]);
   });
-  it('删除工具单击已有 BPM 线 = 删除该线（issue 59 定案例外）', () => {
+  it('删除工具单击已有 BPM 线 = 删除该线（issue 59 定案例外；issue 62：删最后一条 → 重置默认 BPM）', () => {
     const notes: ChartNote[] = [bpm(4, 120), single(1, 1)];
     expect(clickOps(input({ tool: 'delete', notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
-      .toEqual([{ t: 'setNotes', notes: [single(1, 1)] }, { t: 'setSelection', items: [] }]);
+      .toEqual([
+        { t: 'setNotes', notes: [bpm(0, 120), single(1, 1)] },
+        { t: 'setSelection', items: [] },
+      ]);
   });
   it('镜像工具单击已有 BPM 线 = 不生效（无效果 + 清选区）', () => {
     const notes: ChartNote[] = [bpm(4, 120)];
     expect(clickOps(input({ tool: 'mirror', notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
       .toEqual([{ t: 'setSelection', items: [] }]);
+  });
+  it('issue 256：复制/剪切单击已有 BPM 线 = 镜像档（无效果 + 清选区，不写剪贴板）', () => {
+    const notes: ChartNote[] = [bpm(4, 120)];
+    for (const tool of ['copy', 'cut'] as const) {
+      expect(clickOps(input({ tool, notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
+        .toEqual([{ t: 'setSelection', items: [] }]);
+    }
   });
   it('键型工具单击已有 BPM 线 = 照常按栅格位放置（BPM 不拦放置）', () => {
     // BPM 线的可交互点在 lane 0，点线右段时命中仍是它、但栅格位在 lane 3 → 照常放置单键
@@ -246,7 +263,6 @@ describe('§2 paste 工具单击', () => {
 });
 
 // ══════════════════ §2 单击矩阵·动作工具行（T/Q，Model A）══════════════════
-// §2.1（六轮）：copy / cut 已退出工具轴（不 arm），矩阵不再有这两行
 describe('§2 delete/mirror 单击', () => {
   const notes: ChartNote[] = [single(1, 1), single(2, 2)];
   const hit = noteSel(0)[0];
@@ -263,7 +279,7 @@ describe('§2 delete/mirror 单击', () => {
     expect((ops[1] as any).notes[0].lane).toBe(5);
   });
   it('issue 83：轨道内空白 / 轨道外（无命中）**一律清选区**（旧口径：只有落点非法才清）', () => {
-    for (const tool of ['delete', 'mirror'] as const) {
+    for (const tool of ['delete', 'mirror', 'copy', 'cut'] as const) {
       expect(clickOps(input({ tool, notes, hit: null, pos: sp(4, 3) })))
         .toEqual([{ t: 'setSelection', items: [] }]);
       expect(clickOps(input({ tool, notes, hit: null, pos: null })))
@@ -281,9 +297,10 @@ describe('§2 delete/mirror 单击', () => {
 // 这是 §2 原则 6「非指针态单击 = 清选区」的新例外：这一击被选区消费 → 不清（清不清由动作自身决定）。
 describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
   it('resolveActionTargets：命中 ∈ 选区取整片；否则只取命中；无命中取空', () => {
-    expect(resolveActionTargets(noteSel(1)[0], noteSel(0, 1, 2))).toEqual(noteSel(0, 1, 2));
-    expect(resolveActionTargets(noteSel(2)[0], noteSel(0, 1))).toEqual(noteSel(2));
-    expect(resolveActionTargets(null, noteSel(0))).toEqual([]);
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(resolveActionTargets(noteSel(1)[0], noteSel(0, 1, 2), notes)).toEqual(noteSel(0, 1, 2));
+    expect(resolveActionTargets(noteSel(2)[0], noteSel(0, 1), notes)).toEqual(noteSel(2));
+    expect(resolveActionTargets(null, noteSel(0), notes)).toEqual([]);
   });
 
   it('delete：命中 ∈ 选区 → 整片删除 + 清选区', () => {
@@ -311,10 +328,49 @@ describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
       ]);
   });
 
+  it('issue 256：copy 命中 ∈ 选区 → 整片写入剪贴板并保留选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    const selected = noteSel(0, 1);
+    expect(clickOps(input({ tool: 'copy', notes, hit: noteSel(0)[0], selectedItems: selected })))
+      .toEqual([
+        { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+        { t: 'setSelection', items: selected },
+      ]);
+  });
+
+  it('issue 256：copy 命中选区外 → 单件复制并设为选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'copy', notes, hit: noteSel(2)[0], selectedItems: noteSel(0, 1) })))
+      .toEqual([
+        { t: 'setClipboard', notes: [single(3, 3)] },
+        { t: 'setSelection', items: noteSel(2) },
+      ]);
+  });
+
+  it('issue 256：cut 命中 ∈ 选区 → 整片剪切并清选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'cut', notes, hit: noteSel(1)[0], selectedItems: noteSel(0, 1) })))
+      .toEqual([
+        { t: 'setNotes', notes: [single(3, 3)] },
+        { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('issue 256：cut 命中选区外 → 单件剪切并清选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'cut', notes, hit: noteSel(2)[0], selectedItems: noteSel(0) })))
+      .toEqual([
+        { t: 'setNotes', notes: [single(1, 1), single(2, 2)] },
+        { t: 'setClipboard', notes: [single(3, 3)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
   it('右键删除（画布侧同源调用）：命中 ∈ 选区 → 整片删除', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
     const hit: SelectionItem = { kind: 'note', noteIndex: 1 };
-    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hit, noteSel(0, 1))))
+    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hit, noteSel(0, 1), notes)))
       .toEqual([
         { t: 'setNotes', notes: [single(3, 3)] },
         { t: 'setSelection', items: [] },
@@ -410,6 +466,136 @@ describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
   });
 });
 
+// ══════════════════ issue 254：Ctrl+左键整条选中后再点端点 = 框选整条后再点端点 ══════════════════
+// 229 只补了拖动；单击路径的 issue 88 仍用 sameSelectionItem，{kind:'note'} 盖不住 slideNode。
+const boxWholeSlide = (noteIndex: number, visibleNodes: number): SelectionItem[] => [
+  ...Array.from({ length: visibleNodes }, (_, i): SelectionItem => (
+    { kind: 'slideNode', noteIndex, connIndex: i }
+  )),
+  ...Array.from({ length: Math.max(0, visibleNodes - 1) }, (_, i): SelectionItem => (
+    { kind: 'slideRegion', noteIndex, connIndex: i }
+  )),
+];
+
+describe('issue 254 Ctrl+左键整条选中后再点端点 → 整片执行', () => {
+  const notes: ChartNote[] = [slide(2, 1, 4, 4)];
+  const hitStart: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 0 };
+  const hitEnd: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 1 };
+  const boxSel = boxWholeSlide(0, 2);
+  const ctrlSel = noteSel(0);
+  const posStart = sp(2, 1);
+
+  it.each(['skill', 'flick', 'delete', 'mirror', 'copy', 'cut'] as MatrixTool[])(
+    '%s：框选整条后再点端点 ≡ Ctrl+左键后再点同一端点',
+    (tool) => {
+      const viaBox = clickOps(input({ tool, notes, hit: hitStart, selectedItems: boxSel, pos: posStart }));
+      const viaCtrl = clickOps(input({ tool, notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+      expect(viaCtrl, `${tool}：Ctrl+左键路径必须与框选同源`).toEqual(viaBox);
+      expect(viaCtrl.length, `${tool}：应真的产出 op`).toBeGreaterThan(0);
+    },
+  );
+
+  it('skill：两端点都改 skill（修前只改被点的那一端；只补 membership 不展开则空操作）', () => {
+    const ops = clickOps(input({ tool: 'skill', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+    const out = (ops[0] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections[0]?.skill).toBe(true);
+    expect(out.connections[1]?.skill).toBe(true);
+  });
+
+  it('flick：点起点仍只给尾端点加 flick（头端点不携带 flick）', () => {
+    const ops = clickOps(input({ tool: 'flick', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+    const out = (ops[0] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections[0]?.flick).toBeUndefined();
+    expect(out.connections[1]?.flick).toBe(true);
+  });
+
+  it('delete：整条滑条消失（修前只拆掉被点的那一端）', () => {
+    const ops = clickOps(input({ tool: 'delete', notes, hit: hitEnd, selectedItems: ctrlSel, pos: sp(4, 4) }));
+    expect((ops[0] as { notes: ChartNote[] }).notes).toEqual([]);
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
+  });
+
+  it('mirror：两端 lane 都翻（1→5、4→2）', () => {
+    const ops = clickOps(input({ tool: 'mirror', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart }));
+    const out = (ops[1] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections.map(c => c.lane)).toEqual([5, 2]);
+  });
+
+  it('curve：刷整条每一段，与框选后再点端点同源', () => {
+    const viaBox = clickOps(input({
+      tool: 'curve', notes, hit: hitStart, selectedItems: boxSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    const viaCtrl = clickOps(input({
+      tool: 'curve', notes, hit: hitStart, selectedItems: ctrlSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    expect(viaCtrl).toEqual(viaBox);
+    expect(viaCtrl.some(o => o.t === 'setNotes')).toBe(true);
+  });
+
+  it('右键点删：命中被 {kind:note} 覆盖 → 整条删除', () => {
+    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hitStart, ctrlSel, notes)))
+      .toEqual([
+        { t: 'setNotes', notes: [] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('守卫：未整条选中、只选该端点 → 仍只改那一端', () => {
+    const onlyStart: SelectionItem[] = [hitStart];
+    const ops = clickOps(input({ tool: 'skill', notes, hit: hitStart, selectedItems: onlyStart, pos: posStart }));
+    const out = (ops[0] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections[0]?.skill).toBe(true);
+    expect(out.connections[1]?.skill).toBeUndefined();
+  });
+
+  it('守卫：单键 {kind:note} 不被整条规则误伤（点自己仍换型）', () => {
+    const singles: ChartNote[] = [single(1, 1), single(2, 2)];
+    const ops = clickOps(input({
+      tool: 'flick', notes: singles, hit: noteSel(0)[0], selectedItems: noteSel(0), pos: sp(1, 1),
+    }));
+    expect((ops[0] as { notes: ChartNote[] }).notes[0]).toMatchObject({ type: 'Single', flick: true });
+    expect((ops[0] as { notes: ChartNote[] }).notes[1]).toEqual(singles[1]);
+  });
+
+  it('curve：点段与点端点一样刷整条（Ctrl+左键 ≡ 框选）', () => {
+    const hitRegion: SelectionItem = { kind: 'slideRegion', noteIndex: 0, connIndex: 0 };
+    const viaBox = clickOps(input({
+      tool: 'curve', notes, hit: hitRegion, selectedItems: boxSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    const viaCtrl = clickOps(input({
+      tool: 'curve', notes, hit: hitRegion, selectedItems: ctrlSel, pos: posStart,
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    expect(viaCtrl).toEqual(viaBox);
+    expect(viaCtrl.some(o => o.t === 'setNotes')).toBe(true);
+  });
+
+  it('mirror：含 hidden 的段经逻辑段一起翻（可见 1→5、4→2；hidden 0→6）', () => {
+    const curved: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 2, lane: 1 },
+        { beat: 3, lane: 0, hidden: true },
+        { beat: 4, lane: 4 },
+      ],
+    }];
+    const boxSelHidden: SelectionItem[] = [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+      { kind: 'slideNode', noteIndex: 0, connIndex: 2 },
+      { kind: 'slideRegion', noteIndex: 0, connIndex: 0 },
+    ];
+    const hit: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 0 };
+    const viaBox = clickOps(input({ tool: 'mirror', notes: curved, hit, selectedItems: boxSelHidden, pos: posStart }));
+    const viaCtrl = clickOps(input({ tool: 'mirror', notes: curved, hit, selectedItems: noteSel(0), pos: posStart }));
+    expect(viaCtrl).toEqual(viaBox);
+    const out = (viaCtrl[1] as { notes: ChartNote[] }).notes[0] as SlideNote;
+    expect(out.connections.map(c => c.lane)).toEqual([5, 6, 2]);
+  });
+});
+
 // ══════════════════ §2 单击矩阵·音符代码行（issue 59 §3/§4）══════════════════
 describe('§2 音符代码工具单击（noteCode，issue 59）', () => {
   const notes: ChartNote[] = [bpm(0, 120), single(1, 1), slide(2, 1, 3, 2, 4, 3)];
@@ -470,19 +656,19 @@ describe('§2 框选矩阵', () => {
     expect(boxSelectOps('bpm', [bpm(2, 120)], noteSel(0))).toEqual([]);
     expect(boxSelectOps('paste', [single(1, 1)], noteSel(0))).toEqual([]);
   });
-  it('issue 71：delete 行例外 —— bpmInBox 里的 BPM 线被删（不进选区）', () => {
+  it('issue 71：delete 行例外 —— bpmInBox 里的 BPM 线被删（不进选区）；删最后一条 → 重置默认 BPM', () => {
     const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
     // 画布侧：items 只含音符（BPM 不在 computeItemsInBox 结果里），BPM 另由 computeBpmLinesInBox 给出
     const ops = boxSelectOps('delete', notes, noteSel(0), noteSel(1));
     expect(ops).toEqual([
-      { t: 'setNotes', notes: [] },
+      { t: 'setNotes', notes: [bpm(0, 120)] },
       { t: 'setSelection', items: [] },
     ]);
   });
-  it('issue 71：delete 行只框住 BPM（items 为空）→ 仍删掉该 BPM 线', () => {
+  it('issue 71：delete 行只框住 BPM（items 为空）→ 仍删掉该 BPM 线；它是最后一条 → 重置默认 BPM', () => {
     const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
     const ops = boxSelectOps('delete', notes, [], noteSel(1));
-    expect((ops[0] as any).notes).toEqual([single(1, 1)]);
+    expect((ops[0] as any).notes).toEqual([bpm(0, 120), single(1, 1)]);
   });
   it('回归：delete 行不带 bpmInBox 时不碰 BPM（旧行为）', () => {
     const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
@@ -538,11 +724,26 @@ describe('§2 框选矩阵', () => {
       expect(boxSelectOps(tool, [single(1, 1)], [])).toEqual([]);
     }
   });
-  it('§2.1（六轮）：copy / cut 不占工具轴 → 框选无效果（只走 Ctrl+C / Ctrl+X 执行键）', () => {
-    const notes: ChartNote[] = [single(1, 1), single(2, 2)];
-    // 矩阵类型层面已移除；运行时兜底（旧配置残留）同样无效果
-    expect(boxSelectOps('copy' as never, notes, noteSel(0, 1))).toEqual([]);
-    expect(boxSelectOps('cut' as never, notes, noteSel(0, 1))).toEqual([]);
+  it('issue 256：copy 行框选 = 写入剪贴板并保留框内选区（BPM 不入选）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), bpm(9, 120)];
+    const items = noteSel(0, 1);
+    expect(boxSelectOps('copy', notes, items)).toEqual([
+      { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+      { t: 'setSelection', items },
+    ]);
+  });
+  it('issue 256：cut 行框选 = 写入剪贴板、移除音符、清选区（BPM 留在谱面）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), bpm(9, 120)];
+    expect(boxSelectOps('cut', notes, noteSel(0, 1))).toEqual([
+      { t: 'setNotes', notes: [bpm(9, 120)] },
+      { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
+      { t: 'setSelection', items: [] },
+    ]);
+  });
+  it('issue 256：copy/cut 空框 = 无效果（不清选区、不写剪贴板）', () => {
+    for (const tool of ['copy', 'cut'] as const) {
+      expect(boxSelectOps(tool, [single(1, 1)], [])).toEqual([]);
+    }
   });
   it('delete 行：删框内 + 清选区', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2)];
@@ -633,10 +834,10 @@ describe('actionOnItemOps（删除工具点音符 ≡ 右键删除，issue 70）
     ]);
   });
 
-  it('删除 BPM 线同样生效（56 定的三条通路之一）', () => {
+  it('删除 BPM 线同样生效（56 定的三条通路之一）；删最后一条 → 重置默认 BPM（issue 62）', () => {
     const r = actionOnItemOps('delete', notes, { kind: 'note', noteIndex: 1 });
     expect(r[0]).toMatchObject({ t: 'setNotes' });
-    expect((r[0] as { notes: ChartNote[] }).notes.map(n => n.type)).toEqual(['Single', 'Single']);
+    expect((r[0] as { notes: ChartNote[] }).notes.map(n => n.type)).toEqual(['BPM', 'Single', 'Single']);
   });
 
   it('镜像单个条目：先建选区再改谱面（与 delete 的次序不同，不可互换）', () => {

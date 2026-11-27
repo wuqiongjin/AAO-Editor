@@ -43,10 +43,28 @@ import {
   NOTE_ICON_SIZE, SLIDE_ICON_SIZE, DIRECTIONAL_ICON_SIZE,
   NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
 } from './primitives/noteMetrics';
+
+/** 单次计算音符/结点的画布坐标；落在时间原点之前（pos < 0）返回 null（issue 63） */
+function noteCanvasPosIfVisible(
+  c: Coords,
+  rc: RenderCtx,
+  lane: number,
+  beat: number,
+  subBeat?: number,
+): { x: number; y: number } | null {
+  const pos = rc.geometry.timeline.positionOfBeat(trueBeat(beat, subBeat, rc.beatDisplay));
+  if (pos < 0) return null;
+  return c.virtualToCanvas(c.getNoteVirtualX(lane), rc.geometry.virtualYOfPos(pos, rc.viewport.scale));
+}
 export {
   NOTE_ICON_SIZE, SLIDE_ICON_SIZE, DIRECTIONAL_ICON_SIZE,
   NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
 };
+
+/** 音符精灵缩放：视口 scale × 节奏图示大小。实绘与幽灵必须同口径（ADR-0002 §4 / issue 252）。 */
+function noteSpriteScale(rc: Pick<RenderCtx, 'viewport' | 'display'>): number {
+  return rc.viewport.scale * (rc.display?.noteSize ?? 1);
+}
 
 /** 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）。一次构建 Set/Map，密集音符下避免每音符 O(选择数) 扫描 */
 interface SelectionSets {
@@ -138,7 +156,9 @@ export function visibleBeatRanges(
 ): BpmBeatRange[] {
   const out: BpmBeatRange[] = [];
   for (const r of geometry.visibleBeatRanges(viewport, viewHeightCss)) {
-    const start = Math.max(0, r.start);
+    // issue 63：区间本身来自视口的**布局坐标**（pos ≥ 0），已天然落在时间原点之上；
+    // 不再按拍位钳制（首条 BPM 为负时可见区就在 startBeat 之前）。
+    const start = r.start;
     const end = Math.min(chartEndBeat, r.end);
     if (end >= start) out.push({ start, end });
   }
@@ -199,16 +219,24 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   const candidates: GridCandidate[] = [];
   // issue 104 修法 4：按**布局坐标派生的拍区间**逐段枚举（每段内 pos 单调、区间连续）；
   // 每个候选独立求 y，不做任何"pos 随 beat 递增"的假设。
+  const geom = rc.geometry;
   for (const range of ranges) {
     for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
-      if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
+      // issue 63：时间原点之前（时间 < 0）不画网格 —— 按时间判，不用 `beat < startBeat`
+      const pastBeatEnd = rc.chartEndBeat >= geom.startBeat
+        ? isPastChartEnd(beat, rc.chartEndBeat)
+        : geom.isBeyondEnd(beat);
+      if (geom.isBeforeOrigin(beat) || pastBeatEnd) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= -8 && y <= rc.surface.h + 8) candidates.push({ y, tier: 'beat' });
       if (maxDivision <= 1) continue;
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
         if (gridDivisionOf(subBeat, rc.beatDisplay) > maxDivision) continue;
         const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
-        if (isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
+        const pastSubEnd = rc.chartEndBeat >= geom.startBeat
+          ? isPastChartEnd(preciseBeat, rc.chartEndBeat)
+          : geom.isBeyondEnd(preciseBeat);
+        if (geom.isBeforeOrigin(preciseBeat) || pastSubEnd) continue;
         const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
         if (subY < -8 || subY > rc.surface.h + 8) continue;
         candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
@@ -332,7 +360,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
   if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0 && !hover && !preview) return [];
   // A5：描边随 noteSize 缩放（与音符本体同一 spriteScale），永远贴合外边缘
   const ns = rc.display?.noteSize ?? 1;
-  const s = rc.viewport.scale * ns;
+  const s = noteSpriteScale(rc);
   // issue 74：右键按住（未松手）时，光标下对象的 hover 也要用删除红 ——
   // 右键 = 删除该对象，按住期间就该用与"删除工具"同款的 danger 反馈作预览。
   // 与"删除持工具态"是同一形态的两种触发源，故合并成一个开关。
@@ -395,7 +423,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
 
     if (note.type === 'Single') {
       if (!whole && !hv && !previewWhole) continue;
-      const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      const p = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!p) continue;
       const cfg = singleIconConfig(rc, note);
       const w = (cfg.out?.w ?? NOTE_ICON_SIZE) * s;
       const h = (cfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE) * s;
@@ -408,7 +437,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
 
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
       if (!whole && !hv && !previewWhole) continue;
-      const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      const p = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!p) continue;
       const len = note.length;
       const side = dirSideOf(rc, note.type === 'LDirectional');
       const group = rc.noteIcons.dirGroup(side, len);
@@ -456,7 +486,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         const inPreview = !inSel && inPreviewBox;                            // 未选中才额外多画一圈
         const isHoverPart = hv?.kind === 'slideNode' && hv.connIndex === ci;
         if (!inSel && !isHoverPart && !inPreview) return;
-        const p = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+        const p = noteCanvasPosIfVisible(c, rc, conn.lane, conn.beat, conn.subBeat);
+        if (!p) return; // issue 63：时间原点之前的结点不可选中/不画描边
         const cfg = slideNodeIconConfig(rc, conn, ci === ends.first, ci === ends.last);
         const w = (cfg.out?.w ?? SLIDE_ICON_SIZE) * s;
         const h = (cfg.out?.h ?? SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE) * s;
@@ -491,10 +522,14 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 跨过 hidden 的整段是一条折线带，中间的拐点不能各自封口 —— 否则 hidden 处会多出
         // 一道横向的"衔接线"（观感上段被切成两个图形）。两侧各串成一条折线，只有首尾封口。
         const cents: { x: number; y: number }[] = [];
+        let anyAtOrAfterOrigin = false;
         for (let ci = sp.start; ci <= sp.end; ci++) {
           const cc = proj.conns[ci]!;
-          cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), c.getNoteVirtualY(cc.beat, cc.subBeat || 0)));
+          const connPos = rc.geometry.timeline.positionOfBeat(trueBeat(cc.beat, cc.subBeat, rc.beatDisplay));
+          if (connPos >= 0) anyAtOrAfterOrigin = true;
+          cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), rc.geometry.virtualYOfPos(connPos, rc.viewport.scale)));
         }
+        if (!anyAtOrAfterOrigin) continue;
         // 横截面口径与带体实绘 / 命中区同源（`slideBandGeometry`，issue 09 验收反馈六轮）
         const points = bandPolygonAt(cents, half);
         // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
@@ -573,7 +608,7 @@ function traceOutline(ctx: CanvasRenderingContext2D, o: SelectionOutline, outset
 export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   const outlines = collectSelectionOutlines(c, rc, visibleNotes);
   if (outlines.length === 0) return;
-  const s = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const s = noteSpriteScale(rc);
   const lw = Math.max(1, SELECTION_OUTLINE.lineWidth * s);
   // hover / 危险描边更粗一档（与删除红区分；用户 2026-09-09 反馈）
   const hoverLw = Math.max(lw, SELECTION_OUTLINE.hoverLineWidth * s);
@@ -672,21 +707,29 @@ export function isHalfBeatAligned(beat: number, subBeat: number, beatDisplay: nu
  * issue 56 a)：本函数**不画任何选中/hover 描边**——一律由 renderSelectionOverlay 在叠加层绘制，
  * 瓦片与直渲两条路径共用同一实现（issue 35 F1：选择变化 0 瓦片重建）。
  */
-export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  // issue 39 #1：节奏图示大小（音符占轨道比例，默认 1）。乘进视图 scale → 图标本体与
-  // 组合挂件（方向滑键的装饰器 offset 同乘 scale）整体等比缩放，相对间距不变（修回归）。
-  const ns = rc.display?.noteSize ?? 1;
-  const spriteScale = rc.viewport.scale * ns;
-  // 音符皮肤图标集（issue 29）：按 settings.visual.noteSkin 解析的 per-lane 官方精灵
-  const icons = rc.noteIcons;
+function renderPreNoteLayers(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   // 同时点击线（issue 39 #3）：画在音符层内、音符主体之前 → 与音符同一瓦片/同一缩放基准，
   // 缩放下线随音符一起比例缩放（修回归）；slide 起止端点也参与双押线。
   if (rc.display?.simultaneousClickLines) {
     renderSimultaneousClickLines(ctx, c, rc, visibleNotes);
   }
+}
+
+function isDrawableSlide(note: ChartNote): note is SlideNote {
+  return (note.type === 'Slide' || note.type === 'Long') && visibleEnds(note.connections).first >= 0;
+}
+
+export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  renderPreNoteLayers(ctx, c, rc, visibleNotes);
   // issue 160：滑条两轮 — 先全谱段（后放置者在上），再全谱可见结点 + flick 挂件。
   // 不再一条 renderSlideBody 原子画完，否则后放滑条的段会盖住先放端点。
   renderNoteBands(ctx, c, rc, visibleNotes);
+  renderNotesBody(ctx, c, rc, visibleNotes);
+}
+
+function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const spriteScale = noteSpriteScale(rc);
+  const icons = rc.noteIcons;
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Slide" || note.type === "Long") {
       renderSlideBody(ctx, c, rc, note);
@@ -695,12 +738,9 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 
   // 键型在全体滑条之上（issue 85 ①）
   visibleNotes.forEach(({ note }) => {
-    if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") && note.beat < 0) {
-      return;
-    }
     if (note.type === "Single") {
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
+      const canvasPos = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!canvasPos) return;
       // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
       const iconConfig = singleIconConfig(rc, note);
       rc.spriteIcon.render(ctx, {
@@ -713,9 +753,9 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
         scale: spriteScale, renderLayer: 'main',
       });
     } else if (note.type === "LDirectional" || note.type === "RDirectional") {
+      const canvasPos = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!canvasPos) return;
       // 镜像由 renderDirGroup 内部取反（组内偏移 + 侧别），调用方只负责传组
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = note.length;
       renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale, rc.viewport.scale);
@@ -730,10 +770,11 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   // offsetX/offsetY 正确按 spriteScale 应用。
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Single" && note.flick) {
+      // issue 63：与主精灵同一道时间原点过滤，否则首条之前的 flick 会只剩一枚箭头
       const dec = icons.flickTopDecorator;
       if (!dec) return;
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
+      const canvasPos = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!canvasPos) return;
       const flickCfg = icons.flickFor(note.lane);
       const anchor = {
         canvasX: canvasPos.x,
@@ -748,11 +789,27 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 
 /** 与 renderNotes 同一带体遍历；瓦片预取先收集光栅输入，完成后按原顺序绘制。 */
 export function renderNoteBands(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const slideAlpha = rc.display?.slideOpacity ?? 1;
   visibleNotes.forEach(({ note }) => {
-    if (note.type !== 'Slide' && note.type !== 'Long') return;
-    if (visibleEnds(note.connections).first < 0) return;
-    renderSpanBands(ctx, c, rc, note.connections, rc.display?.slideOpacity ?? 1);
+    if (isDrawableSlide(note)) renderSpanBands(ctx, c, rc, note.connections, slideAlpha);
   });
+}
+
+/** 分步版 `renderNotes`：每画完一条滑条连接带让出一次，供后台瓦片光栅按帧预算切片执行。 */
+export function* renderNotesSteps(
+  ctx: CanvasRenderingContext2D,
+  c: Coords,
+  rc: RenderCtx,
+  visibleNotes: { note: ChartNote; index: number }[],
+): Generator<void, void> {
+  renderPreNoteLayers(ctx, c, rc, visibleNotes);
+  const slideAlpha = rc.display?.slideOpacity ?? 1;
+  for (const { note } of visibleNotes) {
+    if (!isDrawableSlide(note)) continue;
+    renderSpanBands(ctx, c, rc, note.connections, slideAlpha);
+    yield;
+  }
+  renderNotesBody(ctx, c, rc, visibleNotes);
 }
 
 /** 渲染一条滑条/长条的可见结点 + flick 挂件（段由 renderNotes 全谱先画，issue 160） */
@@ -763,12 +820,13 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const ends = visibleEnds(connections);
   if (ends.first < 0) return;
   // issue 39 #1：slide 结点（起止/中间）图标随节奏图示大小缩放；连接带是线条，不随。
-  const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const spriteScale = noteSpriteScale(rc);
   const icons = rc.noteIcons;
 
   connections.forEach((conn, i) => {
-    const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     if (conn.hidden) return;
+    const canvasPos = noteCanvasPosIfVisible(c, rc, conn.lane, conn.beat, conn.subBeat);
+    if (!canvasPos) return; // issue 63：时间原点之前（pos < 0）的滑条结点不渲染（直渲/静态预览同口径）
     // 端点 = 单键皮肤（定案），结点带 flick/skill 时换对应图（spread 覆盖 src/矩形）；
     // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
     const iconConfig = slideNodeIconConfig(rc, conn, i === ends.first, i === ends.last);
@@ -792,7 +850,8 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
       // issue 145 #3：与主精灵同口径 —— 中间结点的 flick 不画箭头（只端点补）
       // issue 145 #3 / issue 221：与主精灵同口径 —— 只有尾端点才画 flick 箭头
       if (!conn.flick || i !== ends.last) return;
-      const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+      const pos = noteCanvasPosIfVisible(c, rc, conn.lane, conn.beat, conn.subBeat);
+      if (!pos) return;
       const flickCfg = icons.flickFor(conn.lane);
       rc.spriteIcon.renderDecorator(ctx, {
         canvasX: pos.x, canvasY: pos.y,
@@ -829,7 +888,7 @@ export function renderSlideBuffer(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   const { beat, lane, subBeat } = rc.slideBuffer;
   const { x, y } = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat, subBeat || 0));
   const icon = slideNodeIconConfig(rc, { lane }, true, true);
-  const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const spriteScale = noteSpriteScale(rc);
   rc.spriteIcon.render(ctx, {
     ...icon,
     canvasX: x, canvasY: y,
@@ -848,7 +907,8 @@ function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: S
     ...icon,
     canvasX: cx, canvasY: cy,
     canvasSize: size, canvasWidth: w, canvasHeight: h,
-    scale: rc.viewport.scale,
+    // issue 252：与实绘同口径（viewport.scale × noteSize）；此前只乘视口 scale，节奏图示大小对幽灵图标无效
+    scale: noteSpriteScale(rc),
   });
 }
 
@@ -941,17 +1001,50 @@ export function renderSpanBands(
   const spans = proj.regions;
   if (spans.length === 0) return;
   const band = slideUsesSpBand(connections) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
-  for (const sp of spans) {
-    const pts: { x: number; y: number }[] = [];
-    for (let i = sp.start; i <= sp.end; i++) {
-      const cn = dconns[i]!;
-      pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
-    }
-    if (sp.end - sp.start > 1) {
-      renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
-    } else {
+  const drawPointRun = (pts: { x: number; y: number }[]) => {
+    if (pts.length > 2) {
+      if (rc.previewSlideBands) {
+        const style = bandStripStyle(band);
+        ctx.save();
+        ctx.globalAlpha = (alpha ?? 1) * style.profile.reduce((sum, value) => sum + value, 0) / style.profile.length;
+        ctx.fillStyle = style.color;
+        for (const run of splitBandAtFolds(pts)) {
+          const polygon = bandPolygonAt(run, half);
+          ctx.beginPath();
+          ctx.moveTo(polygon[0]![0], polygon[0]![1]);
+          for (const [x, y] of polygon.slice(1)) ctx.lineTo(x, y);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      } else {
+        renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
+      }
+    } else if (pts.length === 2) {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }
+  };
+  const pointAt = (cn: SlideNote['connections'][number], pos: number) =>
+    c.virtualToCanvas(c.getNoteVirtualX(cn.lane), rc.geometry.virtualYOfPos(pos, rc.viewport.scale));
+  for (const sp of spans) {
+    let runPts: { x: number; y: number }[] = [];
+    const first = dconns[sp.start]!;
+    let prevPos = rc.geometry.timeline.positionOfBeat(trueBeat(first.beat, first.subBeat, rc.beatDisplay));
+    for (let i = sp.start; i < sp.end; i++) {
+      const a = dconns[i]!;
+      const b = dconns[i + 1]!;
+      const nextPos = rc.geometry.timeline.positionOfBeat(trueBeat(b.beat, b.subBeat, rc.beatDisplay));
+      // issue 63：两端均在时间原点之前（pos < 0）的子段不铺带；跨过原点的段照常铺
+      if (prevPos < 0 && nextPos < 0) {
+        if (runPts.length >= 2) drawPointRun(runPts);
+        runPts = [];
+      } else {
+        if (runPts.length === 0) runPts.push(pointAt(a, prevPos));
+        runPts.push(pointAt(b, nextPos));
+      }
+      prevPos = nextPos;
+    }
+    if (runPts.length >= 2) drawPointRun(runPts);
   }
 }
 
@@ -1103,9 +1196,13 @@ export function renderBandStrip(
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");
   if (!octx) return false;
-  octx.clearRect(0, 0, raster.bw, raster.bh);
-  const img = octx.createImageData(raster.bw, raster.bh);
-  img.data.set(raster.data);
+  const clamped = raster.data;
+  const img = typeof ImageData === "function" &&
+    clamped.buffer instanceof ArrayBuffer &&
+    clamped.byteOffset === 0 &&
+    clamped.byteLength === raster.bw * raster.bh * 4
+    ? new ImageData(clamped as Uint8ClampedArray<ArrayBuffer>, raster.bw, raster.bh)
+    : (() => { const d = octx.createImageData(raster.bw, raster.bh); d.data.set(clamped); return d; })();
   octx.putImageData(img, 0, 0);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0); // 贴回按设备像素 1:1，横截面已在正确分辨率烘焙
@@ -1155,13 +1252,13 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
         canvasX: cpt.x, canvasY: cpt.y,
         drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
         drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
-      }, icons.flickTopDecorator, rc.viewport.scale);
+      }, icons.flickTopDecorator, noteSpriteScale(rc));
     }
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）；侧别交给 dirSideOf（镜像会互换）
     const len = note.length;
-    renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale, rc.viewport.scale);
+    renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, noteSpriteScale(rc), rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }
@@ -1417,7 +1514,8 @@ function renderBpmGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx,
   if (rc.bpmEditBeat != null && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) return;
   const userLabelScale = rc.display?.labelScale ?? 1;
   const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * es);
-  const labelY = bpmLabelAnchorY(note.beat, y, fontPx, rc.surface.h);
+  // issue 63：ghost 可能来自 `previewGeometry`（BPM 表已变），原点随本次布局的 c 走
+  const labelY = bpmLabelAnchorY(note.beat, y, fontPx, c.startBeat);
   if (!bpmGutterYIntersectsCanvas(labelY, fontPx, rc.surface.h)) return;
   const preset = normalizeGridStyle(rc.display?.gridStyle);
   const gl = layoutGutterLabel(c, es, labelY, 'centered', 'bpm', userLabelScale);
@@ -1498,6 +1596,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     (beat) => c.getNoteVirtualY(beat),
     fontPx,
     expandedKey,
+    c.startBeat,
   );
   const colorOf = (bpm: number, noteIndex?: number) => bpmLabelColor(bpm, preset, noteIndex === tailIdx);
   ctx.save();
@@ -1509,7 +1608,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
       const n = rc.notes[i];
       return n && 'beat' in n ? n.beat : Infinity;
     }));
-    const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, rc.surface.h);
+    const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, c.startBeat);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
     const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', userLabelScale);
     drawBpmSummary(ctx, gl, sum.tokens, (bpm) => {
@@ -1525,7 +1624,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     if (!note || note.type !== 'BPM') continue;
     if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
         && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
-    const y = bpmLabelAnchorY(note.beat, num.y, fontPx, rc.surface.h);
+    const y = bpmLabelAnchorY(note.beat, num.y, fontPx, c.startBeat);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
     const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', userLabelScale);
     const bpm = (note as ChartNote & { bpm: number }).bpm;
@@ -1646,6 +1745,7 @@ export const END_TEXT_COLOR = '#f0a07e';
 /**
  * 谱面起始线 / 结束线（issue 52 线样式 + issue 151 文字）：
  * - 线 = 低饱和青蓝 / 暖橙虚线，**只画轨道两侧沟槽段**；
+ * - 起始线画在**时间原点**（首条 BPM 的 beat，issue 63），不再固定 beat 0；
  * - 起始线不画字；结束线 `END` 在线下方、外带锚定，文字盒钳制在画布内。
  */
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
@@ -1669,7 +1769,7 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
     ctx.restore();
     return canvasY;
   };
-  drawLine(0, START_LINE_COLOR);
+  drawLine(c.startBeat, START_LINE_COLOR);
   const endY = drawLine(rc.chartEndBeat, END_LINE_COLOR);
   if (endY == null) return;
   const es = rc.viewport.scale;
@@ -1783,8 +1883,7 @@ export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
  * - 在 renderNotes 内调用 → 与音符同一瓦片/同一缩放基准，缩放下线随音符一起缩放（修回归）。
  */
 export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  const ns = rc.display?.noteSize ?? 1;
-  const base = ns * rc.viewport.scale; // 图标基础缩放（canvas px / 设计尺寸）
+  const base = noteSpriteScale(rc); // 图标基础缩放（canvas px / 设计尺寸）
   // 方向滑键连接线端点 = 可见墨迹边缘（issue 40）：精灵框内含横向透明留白，若按精灵框边缘定位，
   // 线头会与可见墨迹之间留空隙。这里用规范化后的 inkLeft/inkRight（源像素缩进）换算成
   // 「墨迹边缘距图标中心」的 canvas px，线头天然贴合真实墨迹边缘；普通音符（含 slide 起止结点）仍用正中心。
@@ -1794,7 +1893,8 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
   const key = (beat: number, subBeat?: number): number => beat + (subBeat && subBeat > 0 ? subBeat / rc.beatDisplay : 0);
 
   const push = (k: number, lane: number, beat: number, subBeat: number | undefined, dirEdge: P['dirEdge']) => {
-    const pos = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat, subBeat || 0));
+    const pos = noteCanvasPosIfVisible(c, rc, lane, beat, subBeat);
+    if (!pos) return; // issue 63：时间原点之前的端点不画同时点击线（与 simField 一致）
     let arr: P[] | undefined;
     for (const [gk, g] of groups) {
       if (Math.abs(gk - k) < EPS) { arr = g; break; }

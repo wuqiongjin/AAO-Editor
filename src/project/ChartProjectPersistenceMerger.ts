@@ -50,6 +50,11 @@ export class ChartProjectPersistenceMerger {
     return this.saveNow(project);
   }
 
+  /** 是否存在待防抖落盘的定时器（issue 45：配合内容差异共同判脏） */
+  hasPendingTimer(): boolean {
+    return this.timer !== null;
+  }
+
   /** 是否已销毁（调用方据此重建，避免把 schedule/saveNow 打在死实例上）——issue 64 */
   get isDestroyed(): boolean {
     return this.destroyed;

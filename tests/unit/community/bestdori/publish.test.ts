@@ -5,7 +5,7 @@
 //   ② 必填预检逐字段报错（缺什么点名什么，且一个字节的网络都不发）；
 //   ③ 发帖成功后写入 `upload` 记录且只写一次（重复调用被拒）。
 // 另锁：静默 sanitize（System / charge 不进发帖 body）、bandori 帖零上传、
-// custom 无封面不发 cover 键、平台拒了时记录不写。
+// custom 封面必填（没封面本地拦下、零网络）、平台拒了时记录不写。
 import { describe, expect, it } from 'vitest';
 import {
   editChartPost,
@@ -120,7 +120,12 @@ function makeInput(overrides: Partial<PublishInput> = {}): PublishInput {
 async function run(
   routes: Record<string, Route>,
   input: PublishInput,
-  options: { accept?: (n: number) => boolean; now?: number; username?: string } = {},
+  options: {
+    accept?: (n: number) => boolean;
+    now?: number;
+    username?: string;
+    beforePost?: (submission: { attemptId: string }) => Promise<boolean>;
+  } = {},
 ): Promise<{ outcome: PublishOutcome; requests: CommunityRequest[]; writes: { postId: number; at: number; username?: string }[] }> {
   const transport = fakeTransport(routes);
   const recorder = fakeRecorder(options.accept);
@@ -132,6 +137,7 @@ async function run(
       now: () => options.now ?? 1_700_000_000_000,
       sleep: async (ms) => { sleeps.push(ms); },
       username: options.username,
+      beforePost: options.beforePost,
     },
     input,
   );
@@ -146,79 +152,100 @@ function postBodyOf(requests: CommunityRequest[]): Record<string, unknown> {
 }
 
 describe('票 11 · 三步二进制上传', () => {
-  it('正常路径：prepare → multipart upload → 轮询 status，回引用地址', async () => {
-    const hash = 'c'.repeat(40);
+  it('正常路径：音频与封面各 prepare → multipart upload → 轮询 status', async () => {
     const { outcome, requests } = await run(
       {
         [PREPARE_URL]: { result: true },
-        [UPLOAD_URL]: { hash },
-        [statusUrl(hash)]: { status: 'available' },
+        [UPLOAD_URL]: (req: CommunityRequest) => ({
+          hash: req.multipart?.fileName === FILE_COVER.fileName ? FILE_COVER.hash : FILE_AUDIO.hash,
+        }),
+        [statusUrl(FILE_AUDIO.hash)]: { status: 'available' },
+        [statusUrl(FILE_COVER.hash)]: { status: 'available' },
         [POST_URL]: { result: true, id: 254203 },
       },
-      makeInput({
-        song: { kind: 'custom', audio: FILE_AUDIO, cover: null },
-      }),
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER } }),
     );
 
     expect(outcome).toEqual({ ok: true, postId: 254203, recordWritten: true });
-    // 三步各一次，次序不乱
-    expect(requests.map((r) => r.url)).toEqual([PREPARE_URL, UPLOAD_URL, statusUrl(hash), POST_URL]);
+    // 音频三步 → 封面三步 → 发帖
+    expect(requests.map((r) => r.url)).toEqual([
+      PREPARE_URL,
+      UPLOAD_URL,
+      statusUrl(FILE_AUDIO.hash),
+      PREPARE_URL,
+      UPLOAD_URL,
+      statusUrl(FILE_COVER.hash),
+      POST_URL,
+    ]);
 
-    const prepare = requests[0];
-    expect(prepare.method).toBe('POST');
-    expect(JSON.parse(prepare.body!)).toEqual({ ver: 3, hash: FILE_AUDIO.hash, size: FILE_AUDIO.size });
-
-    const upload = requests[1];
-    expect(upload.method).toBe('POST');
-    // 字节不过 IPC：过去的是路径与文件名，不是字节
-    expect(upload.multipart).toEqual({
+    const audioPrepare = requests[0];
+    expect(audioPrepare.method).toBe('POST');
+    expect(JSON.parse(audioPrepare.body!)).toEqual({ ver: 3, hash: FILE_AUDIO.hash, size: FILE_AUDIO.size });
+    const audioUpload = requests[1];
+    expect(audioUpload.multipart).toEqual({
       field: 'file',
       filePath: FILE_AUDIO.path,
       fileName: FILE_AUDIO.fileName,
     });
 
-    // 发帖 body 的 song.audio 就是上传产物的引用地址
-    expect(postBodyOf(requests).song).toEqual({ type: 'custom', audio: uploadedFileUrl(hash) });
+    const coverPrepare = requests[3];
+    expect(JSON.parse(coverPrepare.body!)).toEqual({ ver: 3, hash: FILE_COVER.hash, size: FILE_COVER.size });
+    const coverUpload = requests[4];
+    expect(coverUpload.multipart).toEqual({
+      field: 'file',
+      filePath: FILE_COVER.path,
+      fileName: FILE_COVER.fileName,
+    });
+
+    expect(postBodyOf(requests).song).toEqual({
+      type: 'custom',
+      audio: uploadedFileUrl(FILE_AUDIO.hash),
+      cover: uploadedFileUrl(FILE_COVER.hash),
+    });
   });
 
   it('prepare 遇 ALREADY_UPLOADED：跳过上传与轮询，直接回引用地址', async () => {
     const { outcome, requests } = await run(
       {
-        // 平台说这份字节已经在（内容寻址复用）—— 网关按码翻成 invalid-response + platformCode
         [PREPARE_URL]: platformError('invalid-response', 'ALREADY_UPLOADED'),
         // 这两个 URL 没有打桩：真被调用会抛「未打桩的请求」
         [UPLOAD_URL]: { hash: 'nope' },
-        [statusUrl(FILE_AUDIO.hash)]: { status: 'available' },
         [POST_URL]: { result: true, id: 254203 },
       },
-      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER } }),
     );
 
     expect(outcome.ok).toBe(true);
-    // 只走了 prepare 与发帖：第二步、第三步一个都没发生
-    expect(requests.map((r) => r.url)).toEqual([PREPARE_URL, POST_URL]);
+    // 两个文件都只走 prepare；发帖直接用内容寻址地址
+    expect(requests.map((r) => r.url)).toEqual([PREPARE_URL, PREPARE_URL, POST_URL]);
     expect(postBodyOf(requests).song).toEqual({
       type: 'custom',
       audio: uploadedFileUrl(FILE_AUDIO.hash),
+      cover: uploadedFileUrl(FILE_COVER.hash),
     });
   });
 
   it('status 未就绪时按间隔轮询，available 才继续', async () => {
-    const hash = 'd'.repeat(40);
-    let statusCalls = 0;
+    const hashAudio = 'd'.repeat(40);
+    const hashCover = 'c'.repeat(40);
+    let audioStatusCalls = 0;
     const { outcome, requests } = await run(
       {
         [PREPARE_URL]: { result: true },
-        [UPLOAD_URL]: { hash },
-        // 前两次「处理中」，第三次就绪（计数器在闭包里，不读还没赋值的 requests）
-        [statusUrl(hash)]: () => (++statusCalls < 3 ? { status: 'processing' } : { status: 'available' }),
+        [UPLOAD_URL]: (req: CommunityRequest) => ({
+          hash: req.multipart?.fileName === FILE_COVER.fileName ? hashCover : hashAudio,
+        }),
+        // 音频前两次「处理中」，第三次就绪；封面直接就绪
+        [statusUrl(hashAudio)]: () => (++audioStatusCalls < 3 ? { status: 'processing' } : { status: 'available' }),
+        [statusUrl(hashCover)]: { status: 'available' },
         [POST_URL]: { result: true, id: 1 },
       },
-      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER } }),
     );
 
     expect(outcome.ok).toBe(true);
-    expect(requests.filter((r) => r.url === statusUrl(hash))).toHaveLength(3);
+    expect(requests.filter((r) => r.url === statusUrl(hashAudio))).toHaveLength(3);
+    expect(requests.filter((r) => r.url === statusUrl(hashCover))).toHaveLength(1);
   });
 
   it('status 一直不就绪：次数用完报 invalid-response，不发帖（放宽至 30 次且带 revalidate）', async () => {
@@ -230,7 +257,7 @@ describe('票 11 · 三步二进制上传', () => {
         [statusUrl(hash)]: { status: 'processing' },
         [POST_URL]: { result: true, id: 1 },
       },
-      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER } }),
     );
 
     expect(outcome).toEqual({ ok: false, failure: 'rejected' });
@@ -245,17 +272,17 @@ describe('票 11 · 三步二进制上传', () => {
       {
         [PREPARE_URL]: { result: true },
         [UPLOAD_URL]: platformError('invalid-response', 'ALREADY_UPLOADED'),
-        [statusUrl(FILE_AUDIO.hash)]: { status: 'available' },
         [POST_URL]: { result: true, id: 254203 },
       },
-      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER } }),
     );
 
     expect(outcome.ok).toBe(true);
-    expect(requests.map((r) => r.url)).toEqual([PREPARE_URL, UPLOAD_URL, POST_URL]);
+    expect(requests.map((r) => r.url)).toEqual([PREPARE_URL, UPLOAD_URL, PREPARE_URL, UPLOAD_URL, POST_URL]);
     expect(postBodyOf(requests).song).toEqual({
       type: 'custom',
       audio: uploadedFileUrl(FILE_AUDIO.hash),
+      cover: uploadedFileUrl(FILE_COVER.hash),
     });
   });
 
@@ -267,7 +294,7 @@ describe('票 11 · 三步二进制上传', () => {
     expect(postBodyOf(requests).song).toEqual({ type: 'bandori', id: 413 });
   });
 
-  it('custom 有封面就传两个文件；没封面就不发 cover 键', async () => {
+  it('custom 必须带封面：有封面传两个文件；没封面本地拦下（零网络）', async () => {
     const hashAudio = 'f'.repeat(40);
     const hashCover = '0'.repeat(40);
     const withCover = await run(
@@ -287,16 +314,13 @@ describe('票 11 · 三步二进制上传', () => {
       cover: uploadedFileUrl(hashCover),
     });
 
-    const noCover = await run(
-      {
-        [PREPARE_URL]: { result: true },
-        [UPLOAD_URL]: { hash: hashAudio },
-        [statusUrl(hashAudio)]: { status: 'available' },
-        [POST_URL]: { result: true, id: 3 },
-      },
-      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
-    );
-    expect(postBodyOf(noCover.requests).song).toEqual({ type: 'custom', audio: uploadedFileUrl(hashAudio) });
+    const noCover = await run({}, makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }));
+    expect(noCover.outcome).toMatchObject({
+      ok: false,
+      failure: 'missing-fields',
+      missing: expect.arrayContaining(['cover']),
+    });
+    expect(noCover.requests).toEqual([]);
   });
 });
 
@@ -317,6 +341,7 @@ describe('票 11 · 必填预检（逐字段点名）', () => {
     ['chart', { chartCode: [] as never }],
     ['chart', { chartCode: [{ type: 'System', data: 'bgm1020.wav', beat: 0 }] as never }],
     ['audio', { song: { kind: 'custom' as const, audio: null, cover: null } }],
+    ['cover', { song: { kind: 'custom' as const, audio: FILE_AUDIO, cover: null } }],
   ])('缺 %s 时点名 %s', (field, overrides) => {
     const precheck = precheckPublish(makeInput(overrides));
     expect(precheck.ok).toBe(false);
@@ -460,10 +485,25 @@ describe('票 11 · 发帖与上传记录', () => {
     expect(writes).toEqual([]);
   });
 
-  it('发帖响应缺 id：当平台拒绝，不写记录', async () => {
-    const { outcome, writes } = await run({ [POST_URL]: { result: true } }, makeInput());
-    expect(outcome).toEqual({ ok: false, failure: 'rejected' });
+  it.each([
+    ['缺 ID', { result: true }],
+    ['UNKNOWN', platformError('invalid-response', 'UNKNOWN')],
+    ['超时', platformError('timeout')],
+  ])('发帖回包%s：待确认，无直接重发或本地记账', async (_label, response) => {
+    const { outcome, requests, writes } = await run({ [POST_URL]: response }, makeInput());
+    expect(outcome).toEqual({ ok: false, failure: 'pending-confirmation' });
+    expect(requests.filter((request) => request.url === POST_URL)).toHaveLength(1);
     expect(writes).toEqual([]);
+  });
+
+  it('发帖前待确认状态写不进去时不发送 POST /api/post', async () => {
+    const { outcome, requests } = await run(
+      { [POST_URL]: { result: true, id: 1 } },
+      makeInput(),
+      { beforePost: async () => false },
+    );
+    expect(outcome).toEqual({ ok: false, failure: 'local' });
+    expect(requests.filter((request) => request.url === POST_URL)).toEqual([]);
   });
 });
 
@@ -492,9 +532,9 @@ describe('票 11 · 失败立档（界面只认这个，不认平台码）', () 
     expect(writes).toEqual([]);
   });
 
-  it('离线 → offline', async () => {
+  it('发帖阶段离线 → 待确认', async () => {
     const { outcome } = await run({ [POST_URL]: platformError('offline') }, makeInput());
-    expect(outcome).toEqual({ ok: false, failure: 'offline' });
+    expect(outcome).toEqual({ ok: false, failure: 'pending-confirmation' });
   });
 });
 
@@ -587,8 +627,11 @@ describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () =
         chartCode: width5Chart,
       }),
     );
-    expect(outcome).toMatchObject({ ok: false, failure: 'chart-invalid' });
-    expect(outcome.ok === false && outcome.chartIssues).toHaveLength(1);
+    expect(outcome).toMatchObject({
+      ok: false,
+      failure: 'chart-invalid',
+      chartIssues: [expect.anything()],
+    });
     expect(requests).toEqual([]);
     expect(writes).toEqual([]);
   });
@@ -626,6 +669,7 @@ describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () =
     expect(payload!.module).toBe('community');
     // meta 键锁死 = 多余键（比如请求体原文）一进来这条就红：只记统计不记内容
     expect(payload!.meta).toEqual({
+      attemptId: expect.any(String),
       bytes: expect.any(Number),
       chartBytes: expect.any(Number),
       objects: { BPM: 1, Single: 1, Directional: 2, Slide: 1 },
@@ -635,20 +679,25 @@ describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () =
       level: 24,
       // 'line1\nline2' → text + br + text
       contentBlocks: 3,
+      tags: 0,
     });
   });
 
   it('载荷统计在 custom 渠道也记（上传后、发帖前）', async () => {
-    const hash = '9'.repeat(40);
+    const hashAudio = '9'.repeat(40);
+    const hashCover = '8'.repeat(40);
     const before = trail.snapshot().length;
     await run(
       {
         [PREPARE_URL]: { result: true },
-        [UPLOAD_URL]: { hash },
-        [statusUrl(hash)]: { status: 'available' },
+        [UPLOAD_URL]: (req: CommunityRequest) => ({
+          hash: req.multipart?.fileName === FILE_COVER.fileName ? hashCover : hashAudio,
+        }),
+        [statusUrl(hashAudio)]: { status: 'available' },
+        [statusUrl(hashCover)]: { status: 'available' },
         [POST_URL]: { result: true, id: 10 },
       },
-      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER } }),
     );
     const payload = trail.snapshot().slice(before).find((e) => e.action === 'post-payload');
     expect(payload).toBeDefined();
@@ -707,32 +756,36 @@ describe('票 52 · 描述自动生成', () => {
     expect(precheckPublish(makeInput({ content: '   ' })).missing).toContain('content');
   });
 
-  it('事实块按标题 / 难度 / 等级 / 音符 / 时长 / 谱师拼；缺项跳过', () => {
+  it('事实块按 Difficulty / Notes / Length / BPM / NPS 拼；缺项跳过', () => {
     expect(generatePublishDescription({
-      title: 'Expert',
-      diffName: 'Expert',
-      level: 24,
-      noteCount: 128,
-      duration: '1:40',
-      charter: 'Alice',
+      level: 30,
+      noteCount: 1234,
+      duration: '2:31',
+      bpm: '180–240',
+      nps: 8.16,
     })).toBe([
-      '标题：Expert',
-      '难度：Expert',
-      '等级：24',
-      '音符：128',
-      '时长：1:40',
-      '谱师：Alice',
+      'Difficulty: 30',
+      'Notes: 1,234',
+      'Length: 2:31',
+      'BPM: 180–240',
+      'NPS: 8.2',
     ].join('\n'));
   });
 
-  it('无时长 / 未登录（无谱师）/ 无音符 / 空标题：对应行不上', () => {
+  it('无等级 / 零音符 / 无时长 / 无 BPM / 无 NPS：对应行不上', () => {
     expect(generatePublishDescription({
-      title: '  ',
-      diffName: 'Hard',
       level: null,
       noteCount: 0,
       duration: null,
-      charter: '',
-    })).toBe('难度：Hard');
+      bpm: null,
+      nps: null,
+    })).toBe('');
+    expect(generatePublishDescription({
+      level: 24,
+      noteCount: 0,
+      duration: null,
+      bpm: null,
+      nps: 0,
+    })).toBe('Difficulty: 24');
   });
 });

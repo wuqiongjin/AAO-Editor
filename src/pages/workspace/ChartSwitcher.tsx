@@ -4,7 +4,13 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Copy, Eye, FolderOpen, Lock, Music2, Pencil, Plus } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
-import { newChartId, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import {
+  newChartId,
+  summarizeProject,
+  type ChartProject,
+  type ChartSummary,
+  type ProjectSummary,
+} from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
   addChartToProject,
@@ -14,14 +20,17 @@ import {
   DIFF_NAMES,
   DIFF_SHORT,
   diffPillLabel,
+  applyChartInfoPatch,
   duplicateChartInProject,
-  updateChartInfo,
 } from '../../project/projectCatalog';
+import { isChartReadonly } from '../../project/chartReadonlyGate';
 import { chartStatus, pickCurrentChart } from '../../project/workspaceProject';
-import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
+import { useWorkspacePrewarmEnabled } from './WorkspacePrewarmContext';
+import { statusLabel } from '../projects/projectFormat';
 import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
+import { useDismissOnOutside } from '../../ui/useDismissOnOutside';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
 import {
   ChartStatusIcon,
@@ -37,23 +46,31 @@ export default memo(function ChartSwitcher() {
   const {
     projectId, chartId, store, catalogEpoch, open, notifyCatalogChanged, flushPersist, waitForRestore,
   } = useCurrentProject();
-  const [project, setProject] = useState<ChartProject | null>(null);
+  const restoreEnabled = useWorkspacePrewarmEnabled();
+  const [project, setProject] = useState<ProjectSummary | null>(null);
   const [openMenu, setOpenMenu] = useState(false);
-  const [chartInfo, setChartInfo] = useState<{ chart: ProjectChart | null } | null>(null);
+  const [chartInfo, setChartInfo] = useState<{ chart: ChartSummary | null } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    setOpenMenu(false);
+    setChartInfo(null);
+  }, [projectId]);
 
   useEffect(() => {
     if (!projectId) {
       setProject(null);
       return;
     }
+    if (!restoreEnabled) return;
     let cancelled = false;
-    void store.get(projectId).then((loaded) => {
+    void store.getSummary(projectId).then((loaded) => {
       if (!cancelled && loaded) setProject(loaded);
     });
     return () => { cancelled = true; };
-  }, [projectId, chartId, catalogEpoch, store]);
+  }, [projectId, chartId, catalogEpoch, store, restoreEnabled]);
 
   // 整记录读-改-写走唯一写入口（次序：flush → get → fn → save → notify）；
   // setProject / open 是本组件自己的下一步。
@@ -68,7 +85,7 @@ export default memo(function ChartSwitcher() {
       fn,
     );
     if (result.status !== 'saved') return null;
-    setProject(result.project);
+    setProject(summarizeProject(result.project));
     if (thenChartId) {
       await open(projectId, thenChartId);
       await waitForRestore(projectId, thenChartId);
@@ -89,13 +106,27 @@ export default memo(function ChartSwitcher() {
     await mutate((p) => duplicateChartInProject(p, chartId, { chartId: copyId, now: Date.now() }, untitledProjectLabel()), copyId);
   }, [project, chartId, mutate]);
 
+  const closeMenu = useCallback(() => setOpenMenu(false), []);
+  useDismissOnOutside(openMenu, closeMenu, [btnRef, panelRef]);
+  useEffect(() => {
+    if (!openMenu) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      closeMenu();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [openMenu, closeMenu]);
+
   if (!project) return null;
   const cur = pickCurrentChart(project, chartId);
   const uploaded = chartStatus(cur) === 'uploaded';
+  const readonly = isChartReadonly(cur);
   const switchLabel = chartSwitchLabel(project.name, cur, untitledProjectLabel());
   const pillLabel = diffPillLabel(cur.diff, cur.level);
-  const currentTitle = uploaded
-    ? `${switchLabel} · ${t('workspace.switcher.uploaded')}`
+  const currentTitle = readonly
+    ? `${switchLabel} · ${t(cur.pendingPublish ? 'projects.publish.recovery.pending' : 'workspace.switcher.uploaded')}`
     : switchLabel;
   const crumbTitle = `${displayProjectName(project)} · ${t('workspace.switcher.crumbTitle')}`;
 
@@ -121,13 +152,12 @@ export default memo(function ChartSwitcher() {
       <button ref={btnRef} type="button" className="chart-switcher__current" title={currentTitle} aria-expanded={openMenu} aria-haspopup="listbox" onClick={toggle}>
         <span className="pp-pill__diff" style={{ background: DIFF_COLORS[cur.diff] }}>{pillLabel}</span>
         <span className="chart-switcher__current-name">{switchLabel}</span>
-        {uploaded && <Lock size={12} className="chart-switcher__lock" aria-hidden />}
+        {readonly && <Lock size={12} className="chart-switcher__lock" aria-hidden />}
         <ChevronDown size={14} className={`chart-switcher__caret${openMenu ? ' is-open' : ''}`} aria-hidden />
       </button>
       {openMenu && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={() => setOpenMenu(false)} />
-          <div className="pp-menu__panel is-portaled chart-switcher__panel" style={{ top: pos.top, left: pos.left }}>
+          <div ref={panelRef} className="pp-menu__panel is-portaled chart-switcher__panel" style={{ top: pos.top, left: pos.left }}>
             <div className="chart-switcher__label">{t('workspace.switcher.listLabel', { count: project.charts.length })}</div>
             {project.charts.map((c) => (
               <button
@@ -143,12 +173,12 @@ export default memo(function ChartSwitcher() {
                     {t('workspace.switcher.rowMeta', {
                       diff: DIFF_NAMES[c.diff],
                       level: c.level ?? '–',
-                      count: countChartNotes(c.notes),
+                      count: c.noteCount,
                     })}
                   </small>
                 </span>
-                <span className={`pp-badge pp-badge--${chartStatus(c)}`}>
-                  <ChartStatusIcon chart={c} size={11} />{t(`projects.status.${chartStatus(c)}` as 'projects.status.unfinished')}
+                <span className={`pp-badge pp-badge--${c.pendingPublish ? 'pending' : chartStatus(c)}`}>
+                  <ChartStatusIcon chart={c} size={11} />{statusLabel(c)}
                 </span>
               </button>
             ))}
@@ -157,9 +187,9 @@ export default memo(function ChartSwitcher() {
             <ProjectMenuItem
               icon={<Pencil size={14} />}
               label={t('workspace.switcher.editCurrent')}
-              disabled={uploaded}
-              note={uploaded ? t('projects.editChartDisabled') : undefined}
-              onClick={() => { if (!uploaded) { setChartInfo({ chart: cur }); setOpenMenu(false); } }}
+              disabled={readonly}
+              note={cur.pendingPublish ? t('projects.publish.recovery.pending') : uploaded ? t('projects.editChartDisabled') : undefined}
+              onClick={() => { if (!readonly) { setChartInfo({ chart: cur }); setOpenMenu(false); } }}
             />
             <ProjectMenuItem icon={<Plus size={14} />} label={t('projects.addChart')} onClick={() => { setChartInfo({ chart: null }); setOpenMenu(false); }} />
             {/* 音频管理入口（票 15 定案 5）：不带作用域 = 去当前工程的音频页（与左栏「音频」同义），
@@ -206,7 +236,7 @@ export default memo(function ChartSwitcher() {
             })();
           }}
           onUpdate={(patch) => {
-            void mutate((p) => updateChartInfo(p, chartInfo.chart!.id, patch, Date.now()));
+            void mutate((p) => applyChartInfoPatch(p, chartInfo.chart!.id, patch, Date.now()));
             setChartInfo(null);
           }}
         />

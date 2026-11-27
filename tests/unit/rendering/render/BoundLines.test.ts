@@ -75,3 +75,39 @@ describe('renderBoundLines（issue 151：无 START 字、END 在线下方）', (
     expect(textY + fontPx).toBeLessThanOrEqual(TEST_SURFACE.h);
   });
 });
+
+describe('issue 63 · START 线画在时间原点（首条 BPM），不再固定 beat 0', () => {
+  const endBeat = 8;
+
+  function startLineMoveToYs(bpm: { beat: number; bpm: number }[]) {
+    const geometry = new ChartGeometry(bpm, { endBeat }, TEST_SURFACE);
+    // 滚到底：时间原点落在画布底边附近
+    const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 };
+    const c = makeCoords(geometry, viewport, 4, []);
+    const rc = { geometry, viewport, surface: TEST_SURFACE, chartEndBeat: endBeat } as unknown as RenderCtx;
+    const { proxy, calls } = makeRecordingCtx();
+    renderBoundLines(proxy, c, rc);
+    const ys = calls.filter(([k]) => k === 'moveTo').map(([, args]) => args[1] as number);
+    return { ys, c };
+  }
+
+  it('负首拍：START 画在 startBeat（不在 beat 0）', () => {
+    const bpm = [{ beat: -4, bpm: 120 }];
+    const { ys, c } = startLineMoveToYs(bpm);
+    const expected = c.virtualToCanvas(0, c.beatToVirtualY(-4)).y;
+    expect(ys).toEqual([expected, expected]);
+    expect(expected).toBeCloseTo(TEST_SURFACE.h, 5);
+    // beat 0 在这个滚动位置另有 y（正首拍时才是原点）→ 两者不同
+    expect(c.virtualToCanvas(0, c.beatToVirtualY(0)).y).not.toBeCloseTo(expected, 3);
+  });
+
+  it('正首拍：START 画在 startBeat（[0, 首BPM) 属负秒，不画线）', () => {
+    const bpm = [{ beat: 1, bpm: 120 }];
+    const { ys, c } = startLineMoveToYs(bpm);
+    const expected = c.virtualToCanvas(0, c.beatToVirtualY(1)).y;
+    expect(ys).toEqual([expected, expected]);
+    expect(expected).toBeCloseTo(TEST_SURFACE.h, 5);
+    // beat 0 已落在判定线下方（负秒），不是画线位置
+    expect(c.virtualToCanvas(0, c.beatToVirtualY(0)).y).toBeGreaterThan(TEST_SURFACE.h + 100);
+  });
+});

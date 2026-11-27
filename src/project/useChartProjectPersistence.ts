@@ -7,6 +7,7 @@ import { ChartProjectStore, type ChartProject, type ProjectChart } from './Chart
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
 import { chartNotesModified, stampChartModified } from './chartModifiedStamp';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
+import { isChartReadonly } from './chartReadonlyGate';
 import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
 import type { ChartCodeFidelity } from '../chart/editing/ChartConverter';
@@ -18,6 +19,8 @@ export interface UseChartProjectPersistenceOptions {
   projectId: string | null;
   /** 当前谱面 id；null 时取工程第一张 */
   chartId: string | null;
+  /** 冷启动延迟预热中（chart-projects 44）：true 时保持 boundProjectIdRef=null 且 restoreSettledRef=false，不抢跑读盘也不提前算 settled */
+  deferred?: boolean;
   /** 工程目录改了当前工程（新增谱面等）时递增；同 id 下只重载不 flush，避免把目录写入冲掉 */
   catalogEpoch?: number;
   /** 当前 notes（编辑中） */
@@ -51,6 +54,7 @@ export interface UseChartProjectPersistenceOptions {
 function hasProjectContentChanged(prev: ChartProject | null, next: ChartProject): boolean {
   if (!prev) return true;
   if (prev.durationSeconds !== next.durationSeconds || prev.audioName !== next.audioName) return true;
+  if (prev.audioBlob !== next.audioBlob) return true;
   if (prev.charts.length !== next.charts.length) return true;
   return next.charts.some((chart, idx) => {
     const prevChart = prev.charts[idx];
@@ -76,7 +80,7 @@ export interface UseChartProjectPersistenceReturn {
 
 export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptions): UseChartProjectPersistenceReturn {
   const {
-    projectId, chartId, catalogEpoch = 0,
+    projectId, chartId, deferred = false, catalogEpoch = 0,
     notes, durationSeconds, audioName, audioBlob,
     chartCodeFidelity,
     debounceMs = 800, store: storeOpt, onRestore,
@@ -92,9 +96,14 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     const next = new ChartProjectPersistenceMerger({
       debounceMs,
       save: async (project) => {
-        await storeRef.current!.save(project).catch((err: unknown) => {
+        try {
+          await storeRef.current!.save(project);
+          if (projectRef.current?.id === project.id) {
+            lastSavedRef.current = project;
+          }
+        } catch (err: unknown) {
           logger.warn('[chart-project]', '谱面工程落盘失败（下次编辑会重试）:', err);
-        });
+        }
       },
     });
     mergerRef.current = next;
@@ -114,6 +123,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   fidelityRef.current = chartCodeFidelity;
 
   const projectRef = useRef<ChartProject | null>(null);
+  const lastSavedRef = useRef<ChartProject | null>(null);
   const boundProjectIdRef = useRef<string | null>(null);
   const boundChartIdRef = useRef<string | null>(null);
   const boundEpochRef = useRef(0);
@@ -170,7 +180,8 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   }, [registerRestoreWaiter, waitUntilSettled]);
 
   if (
-    projectId !== boundProjectIdRef.current
+    deferred
+    || projectId !== boundProjectIdRef.current
     || chartId !== boundChartIdRef.current
     || catalogEpoch !== boundEpochRef.current
   ) {
@@ -191,7 +202,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       ? prev.charts.map((c, i) => {
           const isCurrent = hasTarget ? c.id === targetId : i === 0;
           if (!isCurrent) return c;
-          if (c.upload) return c; // 已上传谱面只读：不可被改写
+          if (isChartReadonly(c)) return c;
           // issue 35：lastModified 条件戳——notes / 保真真变才重戳，时长 / 音频 / 切 tab flush 不戳
           return stampChartModified(c, { notes: notesRef.current, fidelity, now });
         })
@@ -217,6 +228,12 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     return next;
   }, [buildProject]);
 
+  const isProjectDirty = useCallback(
+    (next: ChartProject): boolean =>
+      ensureMerger().hasPendingTimer() || hasProjectContentChanged(lastSavedRef.current, next),
+    [ensureMerger],
+  );
+
   const onRestoreRef = useRef(onRestore);
   onRestoreRef.current = onRestore;
   const onRecordAudioChangedRef = useRef(opts.onRecordAudioChanged);
@@ -225,6 +242,15 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   onProjectEditedRef.current = opts.onProjectEdited;
 
   useEffect(() => {
+    if (deferred) {
+      loadGenRef.current += 1;
+      projectRef.current = null;
+      lastSavedRef.current = null;
+      boundProjectIdRef.current = null;
+      boundChartIdRef.current = null;
+      restoreSettledRef.current = false;
+      return;
+    }
     const wantedProject = projectId;
     const wantedChart = chartId;
     const wantedEpoch = catalogEpoch;
@@ -242,7 +268,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       // 目录写入后的 epoch 递增只重载，也不 flush，避免用过期 charts[] 盖掉新增谱面。
       if (wantedProject != null && !epochChanged && prevProject != null) {
         const prev = buildProject();
-        if (prev != null) {
+        if (prev != null && isProjectDirty(prev)) {
           await ensureMerger().flush(prev).catch(() => { /* 静默 */ });
         }
       }
@@ -250,6 +276,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
 
       if (wantedProject == null) {
         projectRef.current = null;
+        lastSavedRef.current = null;
         boundProjectIdRef.current = null;
         boundChartIdRef.current = null;
         boundEpochRef.current = wantedEpoch;
@@ -271,6 +298,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       }
       if (gen !== loadGenRef.current) return;
       if (!loaded) {
+        lastSavedRef.current = null;
         boundProjectIdRef.current = wantedProject;
         boundChartIdRef.current = wantedChart;
         boundEpochRef.current = wantedEpoch;
@@ -293,11 +321,12 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         && Math.abs(loaded.durationSeconds - durationRef.current) > AUDIO_DURATION_MISMATCH_TOLERANCE;
       const recordChanged = audioMismatch || durationMismatch;
       projectRef.current = loaded;
+      lastSavedRef.current = loaded;
       boundProjectIdRef.current = loaded.id;
       boundChartIdRef.current = chart.id;
       boundEpochRef.current = wantedEpoch;
       const switching = projectChanged || chartChanged;
-      const restoreAudio = (projectChanged && !epochChanged) || audioMismatch;
+      const restoreAudio = projectChanged || audioMismatch;
       if (switching) {
         await onRestoreRef.current(loaded, chart, { restoreAudio });
       }
@@ -309,7 +338,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       if (gen !== loadGenRef.current) return;
       notifySettle();
     })();
-  }, [projectId, chartId, catalogEpoch, buildProject, ensureMerger, notifySettle]);
+  }, [deferred, projectId, chartId, catalogEpoch, buildProject, ensureMerger, notifySettle]);
 
   useEffect(() => {
     if (!restoreSettledRef.current) return;
@@ -330,7 +359,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     const flushNow = () => {
       if (!restoreSettledRef.current) return;
       const next = buildAndNotifyIfEdited();
-      if (!next) return;
+      if (!next || !isProjectDirty(next)) return;
       void ensureMerger().flush(next).catch(() => { /* 静默 */ });
     };
     const onVisibility = () => { if (document.visibilityState === 'hidden') flushNow(); };
@@ -351,10 +380,13 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   // 于是"回工程页"那一提交里，工程页激活 effect 的 flushPersist() 打到刚被清空的注册柄上，
   // 在飞防抖笔落不了盘，reload 读到编辑前的旧记录（issue 38 复验：激活 effect 本身没错，
   // 错在 flush 柄被导航提交的 cleanup 清掉后又晚于激活 effect 才恢复）。
+  const isProjectDirtyRef = useRef(isProjectDirty);
+  isProjectDirtyRef.current = isProjectDirty;
+
   const saveNow = useCallback((): Promise<void> => {
     if (!restoreSettledRef.current) return Promise.resolve();
     const next = buildAndNotifyIfEdited();
-    if (!next) return Promise.resolve();
+    if (!next || !isProjectDirtyRef.current(next)) return Promise.resolve();
     const projectId = next.id;
     return ensureMerger().saveNow(next).then(
       () => {

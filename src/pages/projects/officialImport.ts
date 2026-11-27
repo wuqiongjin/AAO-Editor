@@ -15,6 +15,7 @@ import { officialDiffIndex, type OfficialDifficulty } from '../../community/best
 import { songLevel, type OfficialSongDetail, type SongCandidate } from '../../community/bestdori/mapping';
 import {
   audioFileName,
+  audioLocalUrl,
   coverFileName,
   fetchOfficialAudio,
   fetchOfficialChartText,
@@ -52,7 +53,7 @@ export function createOfficialImportSource(
 
     async audio(input) {
       const staged = await fetchOfficialAudio(transport, input.song, input.detail);
-      return { path: staged.path, name: audioFileName(input.song) };
+      return { path: staged.path, name: audioFileName(input.song), rawUrl: audioLocalUrl(input.song, input.detail) };
     },
 
     async cover(input) {
@@ -102,6 +103,9 @@ const KIND_MESSAGE_KEYS: Partial<Record<CommunityErrorKind, MessageKey>> = {
   'unsupported-runtime': 'projects.official.err.desktopOnly',
   // 本机写不进去（磁盘满 / 权限）不是网络问题，别混进「读取失败」
   'staging-failed': 'projects.official.err.staging',
+  http: 'projects.official.err.http',
+  'invalid-response': 'projects.official.err.invalidResponse',
+  'request-rejected': 'projects.official.err.requestRejected',
 };
 
 export function officialErrorText(error: unknown): string {

@@ -39,12 +39,16 @@ export interface UsePlaybackCoordinatorOptions {
   setCurrentSeconds: (sec: number) => void;
   /** 播放状态（写回 PlaybackContext） */
   setIsPlaying: (v: boolean) => void;
+  /** 登记暂停或定位的 scrollTop 回声。 */
+  onProgrammaticScroll?: (top: number) => void;
 }
 
 export interface UsePlaybackCoordinatorReturn {
   isPlaying: boolean;
   togglePlay: () => void;
   seek: (sec: number) => void;
+  /** 标记 PlayBar 进度条持续拖拽中：seek 期间走冷区轻量预览，避免主线程同步光栅阻塞。 */
+  setScrubbing: (scrubbing: boolean) => void;
   jumpToMarker: () => void;
   /** 编辑时长（无音频时手动调整，issue 22 §4 / ADR-0005 §4） */
   changeDuration: (sec: number) => void;
@@ -55,12 +59,13 @@ export interface UsePlaybackCoordinatorReturn {
 export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): UsePlaybackCoordinatorReturn {
   const {
     engine, scrollModel, scrollContainerRef, canvasRef,
-    ctxDuration, setChartDuration, setCurrentSeconds, setIsPlaying,
+    ctxDuration, setChartDuration, setCurrentSeconds, setIsPlaying, onProgrammaticScroll,
   } = opts;
 
   const [isPlaying, setIsPlayingState] = useState(false);
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
+  const scrubbingRef = useRef(false);
   const lastHudAtRef = useRef(0);
   const lastScrollSyncAtRef = useRef(0);
   // ctxDuration 走 ref：RAF 循环不依赖 React state 重新创建
@@ -87,13 +92,14 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
         const { scrollY, scrollTop } = scrollModel.scrollTargetForSeconds(sec, maxScroll);
         canvas?.setScrollY(scrollY);
         if (container && (scrollTop === 0 || Math.abs(scrollTop - container.scrollTop) > 0.5)) {
+          onProgrammaticScroll?.(scrollTop);
           container.scrollTop = scrollTop;
         }
       }
     }
     canvasRef.current?.setPlaybackActive?.(false);
     setIsPlaying(false);
-  }, [engine, scrollModel, setIsPlaying, setCurrentSeconds, canvasRef, scrollContainerRef]);
+  }, [engine, scrollModel, setIsPlaying, setCurrentSeconds, canvasRef, scrollContainerRef, onProgrammaticScroll]);
 
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current !== undefined) cancelAnimationFrame(playbackRafRef.current);
@@ -160,6 +166,10 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     startPlayback();
   }, [engine, startPlayback, stopPlayback]);
 
+  const setScrubbing = useCallback((scrubbing: boolean) => {
+    scrubbingRef.current = scrubbing;
+  }, []);
+
   const seek = useCallback((sec: number) => {
     if (!engine) return;
     const clamped = Math.max(0, Math.min(sec, durationRef.current));
@@ -174,15 +184,17 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
       // 反算 scrollY，把画布拉回旧播放位置。
       const maxScroll = container ? container.scrollHeight - container.clientHeight : 0;
       const { scrollY, scrollTop } = model.scrollTargetForSeconds(clamped, maxScroll);
-      canvas.setScrollY(scrollY);
+      if (scrubbingRef.current) canvas.setScrollY(scrollY, 'playbar');
+      else canvas.setScrollY(scrollY);
       if (container && Math.abs(scrollTop - container.scrollTop) > 0.5) {
+        onProgrammaticScroll?.(scrollTop);
         container.scrollTop = scrollTop;
       }
     }
-    if (!engine.isPlaying) {
+    if (!engine.isPlaying && (isPlayingRef.current || playbackRafRef.current !== undefined)) {
       stopPlayback();
     }
-  }, [engine, scrollModel, canvasRef, scrollContainerRef, setCurrentSeconds, stopPlayback]);
+  }, [engine, scrollModel, canvasRef, scrollContainerRef, setCurrentSeconds, stopPlayback, onProgrammaticScroll]);
 
   /**
    * 回跳播放起点（ADR-0004 §4 / issue 152）：起点是**秒**，直接交给 `seek` ——
@@ -210,6 +222,7 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     isPlaying,
     togglePlay,
     seek,
+    setScrubbing,
     jumpToMarker,
     changeDuration,
     stopPlayback,

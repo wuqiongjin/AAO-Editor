@@ -2,20 +2,19 @@
 // 默认工程启动台；点封面进工程详情。保活挂载，用切页快捷键（默认 Alt+1）回来停在离开前那一层。
 // 本文件只留：双视图调度 + state / handlers + 弹窗编排；两个视图与弹窗分别住在 components/。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { useCommunitySessionStart } from './useCommunitySessionStart';
 import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
-import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ChartSummary, type ProjectSummary } from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
-  addChartToProject, createBlankProject, deleteChartFromProject, duplicateProject, updateChartInfo, updateProjectInfo,
+  addChartToProject, applyChartInfoPatch, createBlankProject, deleteChartFromProject, duplicateProject, updateProjectInfo,
 } from '../../project/projectCatalog';
 import { mostRecentlyOpenedId, sortProjects } from '../../project/projectSort';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
-import { displayProjectName, ProjectMenuItem, untitledProjectLabel } from '../../project/ui/projectUi';
+import { displayProjectName, untitledProjectLabel } from '../../project/ui/projectUi';
 import { formatValidationError } from '../../chart/editing/ChartConverter';
 import { t } from '../../i18n';
 import { trail } from '../../diagnostics/trail';
@@ -23,7 +22,6 @@ import ConfirmDialog from '../../ui/ConfirmDialog';
 import { showToast } from '../../ui/Toast';
 import { deleteProjectNotice } from './projectFormat';
 import { moveGridSelection } from './projectGridSelection';
-import { Menu } from './components/ProjectBits';
 import {
   EditInfoDialog, NewProjectDialog, type NewSource, type OfficialImportReply,
 } from './components/ProjectDialogs';
@@ -49,14 +47,14 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   const sortKey = settings.projects.sort;
   // `null` = 目录还没读回来（issue 29）：与"一个工程都没有"（`[]`）是两件事，
   // 混用同一个值会让首帧把"未就绪"渲染成 0 工程空态，列表到达后再闪一下换掉。
-  const [projects, setProjects] = useState<ChartProject[] | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newSource, setNewSource] = useState<NewSource | null>(null);
-  const [editing, setEditing] = useState<ChartProject | null>(null);
-  const [chartForm, setChartForm] = useState<{ project: ChartProject; chart: ProjectChart | null } | null>(null);
+  const [editing, setEditing] = useState<ProjectSummary | null>(null);
+  const [chartForm, setChartForm] = useState<{ project: ProjectSummary; chart: ChartSummary | null } | null>(null);
   // 删除要等用户点头（弹窗是异步的）：待确认的目标先存下，确认键按了才动手
-  const [askDelete, setAskDelete] = useState<ChartProject | null>(null);
-  const [askDeleteChart, setAskDeleteChart] = useState<{ project: ChartProject; chart: ProjectChart } | null>(null);
+  const [askDelete, setAskDelete] = useState<ProjectSummary | null>(null);
+  const [askDeleteChart, setAskDeleteChart] = useState<{ project: ProjectSummary; chart: ChartSummary } | null>(null);
   // 视图切换方向（issue 19 #1）：进详情从右滑入、回主页从左滑入；详情内换工程不重放动画（见视图包裹层 key）
   const [navDir, setNavDir] = useState<'forward' | 'back'>('forward');
   // 社区平台出口（票 07）：静态演示版没有 → 官方 / 社区两支入口整体隐藏（ADR-0011 §1 / 票 12）
@@ -78,6 +76,10 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     setDetailId(null);
   }, []);
 
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const enteringWorkspaceRef = useRef(false);
+
   const reload = useCallback(async () => {
     // 落盘原序入库；展示序在下面按当前排序设置算（issue 19 #4）
     const listed = await store.list();
@@ -85,7 +87,10 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     setDetailId((id) => (id && !listed.some((p) => p.id === id) ? mostRecentlyOpenedId(listed) : id));
   }, [store]);
 
-  useEffect(() => { void reload(); }, [reload, catalogEpoch]);
+  useEffect(() => {
+    if (!activeRef.current || enteringWorkspaceRef.current) { enteringWorkspaceRef.current = false; return; }
+    void reload();
+  }, [reload, catalogEpoch]);
 
   // 每次被激活（保活页从隐藏变可见，issue 38）时先 flush 再重读一次。列表的数据源是**工程记录**，
   // 而记录被工作台以 800ms 防抖落盘——防抖那笔落地时**不通知目录**，切页也不 flush：只靠
@@ -103,6 +108,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       return;
     }
     wasActiveRef.current = true;
+    enteringWorkspaceRef.current = false;
     void (async () => {
       await flushPersist();
       await reload();
@@ -127,19 +133,30 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 全仓只允许出现在 enterWorkspace 一处 —— 别再把它和 setCurrent 绑回一起。
   const setCurrent = useCallback(async (id: string, chartId?: string) => {
     await flushPersist();
-    await open(id, chartId);
-    notifyCatalogChanged();
-  }, [flushPersist, open, notifyCatalogChanged]);
+    await open(id, chartId, { notifyCatalog: true });
+  }, [flushPersist, open]);
 
   const enterWorkspace = useCallback(async (id: string, chartId?: string) => {
-    await setCurrent(id, chartId);
-    await waitForRestore(id, chartId);
-    setActivePage('workspace');
-  }, [setCurrent, waitForRestore, setActivePage]);
+    const switchingProject = id !== projectId;
+    enteringWorkspaceRef.current = true;
+    try {
+      await setCurrent(id, chartId);
+      if (!switchingProject) await waitForRestore(id, chartId);
+      setActivePage('workspace');
+    } catch (err) {
+      enteringWorkspaceRef.current = false;
+      if (activeRef.current) void reload();
+      throw err;
+    }
+  }, [projectId, setCurrent, waitForRestore, setActivePage, reload]);
 
   // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
-  const deleteProject = useCallback(async (p: ChartProject) => {
+  const deleteProject = useCallback(async (p: ProjectSummary) => {
     await flushPersist();
+    if ((await store.get(p.id))?.charts.some((chart) => chart.pendingPublish)) {
+      showToast(t('projects.publish.recovery.pending'), 'warn');
+      return;
+    }
     const wasCurrent = projectId === p.id;
     await store.delete(p.id);
     if (wasCurrent) reset();
@@ -147,11 +164,11 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await reload();
   }, [flushPersist, projectId, store, reset, notifyCatalogChanged, reload]);
 
-  const deleteChart = useCallback(async (project: ChartProject, chart: ProjectChart) => {
+  const deleteChart = useCallback(async (project: ProjectSummary, chart: ChartSummary) => {
     await mutate(project.id, (p) => {
       const result = deleteChartFromProject(p, chart.id);
       if (!result.ok) {
-        showToast(t('projects.deleteLastChart'), 'warn');
+        showToast(t(result.reason === 'pending' ? 'projects.publish.recovery.pending' : 'projects.deleteLastChart'), 'warn');
         return null;
       }
       return result.project;
@@ -161,9 +178,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 创建 / 复制工程的统一落点（issue 23 #1/#3）：留在工程详情页、把新工程设为当前工程、
   // 视图切到它，都不跳工作台。视图切换直接改 detailId 而不走 goDetail —— goDetail 会置
   // navDir='forward' 播一次滑入，而"详情内换工程"本就不该重放动画（票 19 #1 的锁测）。
-  const goDetailKeepAnimation = useCallback((id: string) => {
-    setDetailId(id);
-  }, []);
+  const goDetailKeepAnimation = useCallback((id: string) => { setDetailId(id); }, []);
   const createBlank = useCallback(async (input: { name: string; artist: string; diff: ChartDifficulty }) => {
     await flushPersist();
     const now = Date.now();
@@ -194,7 +209,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       chartIds: src.charts.map(() => newChartId()),
       now,
     }, untitledProjectLabel(), taken);
-    await store.save(copy);
+    await store.save(copy, src.liveBgName?.trim() ? { liveBgCopyFrom: src.id } : undefined);
     trail.record({ module: 'project', action: 'save', result: 'ok', meta: { projectId: copy.id } }); notifyCatalogChanged();
     setNewSource(null);
     goDetailKeepAnimation(copy.id);
@@ -204,8 +219,14 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await setCurrent(copy.id, copy.charts[0]?.id);
   }, [flushPersist, store, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
-  // 「从官方谱面导入」（票 08 + 14）：素材缓存（音频 / 封面，命中即零网络）→ Apply 闸门（勾了才走）→ 落盘 → 切到新工程详情。
-  // 与另两支同落点（issue 23 #1）：留在工程管理页、新工程成为当前工程、不跳工作台。
+  const finishImportedProject = useCallback(async (projectId: string, chartId: string): Promise<void> => {
+    setNewSource(null);
+    goDetailKeepAnimation(projectId);
+    await reload();
+    await setCurrent(projectId, chartId);
+  }, [goDetailKeepAnimation, reload, setCurrent]);
+
+  // 「从官方谱面导入」（票 08 + 14）：留在工程管理页、新工程成为当前工程、不跳工作台。
   const importOfficial = useCallback(async (
     selection: OfficialSongSelection,
     onStage: (stage: ImportStage) => void,
@@ -217,12 +238,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       result = await importChart(
         officialImportSource,
         { store, notifyCatalogChanged, onStage, signal },
-        {
-          song: selection.song,
-          detail: selection.detail,
-          withChart: selection.withChart,
-          diff: selection.diff,
-        },
+        { song: selection.song, detail: selection.detail, withChart: selection.withChart, diff: selection.diff },
       );
     } catch (error) {
       if (isImportCancelled(error)) return { ok: false, message: '', cancelled: true };
@@ -230,27 +246,19 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     }
     if (!result.ok) {
       if (result.reason === 'cancelled') return { ok: false, message: '', cancelled: true };
-      return {
-        ok: false,
-        message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error),
-      };
+      return { ok: false, message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error) };
     }
-    // 票 26：建成了但要说一声 —— 谱面降级 / 封面缺失都走 Toast（弹窗此刻已在关）
     const warnings: string[] = [];
     if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'));
-    if (!result.coverImported) warnings.push(t('projects.official.warn.coverMissing'));
-    setNewSource(null);
-    goDetailKeepAnimation(result.project.id);
-    await reload();
-    await setCurrent(result.project.id, result.chartId);
+    if (result.audioDegraded) warnings.push(t('projects.official.warn.audioFallback'));
+    if (result.coverStatus === 'missing') warnings.push(t('projects.official.warn.coverMissing'));
+    else if (result.coverStatus === 'failed') warnings.push(t('projects.official.warn.coverFailed'));
+    await finishImportedProject(result.project.id, result.chartId);
     if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
     return { ok: true, warnings };
-  }, [flushPersist, store, officialImportSource, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+  }, [flushPersist, store, officialImportSource, notifyCatalogChanged, finishImportedProject]);
 
-  // 「从社区谱面导入」（票 09）：帖子素材缓存 → 帖子详情（谱面原文，带上谱面时必达）→ Apply 闸门
-  // → 落盘 → 切到新工程详情。落点与官方那支同口径（issue 23 #1）；
-  // 工程名称 / 歌手留空（票 09：不转手别人的谱连名字一起转）；
-  // `withChart` = 预览栏那颗「同步导入谱面」芯片（默认开；关掉 = 只建工程 + 音频 + 封面）。
+  // 「从社区谱面导入」（票 09）：落盘 → 切到新工程详情（落点与官方同口径）。
   const importCommunity = useCallback(async (
     selection: CommunityPostSelection,
     onStage: (stage: ImportStage) => void,
@@ -270,20 +278,16 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     }
     if (!result.ok) {
       if (result.reason === 'cancelled') return { ok: false, message: '', cancelled: true };
-      return {
-        ok: false,
-        message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error),
-      };
+      return { ok: false, message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error) };
     }
     const warnings: string[] = [];
-    if (!result.coverImported) warnings.push(t('projects.community.warn.coverMissing'));
-    setNewSource(null);
-    goDetailKeepAnimation(result.project.id);
-    await reload();
-    await setCurrent(result.project.id, result.chartId);
+    if (result.audioDegraded) warnings.push(t('projects.community.warn.audioFallback'));
+    if (result.coverStatus === 'missing') warnings.push(t('projects.community.warn.coverMissing'));
+    else if (result.coverStatus === 'failed') warnings.push(t('projects.community.warn.coverFailed'));
+    await finishImportedProject(result.project.id, result.chartId);
     if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
     return { ok: true, warnings };
-  }, [flushPersist, store, communityImportSource, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+  }, [flushPersist, store, communityImportSource, notifyCatalogChanged, finishImportedProject]);
 
   // 发布（票 11/42）：入口状态与编排在 usePublishEntry（页面 500 行纪律），这里只挂 hook
   const publish = usePublishEntry({
@@ -315,7 +319,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       const key = e.key;
       if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
       if (list.length === 0) return;
-      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
+      if (document.querySelector('.dialog__scrim, .is-portaled')) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
@@ -412,7 +416,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
             })();
           }}
           onUpdate={(patch) => {
-            void mutate(chartForm.project.id, (p) => updateChartInfo(p, chartForm.chart!.id, patch, Date.now()));
+            void mutate(chartForm.project.id, (p) => applyChartInfoPatch(p, chartForm.chart!.id, patch, Date.now()));
             setChartForm(null);
           }}
         />
@@ -420,26 +424,20 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       {/* 发布弹窗（票 11/42）：就地编辑与页面跳转由 publish 收敛 */}
       {publish.target && (
         <PublishDialog
+          key={`${publish.target.project.id}:${publish.target.chart.id}`}
           {...publish.target}
           onClose={publish.close}
           onPublish={publish.run} onEdit={publish.runEdit}
+          onRecover={publish.recover} recovery={publish.recovery}
           onUpdateProject={publish.updateProject}
+          onOpenAudio={() => setActivePage('audio', { scope: { projectId: publish.target!.project.id } })}
         />
       )}
     </>
   );
 
-  const newButton = (
-    <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />
-  );
-
-  const projectMenu = (p: ChartProject) => (
-    <Menu trigger={<button type="button" className="pp-icon-btn" title={t('projects.more')}><MoreHorizontal size={16} /></button>}>
-      <ProjectMenuItem icon={<Pencil size={14} />} label={t('projects.editInfo')} onClick={() => setEditing(p)} />
-      <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.duplicate')} onClick={() => void copyProject(p.id)} />
-      <ProjectMenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => setAskDelete(p)} />
-    </Menu>
-  );
+  const newButton = <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />;
+  const handleCopyProject = useCallback((id: string) => { void copyProject(id); }, [copyProject]);
 
   const hub = (
     <ProjectStartView
@@ -451,7 +449,9 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       onDetail={goDetail}
       onOpen={enterWorkspace}
       onNew={setNewSource}
-      projectMenu={projectMenu}
+      onEdit={setEditing}
+      onCopy={handleCopyProject}
+      onDelete={setAskDelete}
       importSources={importSources}
     />
   );

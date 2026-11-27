@@ -1,4 +1,36 @@
 /* 工作台岛屿外壳（issue 180 Q3 / Q18，票 183）：与窗口边留 8px、各块圆角 + 轻阴影，并排占布局、不压画布 */
+.ws-loading-host {
+  position: relative;
+  height: 100%;
+}
+
+.ws-loading-host[aria-busy="true"] > .ws-shell {
+  visibility: hidden;
+}
+
+.ws-preparing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
+.ws-preparing__spinner {
+  animation: ws-prepare-spin 0.8s linear infinite;
+}
+
+@keyframes ws-prepare-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-preparing__spinner { animation: none; }
+}
+
 .ws-shell {
   display: flex;
   height: 100vh;

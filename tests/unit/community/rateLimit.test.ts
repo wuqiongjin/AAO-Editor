@@ -111,4 +111,35 @@ describe('票 07 · 值得重试的错误才重试', () => {
     );
     expect(notices).toEqual([1, 2]);
   });
+
+  it('票 57 · signal 中断退避等待，不发起后续重试并抛出 aborted', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const resolvers: Array<() => void> = [];
+    const promise = withRetry(
+      async () => {
+        calls += 1;
+        throw failure('timeout');
+      },
+      {
+        policy: POLICY,
+        signal: controller.signal,
+        deps: {
+          sleep: () =>
+            new Promise((resolve) => {
+              resolvers.push(resolve);
+            }),
+          random: () => 0,
+        },
+      },
+    );
+
+    for (let i = 0; i < 10 && resolvers.length === 0; i += 1) await Promise.resolve();
+    expect(calls).toBe(1);
+
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ kind: 'aborted' });
+    expect(calls).toBe(1);
+    resolvers.forEach((resolve) => resolve());
+  });
 });

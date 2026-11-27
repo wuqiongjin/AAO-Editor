@@ -93,7 +93,7 @@ describe('chart-preview 37 · 静态导出控件弹窗打开与关闭', () => {
 });
 
 describe('chart-preview 37 · 导出信息字段与头带总开关', () => {
-  it('七项字段都在；默认档 = 谱面标题 / 难度 + 等级 / BPM 开，其余关', () => {
+  it('八项字段都在；默认档 = 谱面标题 / 难度 + 等级 / BPM 开，其余关（票 79 谱师默认关）', () => {
     setup();
     fireEvent.click(trigger());
 
@@ -105,6 +105,7 @@ describe('chart-preview 37 · 导出信息字段与头带总开关', () => {
     expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'false');
     expect(exportSwitch('音符数')).toHaveAttribute('aria-checked', 'false');
     expect(exportSwitch('导出时间')).toHaveAttribute('aria-checked', 'false');
+    expect(exportSwitch('谱师')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('开关写进落盘 export 段，且不碰 preview / display', () => {
@@ -121,7 +122,7 @@ describe('chart-preview 37 · 导出信息字段与头带总开关', () => {
     expect(stored().display).toEqual(defaultSettings().display);
   });
 
-  it('关掉「启用头带」：七项置灰但保留勾选；再开原样恢复', () => {
+  it('关掉「启用头带」：八项置灰但保留勾选；再开原样恢复', () => {
     setup();
     fireEvent.click(trigger());
 
@@ -131,6 +132,7 @@ describe('chart-preview 37 · 导出信息字段与头带总开关', () => {
     expect(exportSwitch('谱面标题')).toBeDisabled();
     expect(exportSwitch('BPM')).toBeDisabled();
     expect(exportSwitch('工程名')).toBeDisabled();
+    expect(exportSwitch('谱师')).toBeDisabled();
     expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
     expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
     expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');

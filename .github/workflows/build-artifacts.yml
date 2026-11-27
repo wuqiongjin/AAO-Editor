@@ -48,8 +48,13 @@ jobs:
         env:
           ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
         run: bash scripts/ci/ci-assets.sh
+      - name: 现有单测（issue 257 Q12：打包 job 顺带跑）
+        run: npm test
       - name: 构建 macOS 安装包（不发布）
         run: npm run electron:dist
+      # 失败会让本 job 红并阻断 artifact 上传（issue 257 开工确认）
+      - name: 无界面冒烟：电源锁 + 系统级 ⌘Q 退出（issue 257）
+        run: bash scripts/ci/macos-smoke.sh
       - name: 上传 macOS 安装包 (Artifact)
         uses: actions/upload-artifact@v4
         with:

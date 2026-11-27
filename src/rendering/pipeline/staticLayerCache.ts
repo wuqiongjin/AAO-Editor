@@ -224,7 +224,16 @@ export function createStaticLayerCache(): StaticLayerCache {
     ctx.drawImage(stripCanvas!, 0, srcYPx, srcWPx, srcHPx, 0, 0, rc.surface.w, rc.surface.h);
   }
 
+  function shrinkCanvas(c: unknown) {
+    if (c && typeof c === 'object' && 'width' in c && 'height' in c) {
+      (c as { width: number; height: number }).width = 1;
+      (c as { width: number; height: number }).height = 1;
+    }
+  }
+
   function reset() {
+    shrinkCanvas(screenCanvas);
+    shrinkCanvas(stripCanvas);
     screenCanvas = null;
     stripCanvas = null;
     screenBasis = null;

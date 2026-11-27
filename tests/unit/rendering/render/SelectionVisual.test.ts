@@ -671,4 +671,27 @@ describe('删除持工具态下选区整体转 danger（issue 89）', () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.mode).toBe('selected');
   });
+
+  it('issue 63 回归：时间原点之前的音符与滑条结点/全负段不产生选中描边', () => {
+    const geometry = new ChartGeometry([{ beat: 4, bpm: 120 }], { endBeat: 40 }, SURFACE);
+    const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1, virtualWidth: 0, virtualHeight: 0 };
+    const notes: ChartNote[] = [
+      single(1, 2),
+      slide([{ lane: 1, beat: 0 }, { lane: 1, beat: 2 }]), // 全在原点前
+      slide([{ lane: 5, beat: 2 }, { lane: 5, beat: 6 }]), // 跨原点：只画结点 1 + 段 0
+    ];
+    const rc = {
+      geometry, viewport, surface: SURFACE, dpr: 1, beatDisplay: BEAT_DISPLAY, chartEndBeat: 40, notes,
+      selectedItems: [{ kind: 'note', noteIndex: 0 }, { kind: 'note', noteIndex: 1 }, { kind: 'note', noteIndex: 2 }],
+      selectionBox: null, slideBuffer: null, hoverPos: null, hoverItem: null, clipboard: [], markerSeconds: null,
+      armedTool: null, rightButtonHeld: false,
+      spriteIcon: { render: () => undefined, renderDecorator: () => undefined },
+      noteIcons: ICONS,
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: false, colorAssist: false },
+    } as unknown as RenderCtx;
+    const c = makeCoords(geometry, viewport, BEAT_DISPLAY, notes);
+    const out = collectSelectionOutlines(c, rc, notes.map((note, index) => ({ note, index })));
+    // notes[0]、notes[1] 全部跳过；notes[2] 只保留 beat 6 结点（rect）与跨原点段（quad）
+    expect(out.map(o => o.shape)).toEqual(['rect', 'quad']);
+  });
 });

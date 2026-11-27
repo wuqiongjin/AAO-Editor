@@ -9,10 +9,10 @@
 // 生成语义对标 Bestdori 曲线工具：段两端可见结点之间，按 `f = ceil(拍差 × precision)`
 // 细分，p = 1..f-1 逐个生成 `{ beat: 起始拍 + p/precision, lane: clamp(起 lane + lane 差 × ease(p/f)), hidden: true }`。
 // beat/lane 用十进制小数（Bestdori 同构：官方 SP 谱大量小数 lane）。
-import type { ConnectionNote, SlideNote, LongNote, SpanEasingParam, SpanParam, SlideSpanParams } from '../types';
+import type { ConnectionNote, SlideNote, LongNote, SpanEasingParam, SpanParam, SpanTemplateParam, SlideSpanParams } from '../types';
 import { slideSpans, regionIdentity, type ConnSpan } from './SlideSegments';
 import { easing, type CurvePrecision } from './Easing';
-import { bakeTemplateParam } from './ShapeTemplates';
+import { bakeTemplateParam, mirrorTemplateExtra, shapeTemplateById, templateSupportsMirror } from './ShapeTemplates';
 
 /** 连接点真实拍位（beat 十进制 + subBeat/beatDisplay 细分；导入谱 subBeat 缺省 → beat 即真值） */
 export function connTrueBeat(conn: { beat: number; subBeat?: number }, beatDisplay: number): number {
@@ -91,13 +91,29 @@ export function effectiveSpanParams(slide: SlideNote | LongNote): Record<number,
 }
 
 /**
- * 水平镜像单段参数（issue 225 / ADR-0009 §4）：
- * - 模板段：翻转 mirrored 状态（mirrored: !p.mirrored）；
+ * 水平镜像单段参数（issue 225 / issue 240 / ADR-0009 §4）：
+ * - 模板段：相对弦偏移型翻转 mirrored（mirrored: !p.mirrored）；端点插值型与缓动段同口径不翻转 mirrored；
+ *   专属参数按 schema 可选 mirrorValue 钩子处理；
  * - 缓动段：保持原缓动原型不变（时间单调递增，水平镜像严禁 flipEasingType）。
  */
 export function mirrorSpanParam(param: SpanParam): SpanParam {
   if (param.kind === 'template') {
-    return { ...param, mirrored: !param.mirrored };
+    const tp = shapeTemplateById(param.templateId);
+    const next: SpanTemplateParam = { ...param };
+    if (!tp || templateSupportsMirror(tp)) {
+      next.mirrored = !param.mirrored;
+    } else {
+      delete next.mirrored;
+    }
+    if (tp) {
+      const mirroredExtra = mirrorTemplateExtra(tp, param.extra);
+      if (mirroredExtra) {
+        next.extra = mirroredExtra;
+      } else {
+        delete next.extra;
+      }
+    }
+    return next;
   }
   return { ...param };
 }

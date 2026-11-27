@@ -2,7 +2,8 @@
 // ADR-0003 候选 B：把 FinalVirtualCanvas 里"坐标变换 / 视口剔除 / 音符定位"从组件中
 // 抽成可测深厚模块；BPM→虚拟Y 用 BpmTimeline（候选 C）单一实现并缓存，避免每帧全量分段累加。
 //
-// 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
+// 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、**时间原点**在判定线）↔ 画布坐标。
+// issue 63：时间原点 = 首条 BPM（最小 beat）的拍位（`startBeat`），不再假定是 beat 0。
 import type { ChartNote } from '../types';
 import { trueBeat } from '../editing/ChartEndBounds';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
@@ -90,6 +91,14 @@ export function directionalLanes(
 export class ChartGeometry {
   readonly bpmEvents: readonly BpmTimelineEvent[];
   readonly chartEndBeat: number;
+  /**
+   * 时间原点拍位（issue 63）：首条 BPM（timeline 首段的 beatStart）；无 BPM 事件回 0。
+   * 判定线（`pos === 0`）就落在这一拍上，它之前的拍位是负秒（首条 BPM 向前外推）。
+   * 只用于**视觉锚点**（START 线、开始线那一条 BPM 数字上移半字高）；
+   * 可见性 / 命中 / 键音一律用 `isBeforeOrigin`（按时间），不要用 `beat < startBeat` 代替——
+   * 首条 BPM 为负时正秒全部落在它之前，两者不等价。
+   */
+  readonly startBeat: number;
   /** 渲染面尺寸（CSS 像素），ADR-0006 §1：随容器变化 */
   readonly surface: SurfaceSize;
   /** BPM→虚拟像素时间线：每拍 BEAT_HEIGHT*120/bpm 像素 */
@@ -119,6 +128,9 @@ export class ChartGeometry {
     this.verticalRatio = verticalRatio;
     this.virtualPxPerSecond = 2 * BEAT_HEIGHT * verticalRatio;
     this.timeline = new BpmTimeline(bpmEvents, (bpm) => (BEAT_HEIGHT * verticalRatio * 120) / bpm);
+    // issue 63：时间原点 = 首条 BPM（**timeline 首段**的 beatStart，`pos === 0` 就落在它上面）；
+    // 无 BPM 事件回 0（对齐 `getBpmEvents` 的 120@0 兜底）。事件按 beat 升序是构造契约。
+    this.startBeat = this.timeline.segments[0]?.beatStart ?? 0;
     if ('seconds' in chartLength) {
       // 谱面长度（秒）第一性：高度 = 秒 × 像素密度，不经 secondsToBeat（ADR-0010 结论 4）
       this.chartLengthSeconds = chartLength.seconds;
@@ -189,7 +201,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.baseline(scale) - virtualY;
   }
 
-  /** beat → 虚拟Y（自下而上翻转：beat 0 在判定线=渲染面底边） */
+  /** beat → 虚拟Y（自下而上翻转：时间原点（首条 BPM）在判定线=渲染面底边） */
   beatToVirtualY(beat: number, scale: number): number {
     return this.virtualYOfPos(this.timeline.positionOfBeat(beat), scale);
   }
@@ -221,6 +233,26 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   /** 秒 → 最大 beat 解所在 BPM 段序号（顶栏当前区间 BPM 与 beatOfSeconds 同解） */
   segmentIndexOfSeconds(seconds: number): number {
     return this.timeline.maxBeatSolutionOf(seconds * this.virtualPxPerSecond).segmentIndex;
+  }
+
+  /**
+   * 该**精确拍位**（subBeat 已折算）是否早于时间原点（时间 < 0，画布上落在判定线下方）。
+   * 可见性 / 命中 / 键音 / 选区排除的**唯一时间判据**（issue 63）：
+   * 不要用 `beat < startBeat` 代替 —— 首条 BPM 为负时正秒全部落在它之前，两者不等价。
+   */
+  isBeforeOrigin(beat: number): boolean {
+    return this.timeline.positionOfBeat(beat) < 0;
+  }
+
+  /**
+   * 该**精确拍位**是否越过谱面末端（END 线之上）。
+   * 常规谱面（`chartEndBeat >= startBeat`）与 `isPastChartEnd` 等价；
+   * P3 首条 BPM 为负且 `chartEndBeat < startBeat` 时，按布局坐标 `pos > chartEndVirtualY` 判。
+   */
+  isBeyondEnd(beat: number): boolean {
+    return this.chartEndBeat >= this.startBeat
+      ? beat > this.chartEndBeat + 1e-6
+      : this.timeline.positionOfBeat(beat) > this.chartEndVirtualY + 1e-3;
   }
 
   /** 秒 → 所在段的 BPM（判定线读数）；谱面没有 BPM 事件时回落 DEFAULT_BPM */
@@ -323,7 +355,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   /**
-   * 画布坐标 → lane/beat（用于命中与圈选）；负拍返回 null。
+   * 画布坐标 → lane/beat（用于命中与圈选）；**时间 < 0（时间原点之前，画布落在判定线下方）返回 null**。
    * 倒流区里「y → 拍」多值：此处取 **最大 beat 解**（ADR-0010 结论 5，与制谱器编辑器逐操作等价），
    * 即"空白处新增/光标读数"的默认口径；拖拽的层内换算走 `layerBeatFromCanvas`。
    *  `preciseBeat` = 吸附到当前 `beatDisplay` 网格后的拍位；`rawBeat` = **未量化**拍位
@@ -333,7 +365,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
    *   issue 66 §4a：方向滑键的组尾本就可以合法溢出到轨道外（视觉可见、点选/框选都命中），
    *   但拖拽起手若按在那截上，旧实现因 lane 越界返回 null → 建不了拖拽锚点 → 变成框选（拖不动）。
    *   拖拽路径传 `true`：`lane` 允许越界（照实返回越界轨号），`beat` 范围校验**始终保留**
-   *   （不能拖到负拍 / 谱面末端之外）。越界 lane 只用于算相对位移 `dLane = cur.lane - pressLane`，
+   *   （不能拖到首条 BPM 之前 / 谱面末端之外）。越界 lane 只用于算相对位移 `dLane = cur.lane - pressLane`，
    *   落点是否真的越界由 `planDragMove` 按"根轨在界内即合法"裁决（§4b）。
    */
   laneBeatFromCanvas(
@@ -348,8 +380,10 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     const relativeX = cx - trackBgX;
     const lane = Math.floor(relativeX / (LANE_WIDTH * es));
     const virtualY = viewport.scrollY + cy / es;
+    // issue 63：落点必须在时间原点之上（时间 ≥ 0）——按**布局坐标**判，不用 `beat < startBeat`
+    // 代替（首条 BPM 为负时正秒全部落在它之前，两者不等价）。
+    if (this.posOfVirtualY(virtualY, viewport.scale) < 0) return null;
     const beat = this.virtualYToBeat(virtualY, viewport.scale);
-    if (beat < 0) return null;
     if (!allowOutsideLane && (lane < 0 || lane >= LANES)) return null;
     return { lane, preciseBeat: quantizeBeat(beat, beatDisplay), rawBeat: beat };
   }
@@ -385,8 +419,11 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
         const r = this.timeline.positionRangeOfBeats(minBeat, maxBeat);
         spans.push({ index, posMin: r.min, posMax: r.max });
       } else if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
-        if (note.beat < 0) return;
-        points.push({ pos: this.timeline.positionOfBeat(trueBeat(note.beat, note.subBeat, beatDisplay)), index });
+        // issue 63：时间 < 0（首条 BPM 之前）不进索引 —— 按**布局坐标**判，
+        // 不能用 `beat < startBeat`（首条 BPM 为负时两者不等价）。
+        const pos = this.timeline.positionOfBeat(trueBeat(note.beat, note.subBeat, beatDisplay));
+        if (pos < 0) return;
+        points.push({ pos, index });
       } else if (note.type === 'BPM') {
         points.push({ pos: this.timeline.positionOfBeat(note.beat), index });
       }

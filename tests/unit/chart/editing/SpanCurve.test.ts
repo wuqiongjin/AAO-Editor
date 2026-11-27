@@ -596,9 +596,146 @@ describe('issue 225 · mirrorSpanParam & pruneSpanParam 工具函数', () => {
     expect(mirrorSpanParam({ kind: 'template', templateId: 'arc', precision: 16, mirrored: true })).toEqual({
       kind: 'template', templateId: 'arc', precision: 16, mirrored: false,
     });
+    expect(mirrorSpanParam({
+      kind: 'template',
+      templateId: 'zigzag',
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    })).toEqual({
+      kind: 'template',
+      templateId: 'zigzag',
+      mirrored: false,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    });
     expect(mirrorSpanParam(param({ family: 'quad', type: 'in' }))).toEqual(
       param({ family: 'quad', type: 'in' })
     );
+  });
+
+  it('issue 235 · reprojectSpanParams 拖端点时完整保留 amplitudeScale 与 densityScale', () => {
+    const tplParam: SpanParam = {
+      kind: 'template',
+      templateId: 'zigzag',
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    };
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 3 }, { beat: 2, lane: 3 }],
+      { 0: tplParam },
+      4,
+    );
+    const moved: SlideNote = {
+      ...slide,
+      connections: slide.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    expect(effectiveSpanParams(out)[0]).toEqual(tplParam);
+    expect(out.connections.filter((c) => c.hidden).length).toBeGreaterThan(
+      slide.connections.filter((c) => c.hidden).length,
+    );
+  });
+
+  it('issue 240 · endpoint-interp（step）镜像不写入 mirrored 且重投影不折回；pulse 保留 extra 镜像', () => {
+    // step 不翻转 mirrored
+    expect(mirrorSpanParam({
+      kind: 'template', templateId: 'step', densityScale: 1, extra: { stepStyle: 'sharp' },
+    })).toEqual({
+      kind: 'template', templateId: 'step', densityScale: 1, extra: { stepStyle: 'sharp' },
+    });
+
+    // pulse 翻转 mirrored 同时保留 extra
+    expect(mirrorSpanParam({
+      kind: 'template', templateId: 'pulse', extra: { pulsePos: 0 },
+    })).toEqual({
+      kind: 'template', templateId: 'pulse', mirrored: true, extra: { pulsePos: 0 },
+    });
+
+    // step 1→5 水平镜像为 5→1 后拖动终点重投影，依然单调从 5 递减到 1
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 1 }, { beat: 3, lane: 5 }],
+      { 0: { kind: 'template', templateId: 'step', densityScale: 1 } },
+      4,
+    );
+    const mirrored = mirrorNote(slide) as SlideNote;
+    expect(effectiveSpanParams(mirrored)[0]).toEqual({ kind: 'template', templateId: 'step', densityScale: 1 });
+    const moved: SlideNote = {
+      ...mirrored,
+      connections: mirrored.connections.map((c) => (!c.hidden && c.beat === 3 ? { ...c, beat: 4 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    const hiddens = out.connections.filter((c) => c.hidden);
+    expect(hiddens.length).toBeGreaterThan(0);
+    expect(hiddens[0]!.lane).toBeCloseTo(5, 6);
+    expect(hiddens.at(-1)!.lane).toBeCloseTo(1, 6);
+    for (let i = 1; i < hiddens.length; i++) {
+      expect(hiddens[i]!.lane).toBeLessThanOrEqual(hiddens[i - 1]!.lane + 1e-12);
+    }
+
+    // 历史旧工程 pulse（无 extra）重投影自动回落默认 pulsePos=50 且不抛错
+    const legacyPulse = buildChainedSlide(
+      [{ beat: 1, lane: 3 }, { beat: 2, lane: 3 }],
+      { 0: { kind: 'template', templateId: 'pulse', densityScale: 1 } },
+      4,
+    );
+    const movedPulse: SlideNote = {
+      ...legacyPulse,
+      connections: legacyPulse.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const outPulse = reprojectSpanParams(movedPulse, 4) as SlideNote;
+    expect(effectiveSpanParams(outPulse)[0]).toEqual({ kind: 'template', templateId: 'pulse', densityScale: 1 });
+    expect(outPulse.connections.filter((c) => c.hidden).length).toBeGreaterThan(
+      legacyPulse.connections.filter((c) => c.hidden).length,
+    );
+  });
+
+  it('issue 243 · H 镜像取反 baseline 且与结点真镜像逐点吻合；旧谱无 extra 不抛错', () => {
+    const param = {
+      kind: 'template' as const,
+      templateId: 'zigzag',
+      extra: { baseline: 100 },
+    };
+    expect(mirrorSpanParam(param)).toEqual({
+      kind: 'template',
+      templateId: 'zigzag',
+      mirrored: true,
+      extra: { baseline: -100 },
+    });
+    expect(mirrorSpanParam({ kind: 'template', templateId: 'zigzag' })).toEqual({
+      kind: 'template', templateId: 'zigzag', mirrored: true,
+    });
+
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 2 }, { beat: 2, lane: 4 }],
+      { 0: param },
+      4,
+    );
+    const mirrored = mirrorNote(slide) as SlideNote;
+    expect(effectiveSpanParams(mirrored)[0]).toEqual({
+      kind: 'template', templateId: 'zigzag', mirrored: true, extra: { baseline: -100 },
+    });
+    const origHidden = slide.connections.filter((c) => c.hidden);
+    const mirHidden = mirrored.connections.filter((c) => c.hidden);
+    expect(mirHidden).toHaveLength(origHidden.length);
+    origHidden.forEach((p, i) => {
+      expect(mirHidden[i]!.lane).toBeCloseTo(6 - p.lane, 6);
+      expect(mirHidden[i]!.beat).toBeCloseTo(p.beat, 6);
+    });
+
+    const legacy = buildChainedSlide(
+      [{ beat: 1, lane: 3 }, { beat: 2, lane: 3 }],
+      { 0: { kind: 'template', templateId: 'damped', densityScale: 1 } },
+      4,
+    );
+    const moved: SlideNote = {
+      ...legacy,
+      connections: legacy.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    expect(effectiveSpanParams(out)[0]).toEqual({ kind: 'template', templateId: 'damped', densityScale: 1 });
+    expect(out.connections.filter((c) => c.hidden).length).toBeGreaterThan(0);
   });
 
   it('pruneSpanParam：安全删除指定段参数，维持 visibleCount', () => {

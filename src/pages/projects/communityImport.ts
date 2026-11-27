@@ -18,6 +18,7 @@
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
 import type { OfficialSongDetail, PostCandidate, SongCandidate } from '../../community/bestdori/mapping';
 import {
+  customAudioLocalUrl,
   customAudioName,
   customCoverName,
   fetchCustomAudio,
@@ -26,6 +27,7 @@ import {
 } from '../../community/bestdori/posts';
 import {
   audioFileName,
+  audioLocalUrl,
   coverFileName,
   fetchOfficialAudio,
   fetchOfficialCover,
@@ -81,10 +83,18 @@ export function createCommunityImportSource(
       const resolved = bandoriSong(input);
       if (resolved) {
         const staged = await fetchOfficialAudio(transport, resolved.song, resolved.detail);
-        return { path: staged.path, name: audioFileName(resolved.song) };
+        return {
+          path: staged.path,
+          name: audioFileName(resolved.song),
+          rawUrl: audioLocalUrl(resolved.song, resolved.detail),
+        };
       }
       const staged = await fetchCustomAudio(transport, input.post);
-      return { path: staged.path, name: customAudioName(input.post) };
+      return {
+        path: staged.path,
+        name: customAudioName(input.post),
+        rawUrl: customAudioLocalUrl(input.post),
+      };
     },
 
     async cover(input) {
@@ -108,7 +118,8 @@ export function createCommunityImportSource(
       const resolved = bandoriSong(input);
       return {
         // 工程名 = 帖标题（谱师对这只谱的命名）；bandori 帖标题缺省时退回官方曲名。
-        // 空串由 createOfficialProject 归一成 null；谱师署名仍只在导入会话里展示，不落盘。
+        // 空串由 createOfficialProject 归一成 null；帖主「谱师」（票 32 定案）仍只在导入会话里
+        // 展示、不落盘 —— 本地「谱师署名」取当前登录账号名，与此处的帖主不是一回事（ADR-0024 §3）。
         name: post.title.trim() !== '' ? post.title : (resolved?.song.title ?? ''),
         artist: resolved ? resolved.song.artist : post.artists,
         source: post.song.kind === 'bandori' ? { type: 'bandori', id: post.song.songId } : { type: 'custom' },
@@ -132,6 +143,9 @@ const KIND_MESSAGE_KEYS: Partial<Record<CommunityErrorKind, MessageKey>> = {
   'rate-limited': 'projects.community.err.rateLimited',
   'unsupported-runtime': 'projects.community.err.desktopOnly',
   'staging-failed': 'projects.community.err.staging',
+  http: 'projects.community.err.http',
+  'invalid-response': 'projects.community.err.invalidResponse',
+  'request-rejected': 'projects.community.err.requestRejected',
 };
 
 export function communityErrorText(error: unknown): string {

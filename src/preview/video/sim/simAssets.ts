@@ -31,6 +31,7 @@ import {
   SIM_EMPTY_REGISTRY_FILES,
   type SimAssetPackKind,
 } from './simAssetPacks';
+import { appBackgroundUrl, findAppBackgroundPack, isAppBackgroundPack, type SimStageFrame } from './appAssetPacks';
 import { warmupSimSprites } from './simSprites';
 /**
  * 仿真场素材根（Vite 把 `public/` 挂在站点根，dev 的前缀就是 `/`）。
@@ -47,6 +48,76 @@ export const SIM_ASSET_SERVERS = ['jp', 'en', 'tw', 'cn', 'kr'] as const;
 const SIM_FIELD_CATEGORY = 'fieldskin';
 const SIM_BG_CATEGORY = 'bgskin';
 const SIM_SPRITE_CATEGORY = 'sprites';
+
+/**
+ * **游戏 UI 素材根**（`chart-preview 51/52`）：判定图集、结算图、中央章字样都在这儿。
+ * 与仿真场素材同一套 `public/` 规则（拼 `BASE_URL`），也同一条取件链路
+ * （`npm run assets:sync` 从外部快照仓取件，不入 git），但**不逐服**（`ingameskin` 只有一份）。
+ * 读不到 = 那处留空 / 纯字（票 51/52 Q12），缺件降级口径不变。
+ */
+export const GAME_UI_ASSET_BASE = `${import.meta.env.BASE_URL}assets/game-ui`;
+
+/** 判定图集 URL（`judgeskin/skin00/judge.png`；票 71 起 PERFECT / AUTO 两格） */
+export function simJudgeUrl(): string {
+  return `${GAME_UI_ASSET_BASE}/judgeskin/skin00/judge.png`;
+}
+
+/**
+ * 打歌 HUD 顶栏素材（票 71 / 72）。与判定图集同一条边界：**不入 git**，由
+ * `npm run assets:sync` 从外部快照仓取件；读不到 = 那一处留空或纯字，
+ * 不置 `missing`（场地照画）。
+ *
+ * `scoreBar` / `lifeBar` / `autoLive` 是用户自备件（已抠底）；
+ * `scoreFill` / `pauseBtn` / `starFlow` 票 83 起是官方图集的**单格派生件**
+ * （坐标表见 `docs/research/gbp-ui-assets.md` §12），不再整张图集进包体。
+ */
+export interface SimHudUrls {
+  /** 6 档渐变条 A（`hud/score-fill.png`，按档取源窗口） */
+  scoreFill: string;
+  /** 暂停钮（`hud/pause.png`） */
+  pauseBtn: string;
+  /** SS+ 档星点（`hud/star-flow.png`） */
+  starFlow: string;
+  autoLive: string;
+  scoreBar: string;
+  lifeBar: string;
+}
+
+export function simHudUrls(): SimHudUrls {
+  return {
+    scoreFill: `${GAME_UI_ASSET_BASE}/hud/score-fill.png`,
+    pauseBtn: `${GAME_UI_ASSET_BASE}/hud/pause.png`,
+    starFlow: `${GAME_UI_ASSET_BASE}/hud/star-flow.png`,
+    autoLive: `${GAME_UI_ASSET_BASE}/hud/auto-live.png`,
+    scoreBar: `${GAME_UI_ASSET_BASE}/hud/score-bar.png`,
+    lifeBar: `${GAME_UI_ASSET_BASE}/hud/life-bar.png`,
+  };
+}
+
+/** 已就绪的 HUD 素材；逐件独立降级（缺哪件那处留空 / 纯字，不整组作废） */
+export interface SimHudAssets {
+  /** 官方 6 档渐变条 A（分数条填充） */
+  scoreFill: HTMLImageElement | null;
+  /** 官方暂停钮 */
+  pauseBtn: HTMLImageElement | null;
+  /** 官方 SS+ 四芒星 */
+  starFlow: HTMLImageElement | null;
+  /** 用户自备：`AUTO LIVE` 胶囊（仅 AUTO 模式显示） */
+  autoLive: HTMLImageElement | null;
+  /** 用户自备：整块分数组件 */
+  scoreBar: HTMLImageElement | null;
+  /** 用户自备：整块生命组件 */
+  lifeBar: HTMLImageElement | null;
+}
+
+export const EMPTY_SIM_HUD_ASSETS: SimHudAssets = {
+  scoreFill: null,
+  pauseBtn: null,
+  starFlow: null,
+  autoLive: null,
+  scoreBar: null,
+  lifeBar: null,
+};
 
 /**
  * 两个独立选择器传进来的包 ID（chart-preview 41；`settings.preview.bgPackId` / `fieldPackId`）。
@@ -87,8 +158,13 @@ export function simAssetUrls(server: string, packs: SimAssetPackSelection = {}):
   const bgId = normalizeSimAssetPackId('background', packs.background);
   const fieldPack = findSimFieldPack(fieldId);
   const bgPack = findSimBackgroundPack(bgId);
+  const appBg = findAppBackgroundPack(bgId);
   return {
-    background: simPackUrl('background', server, bgId, bgPack?.background ?? SIM_EMPTY_REGISTRY_FILES.background),
+    // 应用自带包（ADR-0018 §7）不在 bgskin 目录里：URL 是 `public/assets/preview/…`，
+    // 与服务端无关 ⇒ 逐服探测时它对每个服都是同一个地址。
+    background: appBg
+      ? appBackgroundUrl(appBg)
+      : simPackUrl('background', server, bgId, bgPack?.background ?? SIM_EMPTY_REGISTRY_FILES.background),
     field: simPackUrl('field', server, fieldId, fieldPack?.field ?? SIM_EMPTY_REGISTRY_FILES.field),
     playLine: simPackUrl('field', server, fieldId, fieldPack?.playLine ?? SIM_EMPTY_REGISTRY_FILES.playLine),
   };
@@ -110,6 +186,9 @@ export function simAssetPackThumbUrl(
     const entry = findSimFieldPack(id);
     return entry ? simPackUrl(kind, server, id, entry.field) : null;
   }
+  // 自带包（ADR-0018 §7）：缩略图就是原图本身（2048×1024 / 59 KB，格子自己缩）
+  const appBg = findAppBackgroundPack(id);
+  if (appBg) return appBackgroundUrl(appBg);
   const entry = findSimBackgroundPack(id);
   return entry ? simPackUrl(kind, server, id, entry.background) : null;
 }
@@ -145,9 +224,20 @@ export interface SimSprites {
 
 /** 已就绪的场地素材（缺素材 = `missing`，三图全 null） */
 export interface SimAssets {
-  background: HTMLImageElement | null;
+  background: CanvasImageSource | null;
   field: HTMLImageElement | null;
   playLine: HTMLImageElement | null;
+  /**
+   * **相框层**（chart-preview 84 · ADR-0018 §7）：只有选中「AAO 舞台」这个自带背景包时才有值
+   * ⇒ 取景走自然比例（`aaoStageBackgroundRect`）、图正中的玻璃屏存在，`cover` 是屏里的工程封面
+   * （null = 没封面 → 留空）。绘制落在背景图之后、亮度黑罩之前（见 `simField.drawSimBackground`），
+   * 因此实时预览 / 视频导出 / 开场第③段三处天然一致。
+   */
+  stageFrame: SimStageFrame | null;
+  /**
+   * 自定义表演背景取景（票 42）：有值 = `background` 是用户图，铺设计面，不画相框。
+   */
+  liveBgFit?: 'cover' | 'contain';
   /** 带体体色 / 亮缘色（皮肤带体图中心取样；取不到 = 兜底绿） */
   bandColor: string;
   bandColorSp: string;
@@ -163,6 +253,10 @@ export interface SimAssets {
   bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
   sprites: SimSprites | null;
+  /** 判定图集（51/71）：缺 = null → 判定字走纯字（**不置 missing**） */
+  judge: HTMLImageElement | null;
+  /** 打歌 HUD 顶栏（71/72）：逐件缺 = null → 那处留空 / 纯字（**不置 missing**） */
+  hud: SimHudAssets;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
   missing: boolean;
   /** 命中的服务器目录（缺素材 = null） */
@@ -181,6 +275,18 @@ export interface SimAssetLoadOptions {
    * 缺省 / 非法 ID 回落默认 `skin00`。
    */
   packs?: SimAssetPackSelection;
+  /**
+   * 相框封面（chart-preview 84）：**已解码好**的图（`createImageBitmap` 或 `Image`）——
+   * 解码留在页面 / 导出的编排层（它们本来就要为开场 / 结算解码封面）。
+   * 只有背景是应用自带包时才随素材带出去（其余背景包画不了相框，带了也不用）。
+   */
+  cover?: CanvasImageSource | null;
+  /**
+   * 自定义表演背景（票 42）：已解码的图。有值时覆盖包背景、不画相框，
+   * `liveBgFit` 缺省 cover。
+   */
+  customLiveBg?: CanvasImageSource | null;
+  liveBgFit?: 'cover' | 'contain';
   /** 图片加载（测试注入替身；缺省 `new Image()`） */
   loadImage?: (src: string) => Promise<HTMLImageElement>;
   /** 取色（测试注入替身；缺省读 1×1 离屏画布） */
@@ -195,6 +301,7 @@ export function emptySimAssets(): SimAssets {
     background: null,
     field: null,
     playLine: null,
+    stageFrame: null,
     bandColor: SIM_BAND_COLORS.band,
     bandColorSp: SIM_BAND_COLORS.sp,
     bandMaterial: { ...SIM_BAND_MATERIAL },
@@ -202,6 +309,8 @@ export function emptySimAssets(): SimAssets {
     bandRaster: SIM_BAND_RASTER_MATERIAL,
     bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
     sprites: null,
+    judge: null,
+    hud: { ...EMPTY_SIM_HUD_ASSETS },
     missing: true,
     server: null,
   };
@@ -276,13 +385,17 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
     bandSpSrc = null,
     servers = SIM_ASSET_SERVERS,
     packs,
+    cover = null,
+    customLiveBg = null,
+    liveBgFit,
     loadImage = loadImageElement,
     sampleColor = sampleCenterColor,
     createSampleCanvas,
   } = opts;
 
   const probe = (selection: Required<SimAssetPackSelection>) => probeSimServers({
-    servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor, createSampleCanvas,
+    servers, selection, bandSrc, bandSpSrc, cover, customLiveBg, liveBgFit,
+    loadImage, sampleColor, createSampleCanvas,
   });
   const selected: Required<SimAssetPackSelection> = {
     field: normalizeSimAssetPackId('field', packs?.field),
@@ -302,17 +415,46 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
   return emptySimAssets();
 }
 
+/**
+ * 只取一张**表演背景主图**（票 84 定案 B 的结算固定背景）。
+ *
+ * 为什么不用 `loadSimAssets`：那套为了"判定这个服归档没归档"要先读场地图，再把背景 /
+ * 判定线 / 带体两张 / 精灵三张 / HUD 六张一次全解码 —— 只要一张背景时全是重复解码
+ * （导出主素材在同一轮里已经加载了同一批 URL）。这里逐服只试 `background` 一项，
+ * 首个成功即返回；全服取不到 = null（结算只剩深色底，不回落用户当前选的包）。
+ */
+export async function loadSimBackgroundImage(
+  packId?: string,
+  opts: {
+    servers?: readonly string[];
+    loadImage?: (src: string) => Promise<HTMLImageElement>;
+  } = {},
+): Promise<HTMLImageElement | null> {
+  const { servers = SIM_ASSET_SERVERS, loadImage = loadImageElement } = opts;
+  for (const server of servers) {
+    try {
+      return await loadImage(simAssetUrls(server, { background: packId }).background);
+    } catch {
+      // 这个服没归档（或没摆这个包）：换下一个
+    }
+  }
+  return null;
+}
+
 /** 逐服探测一轮（`selection` 已是归一化后的包 ID）；命中 = 该服务器目录归档过 */
 async function probeSimServers(opts: {
   servers: readonly string[];
   selection: Required<SimAssetPackSelection>;
   bandSrc: string | null;
   bandSpSrc: string | null;
+  cover: CanvasImageSource | null;
+  customLiveBg?: CanvasImageSource | null;
+  liveBgFit?: 'cover' | 'contain';
   loadImage: (src: string) => Promise<HTMLImageElement>;
   sampleColor: (img: HTMLImageElement) => string | null;
   createSampleCanvas?: () => HTMLCanvasElement | null;
 }): Promise<SimAssets | null> {
-  const { servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor, createSampleCanvas } = opts;
+  const { servers, selection, bandSrc, bandSpSrc, cover, customLiveBg, liveBgFit, loadImage, sampleColor, createSampleCanvas } = opts;
   for (const server of servers) {
     const urls = simAssetUrls(server, selection);
     let field: HTMLImageElement;
@@ -322,8 +464,12 @@ async function probeSimServers(opts: {
       continue; // 这个服务器目录没归档（或没摆选中的场地图）：换下一个
     }
     const spriteUrls = simSpriteUrls(server);
-    const [background, playLine, bandImg, bandSpImg, digits, combo, particles] = await Promise.all([
-      loadImage(urls.background).catch(() => null),
+    const hudUrls = simHudUrls();
+    const [
+      background, playLine, bandImg, bandSpImg, digits, combo, particles, judge,
+      scoreFill, pauseBtn, starFlow, autoLive, scoreBar, lifeBar,
+    ] = await Promise.all([
+      customLiveBg ? Promise.resolve(null) : loadImage(urls.background).catch(() => null),
       loadImage(urls.playLine).catch(() => null),
       bandSrc ? loadImage(bandSrc).catch(() => null) : Promise.resolve(null),
       bandSpSrc ? loadImage(bandSpSrc).catch(() => null) : Promise.resolve(null),
@@ -331,17 +477,30 @@ async function probeSimServers(opts: {
       loadImage(spriteUrls.digits).catch(() => null),
       loadImage(spriteUrls.combo).catch(() => null),
       loadImage(spriteUrls.particles).catch(() => null),
+      // 判定图集（51/71）：缺席只是"判定字走纯字"，不影响场地
+      loadImage(simJudgeUrl()).catch(() => null),
+      // 打歌 HUD 顶栏（71/72）：逐件缺席只让那一处降级，不影响场地也不置 missing
+      loadImage(hudUrls.scoreFill).catch(() => null),
+      loadImage(hudUrls.pauseBtn).catch(() => null),
+      loadImage(hudUrls.starFlow).catch(() => null),
+      loadImage(hudUrls.autoLive).catch(() => null),
+      loadImage(hudUrls.scoreBar).catch(() => null),
+      loadImage(hudUrls.lifeBar).catch(() => null),
     ]);
     const sprites = digits && combo && particles ? { digits, combo, particles } : null;
-    warmupSimSprites(sprites, [background, field, playLine]);
+    const hud: SimHudAssets = { scoreFill, pauseBtn, starFlow, autoLive, scoreBar, lifeBar };
+    warmupSimSprites(sprites, [customLiveBg ?? background, field, playLine]);
     // 65：普通 / SP 带体各读一次，标量材质、17 点剖面、纵向曲线、体色同源（无第二次回读）；
     // LUT 在这里展开好，帧循环只读数组。
     const bandSample = readSimBandImage(bandImg, createSampleCanvas);
     const bandSpSample = readSimBandImage(bandSpImg, createSampleCanvas);
     return {
-      background,
+      background: customLiveBg ?? background,
       field,
       playLine,
+      // 相框层只在自带背景包上存在（ADR-0018 §7）；自定义图与 AAO 互斥（票 42）
+      stageFrame: customLiveBg ? null : (isAppBackgroundPack(selection.background) ? { cover } : null),
+      liveBgFit: customLiveBg ? (liveBgFit === 'contain' ? 'contain' : 'cover') : undefined,
       bandColor: (bandImg ? sampleColor(bandImg) : null) ?? SIM_BAND_COLORS.band,
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
       bandMaterial: bandSample?.material ?? { ...SIM_BAND_MATERIAL },
@@ -349,6 +508,8 @@ async function probeSimServers(opts: {
       bandRaster: buildSimBandRasterMaterial(bandSample, false),
       bandRasterSp: buildSimBandRasterMaterial(bandSpSample, true),
       sprites,
+      hud,
+      judge,
       missing: false,
       server,
     };

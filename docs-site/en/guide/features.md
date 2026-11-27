@@ -72,10 +72,11 @@ The workspace edits one chart of the current project, featuring a new compact to
 - Page switching: Alt+1…7 for workspace, audio, preview, assets, shortcuts, settings, etc.
 - Common defaults: Space play / pause, Ctrl+Space jump to marker and play, Ctrl+Shift+D collect snippet, Ctrl+Z / Ctrl+Y undo / redo.
 - Playback controls: `,` rate down and `.` rate up (step through the seven 0.25×–2× presets, stopping at the ends), `;` volume −0.05 and `'` volume +0.05 (clamped to 0–1). Works in both the workspace and the live preview; holding a key does not auto-repeat. Feedback comes from the `1×` readout and the volume slider on the playback bar. If a key was already taken in an older profile, the new function yields to "disabled" — enable it on the Shortcuts page to rebind.
-- Beat snap shortcuts: the Shortcuts page adds **Step Denser**, **Step Sparser**, and **Cycle Favorite Snaps** (unbound by default), with a modal to customize the favorite snap divisions to cycle through.
+- Keyboard seek: ← back and → forward (step the playback clock in seconds; factory step is 1s, each side independently 0.1–10). Works in the workspace and live preview; the first step fires on keydown, then after ~300ms it repeats every 50ms. Step sizes are on the gear next to those two shortcut rows; restoring shortcut defaults does not clear them.
+- Beat snap shortcuts: factory number keys **Set to 1/N** (Bestdori mapping: `1`/`2`/`3`/`4`/`6`/`8`/`9`/`0` → 1/1, 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16; `5`/`7` left free). If a digit was already taken in an older profile, the new function yields to "disabled". **Step Denser**, **Step Sparser**, and **Cycle Favorite Snaps** remain unbound by default; the cycle modal only edits the rotate list — custom 1–192 still uses the top-bar capsule.
 - Note tools: F single, G flick, A skill, S left directional, D right directional, E slide, W curve, R pointer, T delete, Q mirror, V paste.
 - Workspace preferences: slide drag shaping style (smooth curve / triangle bow), scroll direction inversion, 3-tier time precision (0.1s / 0.01s / 0.001s), and independent SE volume control.
-- The shortcut table writes the modifier as Ctrl; on macOS that's ⌘.
+- On macOS the shortcut table shows Ctrl as ⌘ (joined, e.g. ⌘F; physical Control still works). Mirror is shown as ⌃Q: ⌘Q is reserved for quitting the app, so use Control+Q to mirror. Windows and Linux still show Ctrl.
 
 ## Preview and chart images
 

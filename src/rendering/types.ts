@@ -59,6 +59,10 @@ export interface RenderCtx {
   directNotes?: boolean;
   /** 瓦片预取注入已分片计算的带体；缺省复用同步像素算法。只作用于本次绘制。 */
   rasterizeBand?: (input: BandRasterInput) => BandRaster | null;
+  /** 快速滚动/拖拽时用几何填充绘制尚未光栅化的滑条连接带。 */
+  previewSlideBands?: boolean;
+  /** 本帧由用户交互式滚动或拖拽进度条触发。 */
+  manualScroll?: boolean;
   beatDisplay: number;
   chartEndBeat: number;
   notes: ChartNote[];

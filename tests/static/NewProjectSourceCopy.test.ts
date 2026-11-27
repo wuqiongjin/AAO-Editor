@@ -120,8 +120,9 @@ describe('票 13 · 禁用态样式在位', () => {
       expect(src).toMatch(/t\('projects\.(official|community)\.loadOk'\), 'success'/);
     }
     // 首屏（浏览）拉取成功必弹；社区侧搜索成功不弹 —— 结果列表本身就是反馈，别每搜一次吵一声
+    // 票 59 起「浏览」= 既没有关键字、也没有谱师筛选（判定收在 isBrowsing 里，这里只锁「只有浏览才弹」）
     const community = readStripped('src/pages/projects/components/CommunityPostPanel.tsx');
-    expect(community).toMatch(/else if \(q === ''\) showToast\(t\('projects\.community\.loadOk'\), 'success'\)/);
+    expect(community).toMatch(/else if \(isBrowsing\) showToast\(t\('projects\.community\.loadOk'\), 'success'\)/);
     const official = readStripped('src/pages/projects/components/OfficialSongPanel.tsx');
     expect(official).toMatch(/else showToast\(t\('projects\.official\.loadOk'\), 'success'\)/);
   });
@@ -185,11 +186,13 @@ describe('票 28 · 工程管理页面文案整改与去冗余', () => {
     const zh = messages('src/i18n/messages/zh-CN.json');
     const en = messages('src/i18n/messages/en.json');
     // 搜索命中标题与乐队 / 歌手（实测：官方走乐队索引，社区帖走 post.artists）；
-    // 票 32/33 起纯数字还按 id 搜（官方 songId 本地匹配、社区 postId 走详情直查）→ placeholder 一并说清
+    // 票 32/33 起纯数字还按 id 搜（官方 songId 本地匹配、社区 postId 走详情直查）→ placeholder 一并说清。
+    // 谱师账号名不进 placeholder（票 59 回修）：它只认完全一致的 ASCII 账号名、且关键字有结果时会被丢弃，
+    // 不是常规检索键 —— 放进 hover 提示，别把 placeholder 撑成四个并列项。
     expect(zh['projects.official.searchPlaceholder']).toBe('搜索曲名、乐队或曲库 ID');
     expect(en['projects.official.searchPlaceholder']).toBe('Search song titles, bands, or catalog IDs');
-    expect(zh['projects.community.searchPlaceholder']).toBe('搜索歌曲标题或帖 ID');
-    expect(en['projects.community.searchPlaceholder']).toBe('Search song titles or post IDs');
+    expect(zh['projects.community.searchPlaceholder']).toBe('搜索标题、歌手或帖 ID');
+    expect(en['projects.community.searchPlaceholder']).toBe('Search titles, artists, or post IDs');
   });
 
   it('上传记录空态与删除提示去 Bestdori 化', () => {

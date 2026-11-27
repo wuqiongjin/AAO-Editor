@@ -1,9 +1,9 @@
 // 统一 versioned settings JSON（ADR-0003 §6 / ADR-0004 §7）：
 // 合并「快捷键 + 主题 + 布局 + 音频键音」为一份带 schemaVersion 的设置对象。
-// 单一 localStorage 键 bangdream.settings.v1，冲突/schema 损坏时回退默认再按字段合并。
+// 单一 localStorage 键 aao.settings.v1，冲突/schema 损坏时回退默认再按字段合并。
 //
 // 迁移策略：
-// - 旧 bangdream.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
+// - 旧 aao.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { FUNCTIONS, getDefaultConfig, loadConfig, type ShortcutConfig, type ShortcutMasks } from './ShortcutConfig';
 import { normalizeProjectSortKey, type ProjectSortKey } from '../project/projectSort';
@@ -87,6 +87,12 @@ export interface AppSettings {
      * 与工作台抽屉是**两套独立的分栏**：夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
      */
     projectList: { width: number };
+    /**
+     * 曲线选项胶囊的展开态（issue 242）：曲线工具频繁对照调整，展开后不该被点击画布打断，
+     * 故与临时弹层分道——只有点胶囊顶栏才切换，偏好在切走工具 / 重启后仍沿用。
+     * additive，不 bump schemaVersion；出厂默认折叠，缺字段 / 脏值回落 false。
+     */
+    curveCapsuleOpen: boolean;
   };
   shortcuts: ShortcutConfig;
   /**
@@ -135,6 +141,8 @@ export interface AppSettings {
     invertWheel: boolean;
     /** 滑条拖拽变形风格（issue 204）：'smooth' (圆滑曲线) | 'triangle' (三角拉弓)，默认 smooth */
     pinchMode: PinchMode;
+    /** 拖动滑条可见结点（含端点）时，是否跳过缓动/模板重烘焙并直接仿射拉伸既有曲线，默认 false */
+    stretchCurveOnNodeDrag: boolean;
     /** 判定线向上偏移比例（issue 218）：0..0.4 画布高，默认 0 = 贴底原样 */
     judgeLineOffsetRatio: number;
   };
@@ -167,6 +175,14 @@ export interface AppSettings {
    * 1–192 升序去重整数数组，缺字段 / 脏值回落 [4, 8, 12, 16]。additive 字段，不 bump schemaVersion。
    */
   beatSnapCycleList: number[];
+  /**
+   * 键盘 seek 后退 / 前进步长（issue 251）：一次按键推进的播放时钟秒数。
+   * 两套独立、出厂都是 1、范围 0.1–10（0.1 一档）。additive，不 bump schemaVersion；
+   * 与 `settings.shortcuts` 解耦——快捷键页「恢复默认」只重置键位，不清步长。
+   * **不**写入 `playbar`（那是工作台标记点按钮 chrome）。
+   */
+  seekStepBackSeconds: number;
+  seekStepForwardSeconds: number;
   /**
    * 片段粘贴模式（issue 186 / ADR-0023 §2）：`withBpm` = 含 BPM（默认）还是不含 BPM。
    * 只是**偏好**（"我上次怎么贴的"），与 `beatSnap` 同属"我的习惯"；**片段数据本身不进设置对象**
@@ -254,9 +270,9 @@ export function normalizeCachePolicy(
 }
 
 /**
- * 导出头带 + 信息区字段（chart-preview 14，字段候选 2026-10-06 用户拍板；`enabled` 2026-10-06 追加）：
- * 导出图**要不要带头带**（封面区 + 信息区），以及信息区显示哪些项。
- * 七项里没有「谱师姓名」——本票不做（用户拍板：后续票再谈）。
+ * 导出头带 + 信息区字段（chart-preview 14，字段候选 2026-10-06 用户拍板；`enabled` 2026-10-06 追加；
+ * `charter` 2026-11-15 票 79 追加）：导出图**要不要带头带**（封面区 + 信息区），以及信息区显示哪些项。
+ * 八项里「谱师」是票 79 补上的第 8 枚 chip（默认关），值来自谱面的「谱师署名」。
  */
 export interface ExportFieldSettings {
   /**
@@ -279,42 +295,82 @@ export interface ExportFieldSettings {
   /** 导出时间（本地时区，写到分钟） */
   exportedAt: boolean;
   /**
-   * **视频开场**（chart-preview 30）：动态预览导出物最前面那段的总开关 + 信息项开关。
-   * 与上面 7 个「信息区字段」**互不跟随**（那是长图头带的谱面统计信息，这是歌曲信息）。
+   * **谱师**（票 79）：信息区 chips 行末位的一枚 chip，值来自谱面的「谱师署名」。
+   * 默认关 —— 不改动老用户既有的出图版式；开关开但值为空 ⇒ 不画。
+   */
+  charter: boolean;
+  /**
+   * **视频开场**（chart-preview 30 / 79）：动态预览导出物最前面那段的总开关 + 7 项信息项开关。
+   * 与上面 8 个「信息区字段」**互不跟随**（那是长图头带的谱面信息，这是歌曲信息）。
    */
   opening: OpeningSettings;
+  /**
+   * **结尾画面**（chart-preview 52）：谱面播完之后那段（中央章 → 黑幕转场 → 结算）。
+   * 与开场同样是视频导出专属、**只在导出里演**（实时预览不加后置段）。
+   */
+  ending: EndingSettings;
 }
 
 /**
- * 视频开场设置（chart-preview 30）：`enabled` 关掉 = 回到"第 0 帧即 0 秒、总长 = 谱面时长"；
- * 三项信息项 = 难度徽章 / 标题条 / 艺人行（本期不做 credits / 谱师名）。
+ * 视频开场设置（chart-preview 30 / 79）：`enabled` 关掉 = 回到"第 0 帧即前导负秒、总长 = 前导 + 谱面时长 + 末击尾段"；
+ * 7 项信息项 = 难度 / 歌曲标题 / 乐队 / 作词 / 作曲 / 编曲 / 谱师，每枚开关 gate 自己那一行。
  */
 export interface OpeningSettings {
   enabled: boolean;
   items: Record<OpeningItemId, boolean>;
 }
 
+/**
+ * 结尾画面设置（chart-preview 52）：`enabled` 关掉 = 回到"末击尾段播完切末帧、总长 = 开场 + 前导 + 谱面 + 尾段"；
+ * `stamp` = 中央章形态三档（Auto 永远 PERFECT，故默认 ALL PERFECT；不是按漏判算的）。
+ */
+export interface EndingSettings {
+  enabled: boolean;
+  stamp: EndingStamp;
+}
+
+/** 中央章形态（`clear` = 普通 Clear，无章） */
+export type EndingStamp = 'ap' | 'fc' | 'clear';
+
+/** 中央章候选全列（归一化与「结算形态」下拉共用同一份） */
+export const ENDING_STAMP_IDS: readonly EndingStamp[] = ['ap', 'fc', 'clear'];
+
+/** 结尾画面默认档（用户 2026-10-26 拍板）：**开**、ALL PERFECT */
+export const DEFAULT_ENDING: EndingSettings = { enabled: true, stamp: 'ap' };
+
 /** 开场信息项的候选全列（声明式：未来加项 = 加一个 id + 默认值 + 文案 + 一处绘制） */
-export const OPENING_ITEM_IDS = ['difficulty', 'title', 'artist'] as const;
+export const OPENING_ITEM_IDS = [
+  'difficulty', 'title', 'artist',
+  // 票 79：曲目署名的 4 行（工程级 3 项 + 谱面级谱师），逐项 gate 绘制层
+  'lyricist', 'composer', 'arranger', 'charter',
+] as const;
 
 /** 开场信息项 id */
 export type OpeningItemId = (typeof OPENING_ITEM_IDS)[number];
 
-/** 开场信息项默认值（**全开**） */
+/** 开场信息项默认值（**全开**；票 79 新增 4 项同样默认开、缺字段回落 true） */
 export const DEFAULT_OPENING_ITEMS: Record<OpeningItemId, boolean> = {
   difficulty: true,
   title: true,
   artist: true,
+  lyricist: true,
+  composer: true,
+  arranger: true,
+  charter: true,
 };
 
 /** 导出信息字段的候选全列（归一化与「导出信息」UI 组共用同一份，免得两处各列一遍） */
-export const EXPORT_FIELD_KEYS: readonly Exclude<keyof ExportFieldSettings, 'enabled' | 'opening'>[] = [
-  'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
+export const EXPORT_FIELD_KEYS: readonly Exclude<
+  keyof ExportFieldSettings,
+  'enabled' | 'opening' | 'ending'
+>[] = [
+  'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt', 'charter',
 ];
 
 /**
  * 导出默认档（chart-preview 14，用户 2026-10-06 拍板）：**带头带**（`enabled`），
  * 信息区写 **谱面标题 + 难度等级 + BPM**，其余关（工程名 / 时长 / 音符数 / 导出时间）。
+ * 票 79 新增的「谱师」默认**关**（不改动老用户既有的出图版式）。
  */
 export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   enabled: true,
@@ -325,8 +381,11 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   noteCount: false,
   bpm: true,
   exportedAt: false,
+  charter: false,
   // 视频开场默认全开；**缺字段回落 true**（老用户不得被静默关掉，定案 5）
   opening: { enabled: true, items: { ...DEFAULT_OPENING_ITEMS } },
+  // 结尾画面默认开 + ALL PERFECT（票 52 Q8）
+  ending: { ...DEFAULT_ENDING },
 };
 
 /** 预览标注设置（= `settings.preview`；预览面板的叠加项由它推出） */
@@ -342,6 +401,26 @@ export interface PreviewSettings {
   /** 镜向：整条轨道水平镜像（车道左右互换 + 方向箭头翻转，照 Bestdori `styleMirror`） */
   mirror: boolean;
   /**
+   * **PERFECT 显示状态**（chart-preview 51，2026-10-27）：combo 是否走 AP 态
+   * （白芯 + 竖向渐变描边 + 呼吸光晕）。默认**开** —— Auto 恒 PERFECT，实机这时就是变色态；
+   * 关掉 = 游戏常态的纯白数字。实时预览与导出视频读同一个值。
+   */
+  apCombo: boolean;
+  /**
+   * **AUTO 模式**（chart-preview 71；2026-11-08 验收改默认**关**）。
+   * 开 = 打歌判定字切官方 `judge_auto` + 显示用户自备 `AUTO LIVE` 胶囊；
+   * 关 = 判定字回 `judge_perfect`、不显示胶囊。
+   * **不影响 `apCombo`**（PERFECT 显示状态各自独立）、也不改结算画面与分数口径。
+   * 实时预览与导出视频读同一个值。
+   */
+  autoMode: boolean;
+  /**
+   * **分数条与生命条显示**（票 72；2026-11-09 验收定案）：一枚总开关管分数框 / 生命 / 暂停钮 /
+   * `AUTO LIVE` 整层。默认开；关掉只收顶栏，场地与音符照常。标签直接写清组件名、试一下即懂，
+   * 不挂 `?` 说明，界面不露「HUD」行话。
+   */
+  showGameUi: boolean;
+  /**
    * 仿真场音符速度档（chart-preview 05；照 Bestdori `simNoteSpeed`）：
    * 只作用于动态预览，决定接近模型的 T = 游戏分段映射（票 48）：n ≤ 11 → (12 − n)/2、
    * n > 11 → (16 − n)/10 秒（口径来源 = sonolus-bandori-engine `note.duration`）。
@@ -350,8 +429,9 @@ export interface PreviewSettings {
   noteSpeed: number;
   /**
    * 仿真场**表演背景**包 ID（chart-preview 41 · ADR-0018 §3：应用级，"我的默认口味"；
-   * 新建工程默认沿用上次选的包）。取值 = 取件侧包清单里的包 ID（`bgPackId` 非法 / 不在
-   * 清单里 → 归一化回落默认 `skin00`，见 `normalizeSimAssetPackId`）。
+   * 新建工程默认沿用上次选的包）。取值 = 包清单里的包 ID —— 取件侧 `skin*` / 主题包，
+   * 或**应用自带**的 `aao-stage`（票 84 · ADR-0018 §7，出厂默认）；`bgPackId` 非法 / 不在
+   * 清单里 → 归一化回落默认包（见 `normalizeSimAssetPackId`），**已存的合法值不迁移**。
    */
   bgPackId: string;
   /**
@@ -425,13 +505,30 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   beatMarks: 1,
   comboMarks: true,
   mirror: false,
+  apCombo: true,
+  // AUTO 模式默认关（2026-11-08 验收定案）；旧数据缺字段 / 脏值一律回落关
+  autoMode: false,
+  // 顶部状态栏总开关缺省全开（additive：旧数据缺字段不静默藏掉顶栏）
+  showGameUi: true,
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
-  // 表演背景 / 场地皮肤包各默认 skin00（ADR-0018 §1；非法 ID 读盘时归一化回落）
+  // 表演背景默认应用自带包「AAO 舞台」（票 84 · ADR-0018 §7）、场地皮肤包默认 skin00；
+  // 非法 ID 读盘时归一化回落各自默认，已存的合法值（含老设置的 skin00）不迁移
   bgPackId: SIM_DEFAULT_PACK_IDS.background,
   fieldPackId: SIM_DEFAULT_PACK_IDS.field,
   // 背景亮度默认 0.7（用户 2026-10-29 验收定档；1 = 原图）
   bgBrightness: BG_BRIGHTNESS_RANGE.fallback,
 };
+
+/** 键盘 seek 步长（issue 251）：缺 / 非数 / ≤0 → 1；量化到 0.1；钳在 0.1–10。 */
+export const DEFAULT_SEEK_STEP_SECONDS = 1;
+export const SEEK_STEP_MIN = 0.1;
+export const SEEK_STEP_MAX = 10;
+
+export function normalizeSeekStepSeconds(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return DEFAULT_SEEK_STEP_SECONDS;
+  const snapped = Math.round(raw * 10) / 10;
+  return Math.min(SEEK_STEP_MAX, Math.max(SEEK_STEP_MIN, snapped));
+}
 
 /** 音符速度档归一化（读写同一个白名单；快照值对齐步长） */
 export function normalizeNoteSpeed(raw: unknown, fallback: number = SIM_NOTE_SPEED_RANGE.fallback): number {
@@ -492,6 +589,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     layout: {
       patternDrawer: { open: false, width: PATTERN_DRAWER_WIDTH.default },
       projectList: { width: PROJECT_LIST_WIDTH.default },
+      curveCapsuleOpen: false,
     },
     shortcuts: getDefaultConfig(),
     shortcutLast: {},
@@ -512,12 +610,15 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       timePrecision: 'standard',
       invertWheel: false,
       pinchMode: 'smooth',
+      stretchCurveOnNodeDrag: false,
       judgeLineOffsetRatio: 0,
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
     beatSnap: DEFAULT_BEAT_SNAP,
     beatSnapCycleList: [...DEFAULT_BEAT_SNAP_CYCLE_LIST],
+    seekStepBackSeconds: DEFAULT_SEEK_STEP_SECONDS,
+    seekStepForwardSeconds: DEFAULT_SEEK_STEP_SECONDS,
     // 片段粘贴默认「含 BPM」（ADR-0023 §2）
     patternPaste: { withBpm: true },
     // 片段库排序默认「最新收藏在前」（issue 192）
@@ -585,6 +686,10 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         width: clampPatternDrawerWidth(patternDrawer.width),
       },
       projectList: { width: clampProjectListWidth(projectList.width) },
+      // 曲线选项胶囊展开态（issue 242）：只认布尔，缺字段 / 脏值 = 折叠
+      curveCapsuleOpen: typeof layout.curveCapsuleOpen === 'boolean'
+        ? layout.curveCapsuleOpen
+        : defaults.layout.curveCapsuleOpen,
     },
     // 段内合并：若新 settings 里没有 shortcuts，则沿用 defaults 整体；之后由调用方尝试从旧 key 补齐
     shortcuts: defaults.shortcuts,
@@ -615,12 +720,17 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       pinchMode: (PINCH_MODES as readonly unknown[]).includes(display.pinchMode)
         ? (display.pinchMode as PinchMode)
         : defaults.display.pinchMode,
+      stretchCurveOnNodeDrag: typeof display.stretchCurveOnNodeDrag === 'boolean'
+        ? display.stretchCurveOnNodeDrag
+        : defaults.display.stretchCurveOnNodeDrag,
       judgeLineOffsetRatio: clamp(display.judgeLineOffsetRatio, 0, 0.4, defaults.display.judgeLineOffsetRatio),
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
     beatSnap: normalizeBeatSnap(obj.beatSnap),
     beatSnapCycleList: normalizeBeatSnapCycleList(obj.beatSnapCycleList),
+    seekStepBackSeconds: normalizeSeekStepSeconds(obj.seekStepBackSeconds),
+    seekStepForwardSeconds: normalizeSeekStepSeconds(obj.seekStepForwardSeconds),
     // 片段粘贴模式（issue 186）：只认布尔，缺字段 / 脏值 = 带 BPM（默认档）
     patternPaste: {
       withBpm: typeof patternPaste.withBpm === 'boolean' ? patternPaste.withBpm : defaults.patternPaste.withBpm,
@@ -651,6 +761,11 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         : defaults.preview.beatMarks,
       comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
       mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
+      apCombo: typeof preview.apCombo === 'boolean' ? preview.apCombo : defaults.preview.apCombo,
+      // AUTO 模式 / 顶部状态栏总开关（票 71/72）：additive，缺字段 / 脏值一律回落默认档
+      autoMode: typeof preview.autoMode === 'boolean' ? preview.autoMode : defaults.preview.autoMode,
+      showGameUi: typeof preview.showGameUi === 'boolean'
+        ? preview.showGameUi : defaults.preview.showGameUi,
       noteSpeed: normalizeNoteSpeed(preview.noteSpeed, defaults.preview.noteSpeed),
       // 仿真场素材包（chart-preview 41）：按取件侧包清单归一化，清单里没有的 ID（含脏值 /
       // 快照缩水后残留的旧选择）静默回落默认 skin00 —— "列表即真相"
@@ -683,7 +798,25 @@ export function normalizeExportFields(
   // `opening` 是嵌套对象：`{ ...fallback }` 是浅拷贝，直接改会写脏 `DEFAULT_EXPORT_FIELDS.opening`
   // ⇒ 必须显式造一个新对象（含 items 的新对象）
   out.opening = normalizeOpening(raw.opening, fallback.opening);
+  out.ending = normalizeEnding(raw.ending, fallback.ending);
   return out;
+}
+
+/**
+ * 结尾画面归一化（票 52）：`enabled` 缺 = **开**（老数据升级后不得被默默关掉）；
+ * `stamp` 只认三档白名单，脏值 / 缺字段回落 `ap`。
+ */
+export function normalizeEnding(
+  raw: unknown,
+  fallback: EndingSettings = DEFAULT_ENDING,
+): EndingSettings {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    enabled: typeof src.enabled === 'boolean' ? src.enabled : fallback.enabled !== false,
+    stamp: (ENDING_STAMP_IDS as readonly unknown[]).includes(src.stamp)
+      ? (src.stamp as EndingStamp)
+      : fallback.stamp,
+  };
 }
 
 /**
@@ -771,6 +904,8 @@ export type SettingsPatch = Partial<{
   curve?: CurveConfig;
   beatSnap?: number;
   beatSnapCycleList?: number[];
+  seekStepBackSeconds?: number;
+  seekStepForwardSeconds?: number;
   patternPaste?: Partial<AppSettings['patternPaste']>;
   patternLibrary?: Partial<AppSettings['patternLibrary']>;
   playbar?: Partial<AppSettings['playbar']>;
@@ -798,6 +933,8 @@ export function updateSettings(prev: AppSettings, patch: SettingsPatch): AppSett
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
     beatSnapCycleList: patch.beatSnapCycleList !== undefined ? normalizeBeatSnapCycleList(patch.beatSnapCycleList) : prev.beatSnapCycleList,
+    seekStepBackSeconds: patch.seekStepBackSeconds !== undefined ? normalizeSeekStepSeconds(patch.seekStepBackSeconds) : prev.seekStepBackSeconds,
+    seekStepForwardSeconds: patch.seekStepForwardSeconds !== undefined ? normalizeSeekStepSeconds(patch.seekStepForwardSeconds) : prev.seekStepForwardSeconds,
     // 段内浅合并；非布尔值不写入（脏值不会顶掉上一次的有效偏好）
     patternPaste: {
       withBpm: typeof patch.patternPaste?.withBpm === 'boolean' ? patch.patternPaste.withBpm : prev.patternPaste.withBpm,
@@ -815,6 +952,11 @@ export function updateSettings(prev: AppSettings, patch: SettingsPatch): AppSett
       ...prev.export,
       ...(patch.export ?? {}),
       opening: mergeOpening(prev.export.opening, patch.export?.opening),
+      // `ending` 是平铺对象：段内浅合并就够（没有 `opening.items` 那种第二层）
+      ending: normalizeEnding(
+        { ...prev.export.ending, ...(patch.export?.ending ?? {}) },
+        prev.export.ending,
+      ),
     },
     // 社区素材缓存回收策略（票 18）：整段归一化，缺段 / 脏值回落默认档
     cachePolicy: patch.cachePolicy

@@ -1,20 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
-import { createNoteLayerCache, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
+import { createNoteLayerCache, TILE_PX, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
+import { renderNotes, renderNotesSteps } from '@/src/rendering/render';
+import { makeCoords } from '@/src/rendering/coords';
+import * as bandGeometry from '@/src/rendering/slideBandGeometry';
 import { rasterBandRuns, type BandRaster, type BandRasterInput } from '@/src/rendering/slideBandGeometry';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 
-function canvas() {
-  const cv = { width: 0, height: 0, getContext: () => ctx };
+function canvas(
+  fill = () => {},
+  clip = () => {},
+  rect = () => {},
+  extra: {
+    width?: number;
+    height?: number;
+    drawImage?: (...args: unknown[]) => void;
+    onCall?: (name: string, args: unknown[]) => void;
+  } = {},
+) {
+  const cv = { width: extra.width ?? 0, height: extra.height ?? 0, getContext: () => ctx };
   const ctx = new Proxy({ canvas: cv }, {
     get(target, key) {
       if (key === 'canvas') return target.canvas;
       if (key === 'getTransform') return () => ({ a: 1, d: 1, e: 0, f: 0 });
       if (key === 'createImageData') return (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) });
-      return () => undefined;
+      if (key === 'fill') return fill;
+      if (key === 'clip') return clip;
+      if (key === 'rect') return rect;
+      if (key === 'drawImage' && extra.drawImage) return extra.drawImage;
+      return extra.onCall ? (...args: unknown[]) => { extra.onCall!(String(key), args); return undefined; } : () => undefined;
     },
     set: () => true,
   }) as unknown as CanvasRenderingContext2D;
@@ -59,7 +76,7 @@ describe('issue 234 · 真实瓦片排水的分片与过期结果隔离', () => 
 
   async function finish() {
     resolve(inputs.map(rasterBandRuns));
-    await Promise.resolve(); await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
   }
 
   it('预取排水收集真实带体并等待分片完成，之后才提交完整瓦片', async () => {
@@ -70,6 +87,173 @@ describe('issue 234 · 真实瓦片排水的分片与过期结果隔离', () => 
     expect(cache.__getTilesForTests().size).toBe(0);
     expect(cancelled()).toBe(false);
     await finish();
+    expect(cache.__getTilesForTests().get(0)?.empty).toBe(false);
+  });
+
+  it.each(['large', 'small'] as const)('暂停态手动滚动/拖拽（%s）先显示可见音符，瓦片光栅完成后再重绘', async distance => {
+    const redraw = vi.fn();
+    cache = createNoteLayerCache({ rasterizeBands: rasterize, onScrollTileReady: redraw });
+    cache.__setCanvasFactoryForTests(canvas);
+    const initial = { ...frame(), playing: false };
+    const rc = { ...initial, viewport: { ...initial.viewport } };
+    const model = new PlaybackScrollModel(rc.geometry, 3);
+    const fill = vi.fn();
+    const clip = vi.fn();
+    const rect = vi.fn();
+    const ctx = canvas(fill, clip, rect).getContext();
+    const small = distance === 'small';
+    const tileId = small ? 1 : 0;
+    const edge = rc.geometry.chartEndVirtualY + rc.surface.h / 3 - TILE_PX;
+    if (small) rc.viewport.scrollY = edge - 10;
+    cache.draw(ctx, {
+      ...rc, viewport: { ...rc.viewport, scrollY: small ? edge + 120 : model.scrollYForSeconds(45) },
+    });
+    clip.mockClear();
+    rect.mockClear();
+    const raster = vi.spyOn(bandGeometry, 'rasterBandRuns');
+    try {
+      cache.draw(ctx, { ...rc, manualScroll: true });
+      expect(fill).toHaveBeenCalled();
+      expect(raster).not.toHaveBeenCalled();
+      expect(cache.__getTilesForTests().has(tileId)).toBe(false);
+      if (small) {
+        expect(clip).toHaveBeenCalledOnce();
+        expect(rect).toHaveBeenCalledExactlyOnceWith(0, 0, rc.surface.w, 30);
+      } else {
+        expect(clip).not.toHaveBeenCalled();
+      }
+
+      vi.runOnlyPendingTimers();
+      expect(rasterize).toHaveBeenCalledOnce();
+      expect(inputs.length).toBeGreaterThan(0);
+      cache.draw(ctx, rc);
+      expect(raster).not.toHaveBeenCalled();
+      expect(redraw).not.toHaveBeenCalled();
+      await finish();
+      expect(redraw).toHaveBeenCalledOnce();
+      expect(cache.__getTilesForTests().get(tileId)?.empty).toBe(false);
+      fill.mockClear();
+      cache.draw(ctx, rc);
+      expect(fill).not.toHaveBeenCalled();
+    } finally {
+      raster.mockRestore();
+    }
+  });
+
+  it.each([1, 3])('%sx 下相邻冷瓦片覆盖整个视口时直接绘制，无需路径裁切', scale => {
+    cache = createNoteLayerCache({ rasterizeBands: rasterize, onScrollTileReady: vi.fn() });
+    cache.__setCanvasFactoryForTests(canvas);
+    const rc = { ...frame(), playing: false };
+    const model = new PlaybackScrollModel(rc.geometry, scale);
+    const fill = vi.fn();
+    const clip = vi.fn();
+    const ctx = canvas(fill, clip).getContext();
+    cache.draw(ctx, { ...rc, viewport: { ...rc.viewport, scale, scrollY: model.scrollYForSeconds(45) } });
+
+    // 让瓦片 0 和 1 的公共边界落在视口正中。
+    const scrollY = rc.geometry.chartEndVirtualY + rc.surface.h / (2 * scale) - TILE_PX;
+    cache.draw(ctx, { ...rc, manualScroll: true, viewport: { ...rc.viewport, scale, scrollY } });
+
+    expect(cache.__getTilesForTests().has(0)).toBe(false);
+    expect(cache.__getTilesForTests().has(1)).toBe(false);
+    expect(fill).toHaveBeenCalled();
+    expect(clip).not.toHaveBeenCalled();
+  });
+
+  it('继续拖到另一片区域时取消离开视口的光栅，只提交当前区域', async () => {
+    const redraw = vi.fn();
+    cache = createNoteLayerCache({ rasterizeBands: rasterize, onScrollTileReady: redraw });
+    cache.__setCanvasFactoryForTests(canvas);
+    const rc = { ...frame(), playing: false };
+    const model = new PlaybackScrollModel(rc.geometry, 3);
+    const ctx = canvas().getContext();
+    cache.draw(ctx, { ...rc, viewport: { ...rc.viewport, scrollY: model.scrollYForSeconds(45) } });
+    cache.draw(ctx, { ...rc, manualScroll: true });
+    vi.runOnlyPendingTimers();
+    const old = { cancelled, inputs, resolve };
+
+    cache.draw(ctx, { ...rc, manualScroll: true, viewport: { ...rc.viewport, scrollY: model.scrollYForSeconds(15) } });
+    expect(old.cancelled()).toBe(true);
+    old.resolve(old.inputs.map(rasterBandRuns));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cache.__getTilesForTests().has(0)).toBe(false);
+    expect(redraw).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+    expect(rasterize).toHaveBeenCalledTimes(2);
+    await finish();
+    expect(redraw).toHaveBeenCalledOnce();
+  });
+
+  it('滚动事件因合成阻塞暂停时，不在帧间空档启动精细瓦片', () => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let id = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callbacks.set(++id, callback);
+      return id;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (handle: number) => callbacks.delete(handle));
+    const advanceFrame = () => {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+      for (const callback of pending) callback(performance.now());
+    };
+    cache = createNoteLayerCache({ rasterizeBands: rasterize, onScrollTileReady: vi.fn() });
+    cache.__setCanvasFactoryForTests(canvas);
+    const rc = { ...frame(), playing: false };
+    const model = new PlaybackScrollModel(rc.geometry, 3);
+    const ctx = canvas().getContext();
+    cache.draw(ctx, { ...rc, viewport: { ...rc.viewport, scrollY: model.scrollYForSeconds(45) } });
+    cache.draw(ctx, { ...rc, manualScroll: true });
+
+    vi.runOnlyPendingTimers();
+    expect(rasterize).not.toHaveBeenCalled();
+    advanceFrame();
+    cache.draw(ctx, { ...rc, manualScroll: true, viewport: { ...rc.viewport, scrollY: model.scrollYForSeconds(15) } });
+    expect(callbacks.size).toBe(0);
+    vi.runOnlyPendingTimers();
+    advanceFrame();
+    expect(rasterize).not.toHaveBeenCalled();
+    advanceFrame();
+    vi.runOnlyPendingTimers();
+    expect(rasterize).toHaveBeenCalledOnce();
+  });
+
+  it('手动滚到冷区后立刻播放，正式瓦片就绪前仍显示音符', async () => {
+    cache = createNoteLayerCache({ rasterizeBands: rasterize, onScrollTileReady: vi.fn() });
+    cache.__setCanvasFactoryForTests(canvas);
+    const rc = { ...frame(), playing: false };
+    const model = new PlaybackScrollModel(rc.geometry, 3);
+    const fill = vi.fn();
+    const ctx = canvas(fill).getContext();
+    cache.draw(ctx, { ...rc, viewport: { ...rc.viewport, scrollY: model.scrollYForSeconds(45) } });
+    cache.draw(ctx, { ...rc, manualScroll: true });
+    expect(fill).toHaveBeenCalled();
+    fill.mockClear();
+
+    const playing = { ...rc, playing: true };
+    cache.draw(ctx, playing);
+    expect(fill).toHaveBeenCalled();
+    expect(cache.__getTilesForTests().has(0)).toBe(false);
+    vi.advanceTimersByTime(16);
+    expect(rasterize).toHaveBeenCalledOnce();
+    await finish();
+    fill.mockClear();
+    cache.draw(ctx, playing);
+    expect(fill).not.toHaveBeenCalled();
+    expect(cache.__getTilesForTests().get(0)?.empty).toBe(false);
+  });
+
+  it('程序化定位到冷区当帧绘制精细瓦片', () => {
+    cache = createNoteLayerCache({ rasterizeBands: rasterize, onScrollTileReady: vi.fn() });
+    cache.__setCanvasFactoryForTests(canvas);
+    const rc = { ...frame(), playing: false };
+    const model = new PlaybackScrollModel(rc.geometry, 3);
+    const fill = vi.fn();
+    const ctx = canvas(fill).getContext();
+    cache.draw(ctx, { ...rc, viewport: { ...rc.viewport, scrollY: model.scrollYForSeconds(45) } });
+    cache.draw(ctx, rc);
+    expect(fill).not.toHaveBeenCalled();
     expect(cache.__getTilesForTests().get(0)?.empty).toBe(false);
   });
 
@@ -115,5 +299,103 @@ describe('issue 234 · 真实瓦片排水的分片与过期结果隔离', () => 
     expect(cancelled()).toBe(true);
     await finish();
     expect([...cache.__getTilesForTests().entries()]).toEqual(before);
+  });
+
+  it('issue 250 · 后台瓦片 drawSteps 超出单帧预算时按段让出主线程，并在中途取消时不污染缓存', async () => {
+    const drawImage = vi.fn();
+    const stepCanvas = () => canvas(() => {}, () => {}, () => {}, { drawImage });
+    vi.stubGlobal('document', { createElement: stepCanvas });
+    cache = createNoteLayerCache({ rasterizeBands: rasterize });
+    cache.__setCanvasFactoryForTests(stepCanvas);
+
+    const base = frame();
+    const rc: RenderCtx = {
+      ...base,
+      notes: [
+        { type: 'BPM', beat: 0, bpm: 120 },
+        { type: 'Slide', connections: [{ beat: 0, lane: 0 }, { beat: 2, lane: 1, hidden: true }, { beat: 4, lane: 2 }] },
+        { type: 'Slide', connections: [{ beat: 0, lane: 3 }, { beat: 2, lane: 4, hidden: true }, { beat: 4, lane: 5 }] },
+        { type: 'Slide', connections: [{ beat: 0, lane: 2 }, { beat: 2, lane: 3, hidden: true }, { beat: 4, lane: 4 }] },
+      ],
+    };
+
+    let fakeNow = 100;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+    drawImage.mockImplementation(() => { fakeNow += 3; });
+
+    try {
+      cache.draw(stepCanvas().getContext(), rc);
+      vi.advanceTimersByTime(16);
+      expect(inputs.length).toBe(3);
+
+      // rasterize 结束后进入 drawSteps：首条带体超时 3ms (>2ms 预算) 应让出控制权，尚未 commitTile
+      resolve(inputs.map(rasterBandRuns));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(drawImage.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect(drawImage.mock.calls.length).toBeLessThan(3);
+      expect(cache.__getTilesForTests().size).toBe(0);
+
+      // 继续排水直到完成，最终提交 tile 0
+      await vi.advanceTimersByTimeAsync(10);
+      expect(drawImage.mock.calls.length).toBe(3);
+      expect(cache.__getTilesForTests().get(0)?.empty).toBe(false);
+
+      // 验证在 drawSteps 让出期间发生 zoom/pause 取消时不会提交脏结果
+      cache.reset();
+      cache.draw(stepCanvas().getContext(), rc);
+      vi.advanceTimersByTime(16);
+      drawImage.mockClear();
+      resolve(inputs.map(rasterBandRuns));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(cache.__getTilesForTests().size).toBe(0);
+      cache.draw(stepCanvas().getContext(), { ...rc, playing: false });
+      const tilesBeforeFlush = cache.__getTilesForTests().size;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(cache.__getTilesForTests().size).toBe(tilesBeforeFlush);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('issue 250 · renderNotesSteps 与 renderNotes 绘制序列完全等价', () => {
+    const recordOps = (run: (ctx: CanvasRenderingContext2D, c: ReturnType<typeof makeCoords>, rc: RenderCtx, vis: ReturnType<ChartGeometry['visibleNotes']>) => void) => {
+      const ops: string[] = [];
+      const cv = canvas(() => {}, () => {}, () => {}, {
+        width: 750,
+        height: 900,
+        onCall: (name, args) => ops.push(`${name}(${args.length})`),
+      });
+      const ctx = cv.getContext();
+      vi.stubGlobal('document', { createElement: () => cv });
+      const base = frame();
+      const sprites: string[] = [];
+      const rc: RenderCtx = {
+        ...base,
+        display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true },
+        notes: [
+          { type: 'BPM', beat: 0, bpm: 120 },
+          { type: 'Single', beat: 1, lane: 0, flick: true },
+          { type: 'Single', beat: 1, lane: 4 },
+          { type: 'Slide', connections: [{ beat: 0, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 4, lane: 3 }] },
+        ],
+        spriteIcon: {
+          render: (_ctx: unknown, cfg: { canvasX: number; canvasY: number }) => sprites.push(`sprite:${Math.round(cfg.canvasX)},${Math.round(cfg.canvasY)}`),
+          renderDecorator: (_ctx: unknown, anchor: { canvasX: number }) => sprites.push(`dec:${Math.round(anchor.canvasX)}`),
+        } as unknown as RenderCtx['spriteIcon'],
+      };
+      const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, false);
+      const vis = rc.geometry.visibleNotes(rc.notes, rc.viewport, rc.beatDisplay);
+      run(ctx, c, rc, vis);
+      return { ops, sprites };
+    };
+
+    const syncRes = recordOps((ctx, c, rc, vis) => renderNotes(ctx, c, rc, vis));
+    const stepRes = recordOps((ctx, c, rc, vis) => {
+      const gen = renderNotesSteps(ctx, c, rc, vis);
+      while (!gen.next().done) { /* step */ }
+    });
+    expect(stepRes).toEqual(syncRes);
   });
 });

@@ -6,14 +6,13 @@
 // （照 `EditorAudioSessionRefactor.test.ts` / `ToolbarNoteSkin.test.ts` 惯例）。
 // 图标的像素辨识度单测同样拿不到 —— 由票内"出图人工看 18/28px"补。
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import {
   defaultSettings, loadSettings, saveSettings, updateSettings, type AppSettings,
 } from '@/src/settings/AppSettings';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig } from '@/src/chart/editing/CurveTool';
 import { EASING_FAMILY_LABELS, EASING_TYPE_LABELS, CURVE_PRECISIONS } from '@/src/chart/editing/Easing';
-import { repoRoot, stripComments, readSource } from '@/tests/support/source';
+import { repoRoot, stripComments, readSource, readStripped, sourceFiles } from '@/tests/support/source';
 import { settingsMemStorage as memStorage } from '@/tests/support/storage';
 
 const panelSrc = stripComments(readSource('src/pages/workspace/CurveConfigPanel.tsx'));
@@ -22,21 +21,21 @@ const capsuleSrc = stripComments(readSource('src/pages/workspace/CurveOptionsCap
 const railSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRail.tsx'));
 
 /** 只认 v1 设置键的假 storage（其余 key 一律 null → 快捷键走出厂默认，不干扰本票断言） */
-function walkTs(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    if (name === 'node_modules') continue;
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...walkTs(full));
-    else if (/\.(ts|tsx)$/.test(name)) out.push(full);
-  }
-  return out;
-}
 
 describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
-  it('出厂默认：Sine + In + 1/16 + 不使用模板（默认型由 In-Out 改为 In）', () => {
+  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密/基线 0 + 分类全部/上次模板 S 形', () => {
     expect(DEFAULT_CURVE_CONFIG).toEqual({
-      family: 'sine', type: 'in', precision: 16, templateId: null,
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: null,
+      templateParamMode: 'preset',
+      templateMirrored: false,
+      templateScale: 1,
+      templateDensity: 1,
+      templateBaseline: 0,
+      templateCategory: 'all',
+      lastTemplateId: 's-curve',
     });
     expect(defaultSettings().curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
@@ -56,20 +55,113 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
     expect(loadSettings(st).curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
 
-  it('脏值逐字段归一化：非法族/型/精度与已下线的模板 id 各自回落，合法项保留', () => {
+  it('脏值逐字段归一化：非法族/型/精度与已下线的模板 id / 非法数值各自回落，连续倍率按合法范围钳制，合法项保留', () => {
     const st = memStorage(JSON.stringify({
       schemaVersion: 1,
-      curve: { family: 'nope', type: 'sideways', precision: 999, templateId: 'ghost-template' },
+      curve: {
+        family: 'nope',
+        type: 'sideways',
+        precision: 999,
+        templateId: 'ghost-template',
+        templateParamMode: 'bogus',
+        templateMirrored: 'yes',
+        templateScale: 'invalid',
+        templateDensity: Number.NaN,
+      },
     }));
     expect(loadSettings(st).curve).toEqual(DEFAULT_CURVE_CONFIG);
 
     const keep = memStorage(JSON.stringify({
       schemaVersion: 1,
-      curve: { family: 'elastic', type: 'out', precision: 32, templateId: 'wave' },
+      curve: {
+        family: 'elastic',
+        type: 'out',
+        precision: 32,
+        templateId: 'wave',
+        templateParamMode: 'free',
+        templateMirrored: true,
+        templateScale: 2.35,
+        templateDensity: 3.5,
+      },
     }));
     // 模板 id 必须能解析到现存模板，否则回落 null（模板库改名/删项后老设置仍可读）
     expect(loadSettings(keep).curve).toEqual({
-      family: 'elastic', type: 'out', precision: 32, templateId: 'wave',
+      family: 'elastic',
+      type: 'out',
+      precision: 32,
+      templateId: 'wave',
+      templateParamMode: 'free',
+      templateMirrored: true,
+      templateScale: 2.35,
+      templateDensity: 3.5,
+      templateBaseline: 0,
+      templateCategory: 'all',
+      // 242 之前落盘的设置只有 templateId：上次模板按生效模板迁移，别退回 S 形
+      lastTemplateId: 'wave',
+    });
+  });
+
+  it('issue 242 · 模板分类筛选与上次选用模板：合法值保留，非法/缺失回落，无 lastTemplateId 时按 templateId 迁移', () => {
+    expect(normalizeCurveConfig({
+      templateCategory: 'special',
+      lastTemplateId: 'gluten-comb',
+    })).toMatchObject({ templateCategory: 'special', lastTemplateId: 'gluten-comb' });
+
+    for (const cat of ['all', 'smooth', 'rhythm', 'special'] as const) {
+      expect(normalizeCurveConfig({ templateCategory: cat }).templateCategory).toBe(cat);
+    }
+    // 非法分类回落 all；非法/已下线的模板 ID 回落 S 形（没有可迁移的生效模板时）
+    expect(normalizeCurveConfig({ templateCategory: 'weird', lastTemplateId: 'ghost' }))
+      .toMatchObject({ templateCategory: 'all', lastTemplateId: 's-curve' });
+    expect(normalizeCurveConfig({})).toMatchObject({ templateCategory: 'all', lastTemplateId: 's-curve' });
+
+    // 非法 lastTemplateId 但生效模板合法 → 迁移生效模板
+    expect(normalizeCurveConfig({ templateId: 'zigzag', lastTemplateId: 'ghost' }).lastTemplateId).toBe('zigzag');
+    // 两者都合法却不同：以 lastTemplateId 为准（用户上次点选的模板才是"记住的那个"）
+    expect(normalizeCurveConfig({ templateId: 'arc', lastTemplateId: 'pulse' }).lastTemplateId).toBe('pulse');
+  });
+
+  it('issue 241 · normalizeCurveConfig 保留合法连续倍率、钳制越界值、非法值回落 1 并持久化 templateParamMode', () => {
+    expect(normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateParamMode: 'free',
+      templateScale: 0.25,
+      templateDensity: 3.5,
+    })).toMatchObject({
+      templateId: 'zigzag',
+      templateParamMode: 'free',
+      templateScale: 0.25,
+      templateDensity: 3.5,
+    });
+
+    expect(normalizeCurveConfig({
+      templateScale: 1.356,
+      templateDensity: 4,
+    })).toMatchObject({
+      templateParamMode: 'preset',
+      templateScale: 1.36,
+      templateDensity: 4,
+    });
+
+    // 越界钳制：[0.1, 3.0] 与 [0.25, 4.0]
+    expect(normalizeCurveConfig({ templateScale: -2, templateDensity: 0.05 })).toMatchObject({
+      templateScale: 0.1,
+      templateDensity: 0.25,
+    });
+    expect(normalizeCurveConfig({ templateScale: 99, templateDensity: 12 })).toMatchObject({
+      templateScale: 3,
+      templateDensity: 4,
+    });
+
+    // 非法输入回落 1 与 'preset'
+    expect(normalizeCurveConfig({
+      templateParamMode: 'turbo',
+      templateScale: Infinity,
+      templateDensity: 'dense',
+    })).toMatchObject({
+      templateParamMode: 'preset',
+      templateScale: 1,
+      templateDensity: 1,
     });
   });
 
@@ -77,10 +169,65 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
     const st = memStorage();
     const next: AppSettings = {
       ...defaultSettings(),
-      curve: { family: 'cubic', type: 'inOut', precision: 64, templateId: 's-curve' },
+      curve: {
+        family: 'cubic',
+        type: 'inOut',
+        precision: 64,
+        templateId: 's-curve',
+        templateParamMode: 'free',
+        templateMirrored: true,
+        templateScale: 0.5,
+        templateDensity: 2,
+        templateBaseline: 100,
+        templateCategory: 'smooth',
+        lastTemplateId: 'arc',
+      },
     };
     saveSettings(next, st);
     expect(loadSettings(st).curve).toEqual(next.curve);
+  });
+
+  it('issue 240 · normalizeCurveConfig 校验与持久化 templateExtras（剔除无效项与默认值，钳制越界）', () => {
+    const cleaned = normalizeCurveConfig({
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: 'pulse',
+      templateExtras: {
+        pulse: { pulsePos: 999, rogue: 'x' },
+        step: { stepStyle: 'sharp' },
+        arc: { bogus: 1 },
+        ghost: { foo: 'bar' },
+      },
+    });
+    expect(cleaned.templateExtras).toEqual({
+      pulse: { pulsePos: 100 },
+      step: { stepStyle: 'sharp' },
+    });
+
+    // 全为默认值 / 无效值时省略 templateExtras
+    const onlyDefaults = normalizeCurveConfig({
+      templateId: 'pulse',
+      templateExtras: {
+        pulse: { pulsePos: 50 },
+        step: { stepStyle: 'invalid' },
+      },
+    });
+    expect(onlyDefaults.templateExtras).toBeUndefined();
+
+    // saveSettings → loadSettings 往返保真
+    const st = memStorage();
+    const withExtras: AppSettings = {
+      ...defaultSettings(),
+      curve: {
+        ...DEFAULT_CURVE_CONFIG,
+        templateId: 'pulse',
+        lastTemplateId: 'pulse',
+        templateExtras: { pulse: { pulsePos: 0 }, step: { stepStyle: 'sharp' } },
+      },
+    };
+    saveSettings(withExtras, st);
+    expect(loadSettings(st).curve).toEqual(withExtras.curve);
   });
 
   it('normalizeCurveConfig 对任意垃圾输入都产出完整配置（永不把脏值带进运行时）', () => {
@@ -92,19 +239,19 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
   });
 });
 
-describe('issue 114 · 曲线配置面板（展开序 / 措辞 / 表驱动）', () => {
-  it('展开序 = 缓动族 → 缓动型 → 采样精度 → 形状模板（模板挪到最后）', () => {
-    const at = (id: string) => panelSrc.indexOf(`id: '${id}'`);
-    expect(at('family')).toBeGreaterThan(-1);
-    expect(at('family'), '族在型之前').toBeLessThan(at('type'));
-    expect(at('type'), '型在精度之前').toBeLessThan(at('precision'));
-    expect(at('precision'), '精度在模板之前').toBeLessThan(at('templateId'));
+describe('issue 235 · 图形化曲线配置面板（两段切换 / 缩略图 / 胶囊控件）', () => {
+  it('顶部提供缓动函数 / 形状模板模式切换，模板网格通过 SVG 直观预览', () => {
+    expect(panelSrc).toContain("t('curve.mode.easing')");
+    expect(panelSrc).toContain("t('curve.mode.template')");
+    expect(panelSrc).toContain('MiniTemplateSvg');
+    expect(panelSrc).toContain('MiniEasingSvg');
   });
 
-  it('模板下拉的"不选模板"项 = 「不使用模板」——不提缓动函数（用户看不懂）', () => {
-    expect(panelSrc).toContain("t('curve.noTemplate')");
-    expect(panelSrc).not.toContain('缓动函数');
+  it('面板不使用禁用“不用模板”旧措辞，也不内联硬编码数量括号', () => {
     expect(panelSrc).not.toContain('不用模板');
+    expect(panelSrc).not.toContain('40种');
+    expect(panelSrc).not.toContain('16款');
+    expect(panelSrc).not.toContain('18款');
   });
 
   it('缓动族/型命名：英文首字母大写 + 全角括号中文（多语言只换这两张表）', () => {
@@ -122,31 +269,28 @@ describe('issue 114 · 曲线配置面板（展开序 / 措辞 / 表驱动）', 
     }
   });
 
-  it('面板抽成独立组件 + 表驱动：胶囊挂面板、工具轨与胶囊都不内联曲线配置项', () => {
+  it('面板抽成独立组件：胶囊挂面板，工具轨与胶囊都不内联曲线配置控件', () => {
     expect(capsuleSrc).toContain('CurveConfigPanel');
-    // 只否定旧标识符不够（换名内联回去就绿了）——直接断言四个字段 id 都不在胶囊 / 工具轨里
-    for (const id of ['family', 'type', 'precision', 'templateId']) {
-      expect(capsuleSrc, `曲线配置项 ${id} 不该内联进胶囊`).not.toContain(`id: '${id}'`);
-      expect(railSrc, `曲线配置项 ${id} 不该回到工具轨`).not.toContain(`id: '${id}'`);
-    }
-    for (const id of ['family', 'type', 'precision', 'templateId']) {
-      expect(panelSrc, `曲线配置项 ${id} 应在面板里`).toContain(`id: '${id}'`);
+    for (const marker of ['EASING_FAMILIES', 'SHAPE_TEMPLATES', 'TEMPLATE_SCALES']) {
+      expect(capsuleSrc, `曲线配置 ${marker} 不该内联进胶囊`).not.toContain(marker);
+      expect(railSrc, `曲线配置 ${marker} 不该回到工具轨`).not.toContain(marker);
     }
   });
 });
 
 describe('issue 114 · 画笔圆滑彻底退场（防复活）', () => {
+  // 全仓静态扫描在并行满载时会被抢到超过默认 5s（见 test-infra/02）：显式放宽，断言本身不变
   it('src/ 与 tests/ 内零 smoothPenLanes / smoothedPenSamples / 画笔圆滑', () => {
     const banned = ['smoothPenLanes', 'smoothedPenSamples', '画笔圆滑'];
     const hits: string[] = [];
-    const files = [...walkTs(join(repoRoot, 'src')), ...walkTs(join(repoRoot, 'tests'))]
-      .filter((f) => f !== __filename); // 本文件因列出禁用词必然命中，排除自身
-    for (const f of files) {
-      const s = stripComments(readFileSync(f, 'utf-8'));
-      for (const b of banned) if (s.includes(b)) hits.push(`${f.replace(repoRoot + '/', '')}:${b}`);
+    const files = [...sourceFiles(join(repoRoot, 'src')), ...sourceFiles(join(repoRoot, 'tests'))]
+      .filter((rel) => rel !== 'tests/unit/settings/CurveConfigSettings.test.ts'); // 本文件因列出禁用词必然命中，排除自身
+    for (const rel of files) {
+      const s = readStripped(rel);
+      for (const b of banned) if (s.includes(b)) hits.push(`${rel}:${b}`);
     }
     expect(hits).toEqual([]);
-  });
+  }, 30_000);
 
   it('CurveConfig 类型不再有 smooth 字段', () => {
     const src = stripComments(readSource('src/chart/editing/CurveTool.ts'));

@@ -13,16 +13,50 @@ describe('getBpmEvents', () => {
     expect(getBpmEvents([])).toEqual([{ beat: 0, bpm: DEFAULT_BPM }]);
   });
 
-  it('首事件不在 0 拍时补默认，其余按 beat 升序', () => {
+  it('首条 BPM 即时间原点，不再补 120；其余按 beat 升序', () => {
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 60, bpm: 240 },
       { type: 'BPM', beat: 30, bpm: 180 },
     ];
     expect(getBpmEvents(notes)).toEqual([
-      { beat: 0, bpm: DEFAULT_BPM },
       { beat: 30, bpm: 180 },
       { beat: 60, bpm: 240 },
     ]);
+  });
+
+  it('首条 BPM 之前按首条 BPM 向前外推（负秒），不夹到 0', () => {
+    const events = getBpmEvents([
+      { type: 'BPM', beat: 30, bpm: 180 },
+      { type: 'BPM', beat: 60, bpm: 240 },
+    ]);
+    expect(beatToSeconds(events, 30)).toBeCloseTo(0);
+    expect(beatToSeconds(events, 60)).toBeCloseTo(10);
+    expect(beatToSeconds(events, 0)).toBeCloseTo(-10);
+  });
+
+  it('#263678：首条 BPM 在 1 拍（165）时，19 拍 = 7.164s', () => {
+    const events = getBpmEvents([
+      { type: 'BPM', beat: 2, bpm: 150 },
+      { type: 'BPM', beat: 1, bpm: 165 },
+    ]);
+    expect(beatToSeconds(events, 19)).toBeCloseTo(60 / 165 + 17 * 60 / 150, 6);
+  });
+
+  it('首条 BPM 在负拍：原点仍在首条 BPM（负拍 → 负秒，beat 0 = 正值）', () => {
+    const events = getBpmEvents([{ type: 'BPM', beat: -4, bpm: 120 }]);
+    expect(events).toEqual([{ beat: -4, bpm: 120 }]);
+    expect(beatToSeconds(events, -4)).toBeCloseTo(0);
+    expect(beatToSeconds(events, -2)).toBeCloseTo(1);
+    expect(beatToSeconds(events, 0)).toBeCloseTo(2);
+  });
+
+  it('同拍多条 BPM：后者生效（稳定排序 + 后段优先）', () => {
+    const events = getBpmEvents([
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'BPM', beat: 0, bpm: 60 },
+    ]);
+    expect(events).toEqual([{ beat: 0, bpm: 120 }, { beat: 0, bpm: 60 }]);
+    expect(beatToSeconds(events, 1)).toBeCloseTo(1);
   });
 
   it('普通音符不产出 BPM 事件', () => {
@@ -413,6 +447,40 @@ describe('maxNoteEndSeconds', () => {
       connections: [{ beat: 6.5, lane: 0 }, { beat: 5, lane: 3 }],
     }];
     expect(maxNoteEndSeconds(slide, 4, events)).toBeCloseTo(2.5, 6);
+  });
+});
+
+describe('issue 63 · 时间 < 0 不键音、不撑时长（首条 BPM 之前）', () => {
+  const negativeStart: BpmEvent[] = [{ beat: -4, bpm: 120 }];
+
+  it('buildKeyEvents：负拍但时间 ≥ 0 的有键音，首条之前的没有', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', lane: 0, beat: -2 }, // t = 1s
+      { type: 'Single', lane: 1, beat: -5 }, // t = −0.5s（首条之前）
+      { type: 'Single', lane: 2, beat: 0 },  // t = 2s
+    ];
+    expect(buildKeyEvents(notes, 4, negativeStart).map(e => e.time)).toEqual([1, 2]);
+  });
+
+  it('滑条结点：时间 ≥ 0 的负拍结点照常发声', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { lane: 0, beat: -2 }, // t = 1s
+        { lane: 1, beat: 2 },  // t = 3s
+      ],
+    }];
+    expect(buildKeyEvents(notes, 4, negativeStart).map(e => e.time)).toEqual([1, 3]);
+  });
+
+  it('正首拍：beat 0 的音符属负秒 → 不键音', () => {
+    const events: BpmEvent[] = [{ beat: 1, bpm: 120 }];
+    expect(buildKeyEvents([{ type: 'Single', lane: 0, beat: 0 }], 4, events)).toEqual([]);
+  });
+
+  it('maxNoteEndSeconds：时间 ≥ 0 的负拍计入，负秒不撑时长', () => {
+    expect(maxNoteEndSeconds([{ type: 'Single', lane: 0, beat: -2 }], 4, negativeStart)).toBeCloseTo(1);
+    expect(maxNoteEndSeconds([{ type: 'Single', lane: 0, beat: -5 }], 4, negativeStart)).toBe(0);
   });
 });
 

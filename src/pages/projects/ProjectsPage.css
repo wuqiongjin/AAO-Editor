@@ -33,6 +33,7 @@
   display: grid;
   place-items: center;
   border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
   color: rgba(255,255,255,.92);
   font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
@@ -40,16 +41,24 @@
   background-size: cover;
   background-position: center;
 }
+.pp-cover__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 /* 流式档（issue 19 #5）：网格卡封面随列宽拉伸，保持 1:1（字号仍按名义 172 派生） */
 .pp-cover--fluid { aspect-ratio: 1 / 1; }
 
 .pp-st--uploaded { color: var(--accent); }
+.pp-st--pending { color: var(--warning-text); }
 .pp-st--completed { color: var(--success); }
 .pp-st--unfinished { color: var(--text-subtle); }
 
 .pp-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--text-2xs); white-space: nowrap; }
 .pp-badge--unfinished { background: var(--bg-inset); color: var(--text-muted); }
 .pp-badge--completed { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.pp-badge--pending { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning-text); }
 .pp-badge--uploaded { background: var(--accent-soft); color: var(--accent-text); }
 /* 徽标即控件（票 41）：详情页谱面行状态徽标点开就地状态菜单。
    手型 / hover 口径照同行 `.pc-chart__diff`（难度徽标就地编辑），focus-visible 补键盘可达。 */
@@ -155,6 +164,9 @@
 /* 流式轨道（issue 19 #5）：固定 172px 轨道会把一行凑不满的余量全留在右侧；
    minmax 让每列平分余量、末列贴右缘，封面走 .pp-cover--fluid 等比例放大。 */
 .pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 20px 18px; }
+/* 外层包裹盒预留 8px 溢出边距再开 content-visibility: auto（chart-projects 44）：
+   防止 contain: paint 裁切 .pb-card.is-selected（outline-offset: 5px + 2px）与悬停抬升（translateY(-2px)）。 */
+.pb-card-wrap { padding: 8px; margin: -8px; content-visibility: auto; contain-intrinsic-size: auto 232px; }
 .pb-card { display: flex; flex-direction: column; gap: 4px; cursor: pointer; font-size: var(--text-sm); }
 .pb-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pb-card small { font-size: var(--text-xs); }
@@ -383,6 +395,37 @@
   cursor: pointer;
 }
 .off-filter-x:hover { color: var(--text); background: var(--bg-active); }
+/* 谱师筛选芯片（票 59）：与搜索框同高、紧贴它，「在看谁」必须一直可见。
+   账号名可能很长（`Erry Pratama Hendrawan`），所以允许收缩 + 省略，✕ 永远留在原地 */
+.off-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  height: 32px;
+  padding: 0 3px 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+}
+.off-scope__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.off-scope__x {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.off-scope__x:hover { background: var(--bg-active); }
 .off-filters {
   display: flex;
   flex-wrap: wrap;
@@ -457,6 +500,22 @@
   color: var(--text);
 }
 .off-blank b { font-size: var(--text-sm); font-weight: 600; }
+.off-blank__cancel {
+  height: 28px;
+  padding: 0 12px;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.off-blank__cancel:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
 .off-foot {
   display: flex;
   align-items: center;
@@ -552,6 +611,30 @@
 .off-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .off-row__title { font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
 .off-row__artist { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.35; }
+/* 社区行（票 60）：标题 / 歌手 / 谱师各占一行、各自单行截断。展开预览后文本列只有 ~358px，
+   标题与「歌手 · 谱师」挤一行必折行、行高随文案长短变；三行截断后行高与文案无关。
+   修饰类只挂社区行：官方面板的标题本来就允许折行，别把它的行为一起改掉。
+   68px 是实测行高，只作 content-visibility 跳过渲染时的占位提示（真高由三行内容决定） */
+.off-row--post { contain-intrinsic-size: auto 68px; }
+.off-row--post .off-row__text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.off-row__charter { font-size: var(--text-2xs); color: var(--text-subtle); line-height: 1.35; }
+/* 右列拆两行（难度芯片 / #id · 日期）：芯片单独一行后，右列宽 = 较宽的那一行而不是两者之和
+   （实测 172px → ~110px，省下来的都给文本列） */
+.off-row__aside {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+/* .off-row__levels 是给「与 id / 日期并排」写的（max-width: 46%），在列向容器里会把芯片压扁 */
+.off-row__aside .off-row__levels { flex: 0 0 auto; max-width: none; flex-wrap: nowrap; }
+.off-row__aside-meta {
+  font-size: var(--text-2xs);
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .off-row__levels { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; flex: 0 1 auto; max-width: 46%; }
 .off-row__levels span {
   padding: 0 5px;
@@ -560,15 +643,6 @@
   font-size: var(--text-2xs);
   font-style: normal;
   color: var(--text-muted);
-}
-/* 行内发布时间（票 09 反馈 #3）：右列、与难度芯片并排的**纯小字**（不进 .off-row__levels ——
-   那条规则会给里面每个 span 套上边框，日期会被画成第二枚徽章） */
-.off-row__date {
-  flex: 0 0 auto;
-  font-size: var(--text-2xs);
-  color: var(--text-subtle);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 /* 行内 ID（票 32 帖 id / 票 33 曲库 id）：与日期同一档的右列小字，同样不进 .off-row__levels */
 .off-row__id {
@@ -687,7 +761,26 @@
 .off-preview__title { font-size: var(--text-sm); overflow-wrap: anywhere; text-align: center; }
 /* 票 23：歌手行随封面整摞居中 */
 .off-preview__artist { text-align: center; }
-/* 预览栏不再放 ID 行（验收回修）：列表行已经在说 ID（票 32/33），而列表就贴在预览栏左边 —— 重复 */
+/* 谱师行（票 60 Q4=A）：与歌手分属两个维度 —— 带「谱师」标签、矮一档、可点开只看该谱师
+   （票 59：按账号名精确筛选）。同 class 同字号会让两个「人」只能靠顺序分辨 */
+.off-preview__charter {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-2xs);
+  line-height: 1.35;
+  text-align: center;
+  cursor: pointer;
+}
+.off-preview__charter:hover { color: var(--text); text-decoration: underline; }
+.off-preview__charter.is-static { cursor: default; }
+.off-preview__charter.is-static:hover { color: var(--text-subtle); text-decoration: none; }
+/* 账号名（票 59）：展示名是昵称，平台只认这个 —— 两者不同时摆在名字后面，
+   让「能搜的那个名字」在界面上可见；同字号、降一档亮度，不跟昵称抢读数 */
+.off-preview__handle { margin-left: 5px; opacity: 0.62; }
+/* 预览栏不放 ID 行：列表行已经在说 ID（票 32/33），而列表就贴在预览栏左边 —— 重复 */
 
 .off-preview__levels { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .off-preview__levels button {
@@ -952,6 +1045,12 @@
   color: var(--danger-text);
   font-size: var(--text-xs);
   line-height: 1.5;
+}
+.pp-publish__alert--warn {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning-text);
 }
 .pp-publish__alert > svg { flex-shrink: 0; margin-top: 2px; }
 .pp-publish__alert__body { flex: 1; min-width: 0; }

@@ -16,7 +16,7 @@ import { Copy, Download, RotateCcw, RefreshCw, X } from "lucide-react";
 import {
     chartCodeProjectionText, normalizeChartCodeText,
     parseCodeText,
-    formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
+    formatValidationError, convertChartCodeToNotes, defaultChartCode, ensureChartCodeBpm,
     type ValidationError, type ChartCodeNote,
 } from '../../editing/ChartConverter';
 import { buildNoteCode, applyNoteCode, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText } from '../../editing/NoteCodeOps';
@@ -202,6 +202,14 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     // 对象视图（issue 94）：走 validateNoteViewCodeText（裸对象 / 片段口径），回写前才容错。
     // warnings（issue 49）：两个视图都带——越出值域的值只警告，应用可用性只看 errors。
     const validateCode = (code: string): { code: ChartCodeNote[] | null; errors: ValidationError[] } => {
+        // issue 62 Q4b-a：空文本不是错误 —— 应用时按"重置为默认 BPM"处理（见 handleApply），
+        // 故这里给空代码、无错误，让「应用」保持可用（否则 Q4b 的"空 → 默认"路径永远点不到）。
+        if (isChartView && code.trim() === '') {
+            setIsValid(true);
+            setValidationErrors([]);
+            setValidationWarnings([]);
+            return { code: [], errors: [] };
+        }
         const result: { code: ChartCodeNote[] | null; errors: ValidationError[]; warnings: ValidationError[] } = isChartView
             ? parseCodeText(code)
             : { code: null, ...validateNoteViewCodeText(code) };
@@ -211,8 +219,8 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         return result;
     };
 
-    // 获取默认BPM音符的保底状态（仅完整代码视图有意义）
-    const getDefaultBPMCode = () => chartCodeProjectionText([{ beat: 0, type: "BPM", bpm: 120 }]);
+    // 获取默认 BPM 音符的代码文本（仅完整代码视图有意义）：与"应用空代码"共用同一份默认谱面
+    const getDefaultBPMCode = () => chartCodeProjectionText(convertChartCodeToNotes(defaultChartCode()));
 
     // 关闭弹窗：有未应用草稿时确认（丢弃后关闭），否则直接关闭。
     // 同时就是 Esc 的语义 —— 对象视图**不再逐档退**（用户 2026-09-09 定案）：
@@ -233,20 +241,9 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     // issue 16 起这段收进通用壳（ui/Dialog）：壳同样在 window 捕获阶段监听 + stopPropagation，
     // 先于 useShortcutDispatch 的冒泡监听截断全局链路，这里只管把 onClose 递给壳。
 
-    // 处理代码变化：压入撤销栈；空代码（仅完整视图）回到保底状态
+    // 处理代码变化：压入撤销栈；空代码保持为空（应用时按 Q4b-a 重置为默认 BPM 并刷新文本）
     const handleCodeChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newCode = event.target.value;
-
-        // 空代码 → 保底状态（第0拍 120bpm）；对象视图没有"保底"概念，照实走校验
-        if (newCode.trim() === '' && isChartView) {
-            const defaultCode = getDefaultBPMCode();
-            setTextHistory(createHistory(defaultCode));
-            validationTask.cancel();
-            setIsValid(true);
-            setValidationErrors([]);
-            setValidationWarnings([]);
-            return;
-        }
 
         // 压入撤销栈（真实文本撤销/重做）
         setTextHistory(prev => pushHistoryIfChanged(prev, newCode, Object.is, TEXT_HISTORY_CAP));
@@ -330,21 +327,24 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 return;
             }
 
-            // 强制校验：beat0 必须有 BPM 音符（保底语义，ADR-0001 谱面必须有初始 BPM）
-            if (!parsedCode || !hasBeat0Bpm(parsedCode)) {
-                showToast(t('chartCode.needBpm0'), 'danger');
-                return;
-            }
+            // issue 62（2026-11-27 修正口径）：编辑器的唯一约束是「应用后至少一条 BPM」——
+            // 允许删 beat 0（时间原点自动变成剩余首条 BPM）；一条 BPM 都没有时强制补默认 120@0。
+            const ensured = ensureChartCodeBpm(parsedCode ?? []);
+            // 补过默认 BPM（空文本 / `[]` / 非空但无 BPM）→ 文本刷新成实际应用的谱面；
+            // 否则保留用户原文（不重排）。
+            const appliedText = ensured.injected
+                ? chartCodeProjectionText(convertChartCodeToNotes(ensured.code))
+                : chartCode;
             // 覆盖风险确认：画布已在草稿之后被改动，覆盖是有损操作 —— 问完才回写
             if (isStale) {
                 setAskOverwrite({
                     delta: Math.abs(notes.length - appliedNotesCount),
-                    code: parsedCode,
-                    text: chartCode,
+                    code: ensured.code,
+                    text: appliedText,
                 });
                 return;
             }
-            commitApply(parsedCode, chartCode);
+            commitApply(ensured.code, appliedText);
         } catch (error) {
             failApply(error);
         }

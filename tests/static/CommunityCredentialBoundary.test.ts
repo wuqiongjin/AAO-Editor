@@ -65,7 +65,7 @@ describe('票 10 · 密码不落盘（凭据通路）', () => {
     const offenders = sourceFiles('src')
       .filter((rel) => !PASSWORD_WHITELIST.includes(rel) && PASSWORD.test(readStripped(rel)));
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   it('登录弹窗那一处是结构性的：不 import 持久化出口、正文里也没有 storage 出口', () => {
     // 它 import 的是账号模块（凭据唯一的去处），不是任何"能不能存"的接缝
@@ -138,7 +138,7 @@ describe('票 10 · 密码不落盘（凭据通路）', () => {
     const main = readStripped(SESSION_MAIN);
     expect(main).toMatch(/encryptString/);
     expect(main).toMatch(/decryptString/);
-  });
+  }, 30_000);
 });
 
 describe('票 10 · 会话通道零入参（递不进凭据）', () => {

@@ -44,6 +44,11 @@ interface BpmSegment {
  */
 export class BpmTimeline {
   readonly segments: readonly BpmSegment[] = [];
+  /**
+   * 最小 beat 上**生效**的首段下标（同 beat 多条时取数组序最后一条，与 `BpmPredecessor.indexOfFirstBpm` 一致）：
+   * 小于最小 beat 的负向区间与 `(-Infinity, 下一段起点)` 必须按它外推，而不是被覆盖的第一条。
+   */
+  private readonly firstEffectiveSegmentIndex: number;
 
   constructor(bpmEvents: readonly BpmTimelineEvent[], perBeatValue: (bpm: number) => number) {
     const segments: BpmSegment[] = [];
@@ -64,6 +69,14 @@ export class BpmTimeline {
       }
     }
     this.segments = segments;
+    let firstEff = 0;
+    if (segments.length > 0) {
+      const firstBeat = segments[0]!.beatStart;
+      while (firstEff + 1 < segments.length && segments[firstEff + 1]!.beatStart === firstBeat) {
+        firstEff++;
+      }
+    }
+    this.firstEffectiveSegmentIndex = firstEff;
   }
 
   /** 段（层）数；0 = 无 BPM 事件 */
@@ -98,7 +111,7 @@ export class BpmTimeline {
       if (!isUsablePerBeat(seg.perBeat)) continue;
       const beat = seg.beatStart + (position - seg.offsetStart) / seg.perBeat;
       if (!Number.isFinite(beat)) continue;
-      const lower = i === 0 ? -Infinity : seg.beatStart;
+      const lower = i === this.firstEffectiveSegmentIndex ? -Infinity : seg.beatStart;
       const upper = i + 1 < segs.length ? segs[i + 1].beatStart : Infinity;
       if (beat < lower || beat >= upper) continue;
       out.push({ beat, segmentIndex: i });
@@ -125,7 +138,7 @@ export class BpmTimeline {
     if (segs.length === 0) return 0;
     let lo = 0;
     let hi = segs.length - 1;
-    let idx = 0;
+    let idx = this.firstEffectiveSegmentIndex;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (beat < segs[mid].beatStart) {
@@ -201,7 +214,7 @@ export class BpmTimeline {
       if (!isUsablePerBeat(seg.perBeat)) continue;
       const a = seg.beatStart + (lo - seg.offsetStart) / seg.perBeat;
       const b = seg.beatStart + (hi - seg.offsetStart) / seg.perBeat;
-      const lower = i === 0 ? -Infinity : seg.beatStart;
+      const lower = i === this.firstEffectiveSegmentIndex ? -Infinity : seg.beatStart;
       const upper = i + 1 < segs.length ? segs[i + 1].beatStart : Infinity;
       const start = Math.max(Math.min(a, b), lower);
       // 半开：减去一个 ε 把"恰在段界的整拍"让给后一段（否则该处会画两道线）

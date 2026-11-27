@@ -933,3 +933,149 @@ describe('票 07 · Cookie 由网关附着（renderer 递不了凭据）', () =>
     expect(fetch.calls[1].init.headers.cookie).toBe('token=abc; extra=1');
   });
 });
+
+describe('票 57 · 仅读缓存（cacheOnly）与请求取消（cancel）', () => {
+  const SONGS_URL = 'https://bestdori.com/api/songs/all.5.json';
+  it('cacheOnly 命中磁盘缓存直接返回（即使过期也不触发网络或后台补拉），未命中回 cache-miss', async () => {
+    await withTmpCache(async (dir) => {
+      let version = 1;
+      const { gateway, fetch, clock } = gatewayWith(
+        () => response({ body: { result: true, v: version } }),
+        { dir },
+      );
+
+      await expect(gateway.request({ url: SONGS_URL, cacheOnly: true })).resolves.toMatchObject({
+        ok: false,
+        error: { kind: 'cache-miss' },
+      });
+      expect(fetch.calls).toHaveLength(0);
+
+      await gateway.request({ url: SONGS_URL });
+      version = 2;
+      clock.advance(CACHE_FRESH_MS + 60_000);
+
+      await expect(gateway.request({ url: SONGS_URL, cacheOnly: true })).resolves.toMatchObject({
+        ok: true,
+        responseType: 'json',
+        data: { v: 1 },
+        fromCache: true,
+      });
+      await tick();
+      expect(fetch.calls).toHaveLength(1);
+    });
+  });
+
+  it('cacheOnly 对读型 POST（带 body）也按 cacheKey 读取', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ body: { posts: [{ id: 9 }] } }), { dir });
+      const body = JSON.stringify({ offset: 0 });
+
+      await expect(
+        gateway.request({ url: LIST_URL, method: 'POST', body, cacheable: true, cacheOnly: true }),
+      ).resolves.toMatchObject({ ok: false, error: { kind: 'cache-miss' } });
+
+      await gateway.request({ url: LIST_URL, method: 'POST', body, cacheable: true });
+      await expect(
+        gateway.request({ url: LIST_URL, method: 'POST', body, cacheable: true, cacheOnly: true }),
+      ).resolves.toMatchObject({
+        ok: true,
+        data: { posts: [{ id: 9 }] },
+        fromCache: true,
+      });
+      expect(fetch.calls).toHaveLength(1);
+    });
+  });
+
+  it('cancel(requestId) 立即中断在途请求与排队请求，并返回 aborted', async () => {
+    let sawSignalAborted = false;
+    const fetch = fakeFetch(({ url, init }) => {
+      if (url.includes('first')) {
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            sawSignalAborted = true;
+            reject(new Error('aborted'));
+          });
+        });
+      }
+      return response({ body: { ok: true } });
+    });
+
+    const gateway = createCommunityGateway({ fetchImpl: fetch.impl, minIntervalMs: 0 });
+    const req1 = gateway.request({ url: `${SONGS_URL}?first`, requestId: 'req-1' });
+    const req2 = gateway.request({ url: `${SONGS_URL}?second`, requestId: 'req-2' });
+
+    for (let i = 0; i < 10 && fetch.calls.length < 1; i += 1) await tick();
+    expect(fetch.calls).toHaveLength(1);
+
+    gateway.cancel('req-2');
+    gateway.cancel('req-1');
+
+    await expect(req2).resolves.toMatchObject({ ok: false, error: { kind: 'aborted' } });
+    await expect(req1).resolves.toMatchObject({ ok: false, error: { kind: 'aborted' } });
+    expect(sawSignalAborted).toBe(true);
+    expect(fetch.calls).toHaveLength(1);
+  });
+});
+
+describe('票 56 · 下载媒体验真（坏图不落缓存、空音频拒收、坏缓存自愈清除）', () => {
+  it('mediaKind=image 遇损坏非图片字节时拒绝写缓存并回 invalid-response；text/html 回退页仍按 1h 负缓存放行', async () => {
+    await withTmpCache(async (dir) => {
+      const clock = fakeClock();
+      const assetCache = createAssetCache({ dir, now: clock.now });
+      const badUrl = 'https://bestdori.com/api/upload/file/corrupt-img';
+      const fallbackUrl = 'https://bestdori.com/assets/jp/musicjacket/missing.png';
+      const fetch = fakeFetch(({ url }) => {
+        if (url === badUrl) return response({ bytes: [1, 2, 3, 4], contentType: 'application/octet-stream' });
+        return response({ bytes: [60, 104, 116, 109, 108, 62], contentType: 'text/html' });
+      });
+      const gateway = createCommunityGateway({
+        fetchImpl: fetch.impl,
+        assetCache,
+        isValidImage: (bytes) => bytes[0] === 0x89 && bytes[1] === 0x50,
+        now: clock.now,
+        sleep: clock.sleep,
+      });
+
+      await expect(
+        gateway.request({ url: badUrl, responseType: 'binary', mediaKind: 'image' }),
+      ).resolves.toMatchObject({ ok: false, error: { kind: 'invalid-response' } });
+      expect(await assetCache.lookup({ url: badUrl, kind: 'binary' })).toBeNull();
+
+      await expect(
+        gateway.request({ url: fallbackUrl, responseType: 'binary', mediaKind: 'image' }),
+      ).resolves.toMatchObject({ ok: true, contentType: 'text/html' });
+      expect(await assetCache.lookup({ url: fallbackUrl, kind: 'binary' })).not.toBeNull();
+    });
+  });
+
+  it('缓存里已有坏图片时读取会自愈 drop 并重拉；mediaKind=audio 空字节直接拒收', async () => {
+    await withTmpCache(async (dir) => {
+      const clock = fakeClock();
+      const assetCache = createAssetCache({ dir, now: clock.now });
+      const coverUrl = 'https://bestdori.com/api/upload/file/img-heal';
+      await assetCache.store({ url: coverUrl, kind: 'binary', bytes: Buffer.from([1, 2, 3]), contentType: 'image/png' });
+
+      const emptyAudioUrl = 'https://bestdori.com/api/upload/file/empty-audio';
+      const fetch = fakeFetch(({ url }) => {
+        if (url === coverUrl) return response({ bytes: [0x89, 0x50, 0x4e, 0x47], contentType: 'image/png' });
+        return response({ bytes: [], contentType: 'application/octet-stream' });
+      });
+      const gateway = createCommunityGateway({
+        fetchImpl: fetch.impl,
+        assetCache,
+        isValidImage: (bytes) => bytes[0] === 0x89 && bytes[1] === 0x50,
+        now: clock.now,
+        sleep: clock.sleep,
+      });
+
+      const healed = await gateway.request({ url: coverUrl, responseType: 'binary', mediaKind: 'image' });
+      expect(healed).toMatchObject({ ok: true, byteLength: 4 });
+      expect(fetch.calls).toHaveLength(1);
+
+      await expect(
+        gateway.request({ url: emptyAudioUrl, responseType: 'binary', mediaKind: 'audio' }),
+      ).resolves.toMatchObject({ ok: false, error: { kind: 'invalid-response' } });
+      expect(await assetCache.lookup({ url: emptyAudioUrl, kind: 'binary' })).toBeNull();
+    });
+  });
+});

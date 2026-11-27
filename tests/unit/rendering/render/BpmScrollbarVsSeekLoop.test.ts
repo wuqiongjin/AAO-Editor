@@ -34,7 +34,7 @@ function productSetScrollY(g: ChartGeometry, scale: number, requested: number, h
 
 function kindAfter(g: ChartGeometry, es: number, h: number, scrollY: number): Kind {
   const sy = productSetScrollY(g, es, scrollY, h);
-  return classify(bpmLabelAnchorY(0, lineYAt(g, es, sy), FONT, h), h);
+  return classify(bpmLabelAnchorY(0, lineYAt(g, es, sy), FONT, 0), h);
 }
 
 function renderKind(g: ChartGeometry, es: number, h: number, scrollY: number): Kind {

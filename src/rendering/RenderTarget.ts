@@ -23,6 +23,8 @@ export interface RenderTargetOptions {
   dpr: number;
   /** 屏幕帧间隔（ms，issue 213）：由 rAF 采样注入 noteLayer */
   frameInterval?: number;
+  /** 快速滚动/拖拽后，可见音符瓦片完成时重绘最新帧。 */
+  onScrollTileReady?: () => void;
 }
 
 export interface RenderTarget {
@@ -48,7 +50,7 @@ export function createRenderTarget(opts: RenderTargetOptions): RenderTarget {
   let ctxResolved = false;
   let ctx: CanvasRenderingContext2D | null = null;
   const staticLayer = createStaticLayerCache();
-  const noteLayer = createNoteLayerCache();
+  const noteLayer = createNoteLayerCache({ onScrollTileReady: opts.onScrollTileReady });
   if (opts.frameInterval != null) {
     noteLayer.setFrameInterval(opts.frameInterval);
   }

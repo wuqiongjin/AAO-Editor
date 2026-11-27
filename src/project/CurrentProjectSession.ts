@@ -7,9 +7,10 @@ import {
   newChartId,
   newProjectId,
   type ChartProject,
+  type ChartSummary,
   type ProjectChart,
+  type ProjectSummary,
 } from './ChartProject';
-import { mutateProject } from './ChartProjectRecord';
 import {
   clearCurrentProjectPointer,
   loadCurrentProjectPointer,
@@ -105,8 +106,12 @@ export class CurrentProjectSession {
     const listed = await this.store.list();
     const decision = decideWorkspaceProject(listed);
     if (decision.action === 'open') {
-      const opened = await this.open(decision.projectId);
-      return { ...opened, created: false };
+      await this.open(decision.projectId);
+      const existing = await this.store.get(decision.projectId);
+      if (existing) {
+        const chart = pickCurrentChart(existing, this._chartId);
+        return { project: existing, chart, created: false };
+      }
     }
     const project = createUnnamedProject({
       id: this.clock.newProjectId(),
@@ -124,20 +129,21 @@ export class CurrentProjectSession {
   async open(
     projectId: string,
     chartId?: string,
-  ): Promise<{ project: ChartProject; chart: ProjectChart }> {
-    // get → 改 lastOpened → save 属记录侧整记录读-改-写，走唯一写入口（06 票）；
-    // 会话自身的指针写入仍在下面 persistPointer。
+  ): Promise<{ project: ProjectSummary; chart: ChartSummary }> {
+    // issue 45：仅更新 lastOpened 并读取轻量摘要（不读 audio.bin/cover.bin，不传输 notes）；
+    // 真实完整记录由工作台恢复路径按需读取一次。
     const now = this.clock.now();
     try {
-      const result = await mutateProject({ store: this.store }, projectId, (loaded) => ({ ...loaded, lastOpened: now }));
-      if (result.status !== 'saved') throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
-      const project: ChartProject = result.project;
-      const chart = pickCurrentChart(project, chartId);
-      this._projectId = project.id;
+      const touched = await this.store.touchLastOpened(projectId, now);
+      if (!touched) throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
+      const summary = await this.store.getSummary(projectId);
+      if (!summary) throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
+      const chart = pickCurrentChart(summary, chartId);
+      this._projectId = summary.id;
       this._chartId = chart.id;
       this.persistPointer();
-      trail.record({ module: 'project', action: 'open', result: 'ok', meta: { projectId: project.id } });
-      return { project, chart };
+      trail.record({ module: 'project', action: 'open', result: 'ok', meta: { projectId: summary.id } });
+      return { project: summary, chart };
     } catch (err) {
       trail.record({ module: 'project', action: 'open', result: 'fail', meta: { projectId } });
       throw err;

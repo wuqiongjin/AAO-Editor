@@ -54,32 +54,35 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it('谱面代码弹窗的 9 处提示全接了 showToast', () => {
+  it('谱面代码弹窗的 8 处提示全接了 showToast', () => {
     // 应用成功（完整视图 commitApply）/ 应用成功（对象视图·issue 227）/ 应用失败 /
-    // 校验不过（两条）/ 缺第 0 拍 BPM / 复制成功 / 复制失败 / 另存失败
-    expect(toastCalls(codeModal)).toBe(9);
+    // 校验不过（两条）/ 复制成功 / 复制失败 / 另存失败
+    // （issue 62 修正后编辑器不再有 BPM 阻断提示：缺 BPM 自动补默认 120@0）
+    expect(toastCalls(codeModal)).toBe(8);
     expect(codeModal).toMatch(/showToast\(t\('chartCode\.applyOk'\), 'success'\)/);
-    expect(codeModal).toMatch(/showToast\(t\('chartCode\.needBpm0'\), 'danger'\)/);
   });
 
-  it('工程页五处（删最后一张 / 新增被拒 / 官方导入降级警告·票 26 / 社区导入缺封面警告·票 09 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {
-    // 页面四处：删最后一张、新增谱面被拒、官方导入的降级 / 缺封面警告（票 26）、社区导入的缺封面警告（票 09）；
+  it('工程页（删最后一张 / 待确认拦删 / 新增被拒 / 官方导入降级警告·票 26 / 社区导入缺封面警告·票 09 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {
+    // 页面五处：删最后一张、待确认拦删工程（票 58）、新增谱面被拒、官方导入的降级 / 缺封面警告（票 26）、社区导入的缺封面警告（票 09）；
     // 页内小件一处：已上传徽标只读
-    expect(toastCalls(projectsPage)).toBe(4);
+    expect(toastCalls(projectsPage)).toBe(5);
     expect(toastCalls(projectBits)).toBe(1);
     expect(toastCalls(chartSwitcher)).toBe(1);
-    // 「不能删最后一张」是拦住动作，不是出错 —— 走 warn 不走 danger
-    expect(projectsPage).toMatch(/showToast\(t\('projects\.deleteLastChart'\), 'warn'\)/);
+    // 「不能删最后一张」与待确认拦删都是拦住动作，不是出错 —— 走 warn 不走 danger
+    expect(projectsPage).toMatch(/showToast\(t\(result\.reason === 'pending' \? 'projects\.publish\.recovery\.pending' : 'projects\.deleteLastChart'\), 'warn'\)/);
+    expect(projectsPage).toMatch(/showToast\(t\('projects\.publish\.recovery\.pending'\), 'warn'\)/);
     // 已上传谱面的难度/等级徽标点击（issue 19 #2）：只读拦截同样走 warn，文案复用既有键
     expect(projectBits).toMatch(/showToast\(t\('projects\.uploadedReadonly'\), 'warn'\)/);
   });
 
-  it('票 11 / 51 · 发布与更新的提示都接了 showToast，且随编排住进页面目录的 hook', () => {
-    // 两处调用点：发布（成功 / 记账失败）+ 更新（成功 / 本机写入失败）
-    expect(toastCalls(publishEntry)).toBe(2);
+  it('票 11 / 51 / 58 · 发布、更新与补记的提示都接了 showToast，且随编排住进页面目录的 hook', () => {
+    // 四处调用点：发布（成功 / 记账失败）+ 更新（成功 / 本机写入失败）+ 补记成功 + 标签差异
+    expect(toastCalls(publishEntry)).toBe(4);
     expect(publishEntry).toMatch(/t\('projects\.publish\.done', \{ id: outcome\.postId \}\)/);
+    expect(publishEntry).toMatch(/t\('projects\.publish\.done', \{ id: foundId \}\)/);
     expect(publishEntry).toMatch(/t\('projects\.publish\.err\.record'\)/);
     expect(publishEntry).toMatch(/t\('projects\.publish\.updated'\)/);
+    expect(publishEntry).toMatch(/t\('projects\.publish\.tagsDiffer'\)/);
     expect(publishEntry).toMatch(/'success' : 'warn'/);
   });
 

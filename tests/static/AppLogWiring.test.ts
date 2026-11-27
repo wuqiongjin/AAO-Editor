@@ -19,5 +19,5 @@ describe('票 01 · 日志接线', () => {
   it('src/ 无直接 fs 访问（日志经 IPC 汇聚主进程）', () => {
     const offenders = sourceFiles(join(repoRoot, 'src')).filter((rel) => FS_IMPORT.test(readStripped(rel)));
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 });

@@ -27,6 +27,12 @@ describe('chart-preview 08 · 预览标注设置', () => {
       beatMarks: 1,
       comboMarks: true,
       mirror: false,
+      // PERFECT 显示状态（chart-preview 51；2026-10-27 用户定案默认开 = AP combo）
+      apCombo: true,
+      // AUTO 模式（票 71；2026-11-08 验收改默认关）
+      autoMode: false,
+      // 顶部状态栏总开关（2026-11-08 验收）：缺省全开
+      showGameUi: true,
       // 仿真场音符速度（chart-preview 05；用户 2026-10-07 定案 9.5）
       noteSpeed: 9.5,
       // 仿真场素材包（chart-preview 41 · ADR-0018 §1：各默认 skin00）
@@ -42,7 +48,8 @@ describe('chart-preview 08 · 预览标注设置', () => {
       preview: { bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 },
     }));
     expect(loaded.preview).toEqual({
-      bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5,
+      bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true,
+      apCombo: true, autoMode: false, showGameUi: true, noteSpeed: 7.5,
       // 种子没给素材包 ⇒ 补默认（chart-preview 41，additive 不 bump schemaVersion）
       bgPackId: SIM_DEFAULT_PACK_IDS.background,
       fieldPackId: SIM_DEFAULT_PACK_IDS.field,
@@ -89,6 +96,22 @@ describe('chart-preview 08 · 预览标注设置', () => {
   it('白名单本身与 UI 选项同源（加档位时只改一处）', () => {
     expect(PREVIEW_TIME_MARK_INTERVALS).toEqual(['off', 1, 2, 5, 10]);
     expect(PREVIEW_BEAT_MARK_DIVISIONS).toEqual(['off', 1, 2, 3, 4, 6, 8, 12, 16]);
+  });
+
+  it('票 71 · AUTO 模式（2026-11-08 验收）：默认关、布尔原样读回、脏值回落关', () => {
+    expect(DEFAULT_PREVIEW_SETTINGS.autoMode).toBe(false);
+    expect(loadSettings(settingsStorageOf({ preview: { autoMode: true } })).preview.autoMode).toBe(true);
+    expect(loadSettings(settingsStorageOf({ preview: { autoMode: 'off' } })).preview.autoMode).toBe(false);
+    expect(loadSettings(settingsStorageOf({ display: { noteSize: 1 } })).preview.autoMode).toBe(false);
+    expect(updateSettings(defaultSettings(), { preview: { autoMode: true } }).preview.autoMode).toBe(true);
+  });
+
+  it('分数条 / 生命条只有一枚总开关：缺省开、布尔原样读回、脏值回落开', () => {
+    expect(DEFAULT_PREVIEW_SETTINGS.showGameUi).toBe(true);
+    expect(loadSettings(settingsStorageOf({ preview: { showGameUi: false } })).preview.showGameUi).toBe(false);
+    expect(loadSettings(settingsStorageOf({ preview: { showGameUi: 'off' } })).preview.showGameUi).toBe(true);
+    expect(loadSettings(settingsStorageOf({ display: { noteSize: 1 } })).preview.showGameUi).toBe(true);
+    expect(updateSettings(defaultSettings(), { preview: { showGameUi: false } }).preview.showGameUi).toBe(false);
   });
 
   it('节拍线细分档位（issue 205）：全白名单值正常读回，非法值回落默认 1', () => {

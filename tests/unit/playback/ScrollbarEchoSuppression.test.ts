@@ -50,8 +50,8 @@ describe('issue 98 · 谱面视口会话接线静态断言（防重构复活回�
   });
 
   it('两处程序化 scrollTop 写入都登记期望值（缩放比例位回写 + 重锚）', () => {
-    expect(sessionSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(targetScrollTop\)/);
-    expect(sessionSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(target\.scrollTop\)/);
+    expect(sessionSrc).toMatch(/scrollContainer\.scrollTop = targetScrollTop;[\s\S]{0,160}onProgrammaticScroll\(targetScrollTop\)/);
+    expect(sessionSrc).toMatch(/container\.scrollTop = target\.scrollTop;\s+onProgrammaticScroll\(target\.scrollTop\)/);
   });
 });
 

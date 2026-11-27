@@ -247,4 +247,98 @@ describe('Issue 26 · 切谱面进工作台画面残留防回潮测试', () => {
     });
     expect(onProjectEdited).toHaveBeenCalledTimes(1);
   });
+
+  it('chart-projects 45 · saveNow 未编辑短路 0 次 store.save；编辑或更换同名 audioBlob 才落盘', async () => {
+    const audioA = new Blob([new Uint8Array([1, 2])]);
+    const audioB = new Blob([new Uint8Array([3, 4])]);
+    const p1: ChartProject = { ...makeProject('p1', '工程1'), audioName: 'bgm.mp3', audioBlob: audioA };
+    const backend = makeMemoryProjectBackend([p1]);
+    const saveSpy = vi.spyOn(backend, 'save');
+    const store = new ChartProjectStore(backend);
+
+    const { result, rerender } = renderHook(
+      (props: { notes: ChartProject['charts'][number]['notes']; audioBlob: Blob | null }) =>
+        useChartProjectPersistence({
+          projectId: 'p1',
+          chartId: 'c-p1',
+          store,
+          notes: props.notes,
+          durationSeconds: 60,
+          audioName: 'bgm.mp3',
+          audioBlob: props.audioBlob,
+          debounceMs: 800,
+          onRestore: () => {},
+        }),
+      { initialProps: { notes: [...p1.charts[0].notes], audioBlob: audioA } },
+    );
+
+    await act(async () => {
+      await result.current.waitUntilSettled('p1', 'c-p1');
+    });
+    // 消费 justRestoredRef
+    rerender({ notes: [...p1.charts[0].notes], audioBlob: audioA });
+    await act(async () => {});
+    saveSpy.mockClear();
+
+    // 未编辑时 saveNow 直接短路，0 次写盘
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(saveSpy).not.toHaveBeenCalled();
+
+    // 编辑音符进防抖窗口：saveNow 落盘一次，随后再无改动调用 saveNow 仍短路
+    rerender({ notes: [...p1.charts[0].notes, { type: 'Single', beat: 1, lane: 2 }], audioBlob: audioA });
+    await act(async () => {});
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+
+    // 重导同名新音频（audioName/duration 不变但 audioBlob 引用变了）：必须落盘
+    rerender({ notes: [...p1.charts[0].notes, { type: 'Single', beat: 1, lane: 2 }], audioBlob: audioB });
+    await act(async () => {});
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(saveSpy).toHaveBeenCalledTimes(2);
+    expect(saveSpy.mock.calls[1][0].audioBlob).toBe(audioB);
+  });
+
+  it('chart-projects 45 · 同 audioName 两工程在 catalogEpoch 同批切换时 restoreAudio 仍为 true', async () => {
+    const p1: ChartProject = { ...makeProject('p1', '工程1'), audioName: 'same.mp3', audioBlob: new Blob([new Uint8Array([1])]) };
+    const p2: ChartProject = { ...makeProject('p2', '工程2'), audioName: 'same.mp3', audioBlob: new Blob([new Uint8Array([2])]) };
+    const store = new ChartProjectStore(makeMemoryProjectBackend([p1, p2]));
+    const onRestore = vi.fn();
+
+    const { rerender } = renderHook(
+      (props: { projectId: string; chartId: string; catalogEpoch: number }) =>
+        useChartProjectPersistence({
+          projectId: props.projectId,
+          chartId: props.chartId,
+          catalogEpoch: props.catalogEpoch,
+          store,
+          notes: [],
+          durationSeconds: 60,
+          audioName: 'same.mp3',
+          audioBlob: p1.audioBlob ?? null,
+          onRestore,
+        }),
+      { initialProps: { projectId: 'p1', chartId: 'c-p1', catalogEpoch: 0 } },
+    );
+
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    onRestore.mockClear();
+
+    rerender({ projectId: 'p2', chartId: 'c-p2', catalogEpoch: 1 });
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(onRestore).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p2' }),
+      expect.objectContaining({ id: 'c-p2' }),
+      { restoreAudio: true },
+    );
+  });
 });

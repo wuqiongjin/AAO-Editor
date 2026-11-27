@@ -2,7 +2,7 @@
 //
 // 锁五件事：
 //   ① **名称口径（票 34 预填、票 36 修订名称）**：工程名一律取**原帖标题**（bandori 帖标题缺省
-//      退回官方曲名），歌手 = bandori 帖官方乐队名 / custom 帖帖子自报歌手；谱师署名仍只在
+//      退回官方曲名），歌手 = bandori 帖官方乐队名 / custom 帖帖子自报歌手；帖主「谱师」仍只在
 //      导入会话里展示，ProjectChart.title 继续跟随工程名、不单独动；
 //   ② custom 帖：音频与封面按帖内 URL 下载，`曲目来源` = custom；难度等级跟帖子走；
 //   ③ bandori 帖：素材走官方那条路（曲库候选 + 歌曲元数据），`曲目来源` 记曲库 id，时长按官方曲长起；
@@ -10,6 +10,7 @@
 //   ⑤ 封面缺失照样建（警告由界面 Toast 说）。
 // 音频 / 封面的落名规则（票 35）由 assetNames.test.ts 与 songs/posts 的命名用例锁，这里只断言编排产出。
 import { describe, expect, it } from 'vitest';
+import { t as translate } from '@/src/i18n';
 import { CommunityError } from '@/src/community/transport';
 import { toPostCandidate, toSongCandidates, type PostCandidate } from '@/src/community/bestdori/mapping';
 import type { ChartProject, ProjectBinarySources } from '@/src/project/ChartProject';
@@ -326,12 +327,81 @@ describe('票 09 · 谱面是主线（没有「空白谱降级」）', () => {
     expect(t.writes).toHaveLength(0);
   });
 
-  it('Apply 闸门拒绝（空谱面代码没有 beat 0 BPM）：整笔不落盘', async () => {
+  it('Apply 闸门拒绝空谱面：整笔不落盘', async () => {
     const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart: [] } } } });
 
     const result = await t.run(post(CUSTOM_POST));
 
     expect(result).toMatchObject({ ok: false, reason: 'apply' });
+    if (!result.ok && result.reason === 'apply') expect(result.errors[0].reason).toBe(translate('chartCode.emptyChart'));
+    expect(t.writes).toHaveLength(0);
+  });
+
+  it('issue 62：#263678 缺 beat 0、首条 BPM 在 1 拍也能导入，源文本保真', async () => {
+    const chart = [
+      { bpm: 150, beat: 2, type: 'BPM' },
+      { bpm: 165, beat: 1, type: 'BPM' },
+      { type: 'Single', lane: 0, beat: 19 },
+    ];
+    const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart } } } });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved).not.toBeNull();
+    expect(saved!.charts[0].chartCodePristine).toBe(true);
+    expect(saved!.charts[0].appliedChartCodeText).toBe(JSON.stringify(chart));
+    expect(saved!.charts[0].notes.filter((note) => note.type === 'BPM').map((note) => [note.beat, note.bpm]))
+      .toEqual([[2, 150], [1, 165]]);
+    expect(saved!.charts[0].notes.some((note) => note.type === 'Single' && note.beat === 19)).toBe(true);
+  });
+
+  it('issue 62：首条 BPM 在负拍也可导入（beat 0 不再是要求）', async () => {
+    const chart = [
+      { bpm: 120, beat: -4, type: 'BPM' },
+      { type: 'Single', lane: 0, beat: 0 },
+    ];
+    const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart } } } });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved).not.toBeNull();
+    expect(saved!.charts[0].notes.filter((note) => note.type === 'BPM').map((note) => [note.beat, note.bpm]))
+      .toEqual([[-4, 120]]);
+  });
+
+  it('非空但没有 BPM：Apply 闸门拒绝，整笔不落盘', async () => {
+    const t = deps({
+      json: {
+        [DETAIL_URL]: {
+          result: true,
+          post: { ...CUSTOM_POST, chart: [{ type: 'Single', lane: 0, beat: 19 }] },
+        },
+      },
+    });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result).toMatchObject({ ok: false, reason: 'apply' });
+    if (!result.ok && result.reason === 'apply') expect(result.errors[0].reason).toBe(translate('chartCode.needBpm'));
+    expect(t.writes).toHaveLength(0);
+  });
+
+  // issue 63 Q4：首条 BPM（时间原点）为负 → 秒坐标倒置，整笔拒（编辑器内仍可经对象视图写出）
+  it('首条 BPM 为负：Apply 闸门拒绝，整笔不落盘', async () => {
+    const chart = [
+      { bpm: -120, beat: -4, type: 'BPM' },
+      { type: 'Single', lane: 0, beat: 0 },
+    ];
+    const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart } } } });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result).toMatchObject({ ok: false, reason: 'apply' });
+    if (!result.ok && result.reason === 'apply') expect(result.errors[0].reason).toBe(translate('validate.firstBpmNegative'));
     expect(t.writes).toHaveLength(0);
   });
 });
@@ -346,5 +416,34 @@ describe('票 09 · 失败文案', () => {
     expect(communityErrorText(new Error('x'))).toBe('导入社区谱面失败，请重试。');
     expect(communityApplyErrorText([{ noteIndex: -1, reason: '缺少 beat 0 的 BPM' }]))
       .toBe('社区谱面代码过不了 Apply 闸门：谱面代码：缺少 beat 0 的 BPM');
+    for (const kind of ['http', 'invalid-response', 'request-rejected'] as const) {
+      const msg = communityErrorText(new CommunityError(kind, { kind, message: kind }));
+      expect(msg).not.toBe('导入社区谱面失败，请重试。');
+    }
+  });
+
+  it('票 56 · 帖子外链或损坏封面不阻断导入 (coverStatus: failed)；帖子音频失效时随谱面降级或阻断', async () => {
+    const coverFailed = deps();
+    coverFailed.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.resolve(STAGED_AUDIO)
+      : Promise.reject(new CommunityError('rejected', { kind: 'request-rejected', message: '外链域名不在白名单' }));
+    const rCover = await coverFailed.run(post(CUSTOM_POST));
+    expect(rCover).toEqual(expect.objectContaining({ ok: true, coverImported: false, coverStatus: 'failed' }));
+    expect(coverFailed.writes[0].project.coverName).toBeNull();
+
+    // custom 帖音频 404 + 带谱面 → 无音频创建，duration >= 30s 且覆盖末音符
+    const audioDegraded = deps();
+    audioDegraded.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.reject(new CommunityError('HTTP 404', { kind: 'http', message: 'HTTP 404', httpStatus: 404 }))
+      : Promise.resolve(STAGED_COVER);
+    const rAudio = await audioDegraded.run(post(CUSTOM_POST));
+    expect(rAudio).toEqual(expect.objectContaining({ ok: true, audioDegraded: true }));
+    expect(audioDegraded.writes[0].project.audioName).toBeNull();
+    expect(audioDegraded.writes[0].staged?.audioStagedPath).toBeUndefined();
+    expect(audioDegraded.writes[0].project.durationSeconds).toBeGreaterThanOrEqual(30);
+
+    // 没带谱面 + 音频失效 → 阻断创建
+    await expect(audioDegraded.run(post(CUSTOM_POST), { withChart: false })).rejects.toMatchObject({ kind: 'http' });
+    expect(audioDegraded.writes).toHaveLength(1);
   });
 });

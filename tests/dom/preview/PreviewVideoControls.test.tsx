@@ -32,6 +32,7 @@ const calls = vi.hoisted(() => ({
   pause: vi.fn(),
   seek: vi.fn(),
   setDuration: vi.fn(),
+  setKeepPausedAudioReady: vi.fn(),
   dispose: vi.fn(),
   lastOnTick: null as ((seconds: number, playing: boolean) => void) | null,
 }));
@@ -43,6 +44,13 @@ const derivationTiming = vi.hoisted(() => ({ pendingVisible: [] as boolean[] }))
 vi.mock('@/src/preview/video/sim/prepareSimNoteSprites', () => ({
   prepareSimNoteSprites: vi.fn(async () => undefined),
 }));
+vi.mock('@/src/preview/video/sim/prepareSimRendering', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/src/preview/video/sim/prepareSimRendering')>();
+  return {
+    ...actual,
+    prepareSimRendering: vi.fn(async () => true),
+  };
+});
 
 // 谱面派生入口的探针：只在「调用那一刻」记一笔 DOM 状态，其余行为全走真身。
 // jsdom 没有真实绘制，能观测到的首帧时序是「React 提交 DOM」与「派生函数被调用」的先后。
@@ -73,6 +81,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
       bandRaster: SIM_BAND_RASTER_MATERIAL,
       bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
       sprites: null,
+      judge: null,
       missing: false,
       server: 'jp',
     })),
@@ -90,6 +99,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
         seek: calls.seek,
         toggle: calls.play,
         setDuration: calls.setDuration,
+        setKeepPausedAudioReady: calls.setKeepPausedAudioReady,
         render: vi.fn(),
         dispose: calls.dispose,
       };
@@ -100,7 +110,8 @@ vi.mock('@/src/preview', async (importOriginal) => {
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
 import type { ChartNote } from '@/src/chart/types';
 import { prepareSimNoteSprites } from '@/src/preview/video/sim/prepareSimNoteSprites';
-import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
+import { prepareSimRendering } from '@/src/preview/video/sim/prepareSimRendering';
+import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, loadSimAssets, type SimPlaybackAudio, type SimScene } from '@/src/preview';
 import { getDefaultConfig, setCapturingShortcut } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
 import type { AppSettings } from '@/src/settings/AppSettings';
@@ -130,10 +141,12 @@ async function renderStage(opts: {
   volume?: number;
   audio?: SimPlaybackAudio | null;
   active?: boolean;
+  fullscreen?: boolean;
   chartId?: string | null;
   initialSeconds?: number;
   onSecondsChange?: (s: number) => void;
   scene?: SimScene;
+  waitForFrame?: boolean;
 } = {}) {
   const {
     volume = 1,
@@ -143,11 +156,13 @@ async function renderStage(opts: {
     initialSeconds = 0,
     onSecondsChange,
     scene: curScene = scene,
+    waitForFrame = true,
   } = opts;
   const onVolumeChange = vi.fn();
   const view = render(
     <PreviewVideoStage
       active={active}
+      fullscreen={opts.fullscreen}
       scene={curScene}
       duration={12}
       audio={audio}
@@ -163,8 +178,12 @@ async function renderStage(opts: {
       onSecondsChange={onSecondsChange}
     />,
   );
-  // 素材是异步进场的：等回放真的建起来（控件要接到它上面）
-  await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+  // 素材与首帧都是异步进场的：setFrame 先于 setPaintedField 提交，
+  // 只等 setFrame 会让按键赶在 togglePlay 的就绪门禁翻真之前派发出去。
+  if (waitForFrame) {
+    await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(t('preview.video.loading'))).toBeNull());
+  }
   calls.setOptions.mockClear();
   return { ...view, onVolumeChange };
 }
@@ -189,9 +208,37 @@ beforeEach(() => {
   calls.setFrame.mockClear();
   calls.play.mockClear();
   calls.seek.mockClear();
+  vi.mocked(loadSimAssets).mockClear();
+  vi.mocked(prepareSimRendering).mockReset();
+  vi.mocked(prepareSimRendering).mockImplementation(async () => true);
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
+  it('Windows 全屏预览按窗口焦点保留暂停音频，卸载后释放', async () => {
+    const { act } = await import('@testing-library/react');
+    vi.stubGlobal('electronAPI', { platform: 'win32' });
+    const focused = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    try {
+      const { unmount } = await renderStage({ fullscreen: true });
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(true);
+      focused.mockReturnValue(false);
+      fireEvent.blur(window);
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(false);
+      focused.mockReturnValue(true);
+      fireEvent.focus(window);
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(true);
+      act(() => calls.lastOnTick?.(12, false));
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(false);
+      act(() => calls.lastOnTick?.(6, false));
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(true);
+      unmount();
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(false);
+    } finally {
+      focused.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('票 69：长谱派生不在首帧 render 里跑，加载文案先于派生提交到 DOM', async () => {
     const longNotes: ChartNote[] = Array.from({ length: 2400 }, (_, i) => ({
       type: 'Single', beat: i * 0.25, lane: i % 7,
@@ -243,6 +290,69 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
     await act(async () => { finish(); await prepared; });
     await rendering;
     expect(calls.setFrame).toHaveBeenCalled();
+  });
+
+  it('issue 80：完整绘制尚未准备时显示加载并拦住播放，完成后才推帧及放行', async () => {
+    const { act } = await import('@testing-library/react');
+    let finish!: (ready: boolean) => void;
+    const prepared = new Promise<boolean>(resolve => { finish = resolve; });
+    vi.mocked(prepareSimRendering).mockClear();
+    vi.mocked(prepareSimRendering).mockReturnValueOnce(prepared);
+    const rendering = renderStage();
+    await waitFor(() => expect(prepareSimRendering).toHaveBeenCalled());
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    expect(calls.play).not.toHaveBeenCalled();
+    await act(async () => { finish(true); await prepared; });
+    await rendering;
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).toHaveBeenCalledOnce();
+  });
+
+  it('issue 80：准备中变更绘制条件，旧任务迟到不能放行新输入，重复播放不重备', async () => {
+    const { act } = await import('@testing-library/react');
+    let finishOld!: (ready: boolean) => void;
+    let finishNew!: (ready: boolean) => void;
+    const oldTask = new Promise<boolean>(resolve => { finishOld = resolve; });
+    const newTask = new Promise<boolean>(resolve => { finishNew = resolve; });
+    vi.mocked(prepareSimRendering).mockClear();
+    vi.mocked(prepareSimRendering).mockReturnValueOnce(oldTask).mockReturnValueOnce(newTask);
+    const view = await renderStage({ waitForFrame: false });
+    await waitFor(() => expect(prepareSimRendering).toHaveBeenCalledOnce());
+    const changed = { ...scene, noteSize: 1.5 };
+    view.rerender(<PreviewVideoStage active scene={changed} duration={12} audio={null}
+      keySetId="skin00" seVolume={1} volume={1} onVolumeChange={view.onVolumeChange}
+      imageQuality="high" noteSkin={'default' as AppSettings['visual']['noteSkin']} shortcuts={SHORTCUTS} />);
+    await waitFor(() => expect(prepareSimRendering).toHaveBeenCalledTimes(2));
+    await act(async () => { finishOld(true); await oldTask; });
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).not.toHaveBeenCalled();
+    await act(async () => { finishNew(true); await newTask; });
+    expect(calls.setFrame.mock.lastCall?.[0].scene).toBe(changed);
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).toHaveBeenCalledTimes(2);
+    expect(prepareSimRendering).toHaveBeenCalledTimes(2);
+  });
+
+  it('issue 80：重建播放器后仍要先推帧才放行；音频身份不算绘制冷路径（票 85）', async () => {
+    const { act } = await import('@testing-library/react');
+    const view = await renderStage();
+    await act(async () => { calls.lastOnTick?.(0, true); });
+    vi.mocked(prepareSimRendering).mockClear();
+    const changedAudio = { name: 'new.wav', blob: new Blob() };
+    calls.setFrame.mockClear();
+    calls.play.mockClear();
+    view.rerender(<PreviewVideoStage active scene={scene} duration={12} audio={changedAudio}
+      keySetId="skin00" seVolume={1} volume={1} onVolumeChange={view.onVolumeChange}
+      imageQuality="high" noteSkin={'default' as AppSettings['visual']['noteSkin']} shortcuts={SHORTCUTS} />);
+    await waitFor(() => expect(calls.setFrame).toHaveBeenCalledOnce());
+    expect(prepareSimRendering).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).toHaveBeenCalledOnce();
   });
 
   it('倍速：触钮是播放条那一排的同款图标钮（图标 + 当前倍速），面板是点开才有的', async () => {
@@ -620,6 +730,34 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     });
   });
 
+  describe('键盘 seek（issue 251）', () => {
+    it('页面 active 时 ← / → 调 seek', async () => {
+      await renderStage({ initialSeconds: 5 });
+      calls.seek.mockClear();
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(calls.seek).toHaveBeenLastCalledWith(4);
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(calls.seek).toHaveBeenLastCalledWith(5);
+    });
+
+    it('焦点在时间码 input 内不 seek', async () => {
+      await renderStage({ initialSeconds: 5 });
+      calls.seek.mockClear();
+      fireEvent.doubleClick(currentTime());
+      expect(timeInput()).toBeTruthy();
+      fireEvent.keyDown(timeInput()!, { key: 'ArrowLeft' });
+      fireEvent.keyDown(timeInput()!, { key: 'ArrowRight' });
+      expect(calls.seek).not.toHaveBeenCalled();
+    });
+
+    it('预览失活不接管', async () => {
+      await renderStage({ active: false, initialSeconds: 5 });
+      calls.seek.mockClear();
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(calls.seek).not.toHaveBeenCalled();
+    });
+  });
+
   it('chart-preview 57 / issue 188 · 播放期 onTick 按 80ms 节流 PlayBar HUD 且不触发父级 onSecondsChange，暂停或卸载时才回写父级', async () => {
     const { act } = await import('@testing-library/react');
     const onSecondsChange = vi.fn();
@@ -734,5 +872,150 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
 
     await waitFor(() => expect(onSyncComplete).toHaveBeenCalledWith(token2));
     expect(calls.setFrame).toHaveBeenCalled();
+  });
+});
+
+describe('票 42 · 自定义背景未就绪时不露出内置包', () => {
+  const custom = { width: 64, height: 36 } as unknown as CanvasImageSource;
+
+  function tree(overrides: {
+    liveBgPending?: boolean;
+    scene?: SimScene;
+  } = {}) {
+    return (
+      <PreviewVideoStage
+        active
+        scene={overrides.scene ?? scene}
+        duration={12}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        liveBgPending={overrides.liveBgPending}
+      />
+    );
+  }
+
+  it('sidecar 还在读：不取场地素材，也不把画布顶上来', async () => {
+    const { act } = await import('@testing-library/react');
+    render(tree({ liveBgPending: true }));
+    await act(async () => { await Promise.resolve(); });
+    expect(loadSimAssets).not.toHaveBeenCalled();
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: t('preview.video.aria') })).toBeNull();
+  });
+
+  it('保活舞台已画出内置包后 pending 再翻上来：不再取包，用不透明遮罩盖住旧场地', async () => {
+    const { act } = await import('@testing-library/react');
+    const { rerender } = await renderStage();
+    expect(screen.getByRole('img', { name: t('preview.video.aria') })).toBeInTheDocument();
+    vi.mocked(loadSimAssets).mockClear();
+    calls.setFrame.mockClear();
+
+    rerender(tree({ liveBgPending: true }));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(loadSimAssets).not.toHaveBeenCalled();
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    const overlay = document.querySelector('.pv-field__pending');
+    expect(overlay).not.toBeNull();
+    expect(overlay).toHaveTextContent(t('preview.video.loading'));
+    // 画布可以保活挂着（避免拆播放器），但加载文案必须叠在它上面，不能只剩居中一句
+    expect(screen.getByRole('img', { name: t('preview.video.aria') })).toBeInTheDocument();
+  });
+
+  it('pending 落定且 scene 带上自定义图：只取这一次，带着 customLiveBg', async () => {
+    const { rerender } = render(tree({ liveBgPending: true }));
+    expect(loadSimAssets).not.toHaveBeenCalled();
+
+    rerender(tree({
+      liveBgPending: false,
+      scene: { ...scene, customLiveBg: custom, liveBgFit: 'contain' },
+    }));
+    await waitFor(() => expect(loadSimAssets).toHaveBeenCalled());
+    expect(vi.mocked(loadSimAssets).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      customLiveBg: custom,
+      liveBgFit: 'contain',
+    }));
+    expect(loadSimAssets).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('票 85 · 调设置 / 全屏不误出加载态', () => {
+  function tree(overrides: {
+    scene?: SimScene;
+    imageQuality?: string;
+    onVolumeChange?: (v: number) => void;
+  } = {}) {
+    return (
+      <PreviewVideoStage
+        active
+        scene={overrides.scene ?? scene}
+        duration={12}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={overrides.onVolumeChange ?? vi.fn()}
+        imageQuality={overrides.imageQuality ?? 'high'}
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+      />
+    );
+  }
+
+  it('舞台已就绪后改亮度：不冒加载文案，只热更新一帧、不重跑绘制预热', async () => {
+    const { rerender, onVolumeChange } = await renderStage();
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+    vi.mocked(prepareSimRendering).mockClear();
+    calls.setFrame.mockClear();
+
+    rerender(tree({ scene: { ...scene, bgBrightness: 0.4 }, onVolumeChange }));
+
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+    expect(document.querySelector('.pv-field__pending')).toBeNull();
+    await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+    expect(calls.setFrame.mock.lastCall?.[0].scene.bgBrightness).toBe(0.4);
+    expect(prepareSimRendering).not.toHaveBeenCalled();
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+  });
+
+  it('舞台已就绪后只换场地尺寸：不冒加载文案，不重跑绘制预热（可留一帧拉伸）', async () => {
+    await renderStage();
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+    vi.mocked(prepareSimRendering).mockClear();
+    calls.setFrame.mockClear();
+
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 1280 });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 720 });
+    try {
+      fireEvent(window, new Event('resize'));
+      expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+      expect(document.querySelector('.pv-field__pending')).toBeNull();
+      await waitFor(() => expect(calls.setFrame.mock.lastCall?.[0].metrics.w).toBe(1280));
+      expect(prepareSimRendering).not.toHaveBeenCalled();
+      expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 960 });
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 540 });
+    }
+  });
+
+  it('换背景包：仍用不透明遮罩盖住旧包', async () => {
+    const { rerender, onVolumeChange } = await renderStage();
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+
+    rerender(tree({ scene: { ...scene, bgPackId: 'skin03' }, onVolumeChange }));
+
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    const overlay = document.querySelector('.pv-field__pending');
+    expect(overlay).not.toBeNull();
+    expect(overlay).toHaveTextContent(t('preview.video.loading'));
+    expect(screen.getByRole('img', { name: t('preview.video.aria') })).toBeInTheDocument();
   });
 });

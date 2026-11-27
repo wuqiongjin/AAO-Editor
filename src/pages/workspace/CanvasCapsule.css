@@ -10,6 +10,10 @@
   left: 12px;
   z-index: 22;
   overflow: hidden;
+  /* 胶囊浮在画布区里，最高只能到「画布区可视高 − 上下留白」：`--capsule-max-h` 由
+     `useCapsuleMaxHeight` 按画布区实测高写入；量不到时退回 min(60vh, 480px)。
+     没有上限的话，短窗口下展开的面板会顶出画布区，末行被裁还无处可滚（票 246）。 */
+  max-height: var(--capsule-max-h, min(60vh, 480px));
   background: var(--bg-elevated);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: var(--radius-lg);

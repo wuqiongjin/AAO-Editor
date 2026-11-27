@@ -97,8 +97,10 @@ describe('ElectronFileProjectBackend · 保存意图', () => {
     await b.save(makeProject());
     expect(t.puts[0].doc.audioIntent).toBe('cleared');
     expect(t.puts[0].doc.coverIntent).toBe('cleared');
+    expect(t.puts[0].doc.liveBgIntent).toBe('cleared');
     expect(t.puts[0].audio).toBeUndefined();
     expect(t.puts[0].cover).toBeUndefined();
+    expect(t.puts[0].liveBg).toBeUndefined();
   });
 
   it('put 失败回滚音频/封面缓存：下次保存重新补发字节', async () => {
@@ -227,7 +229,8 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     const listed = await b.list();
     expect(listed.map((p) => p.id).sort()).toEqual(['pA', 'pC']);
     expect(listed.find((p) => p.id === 'pC')?.charts[0].diff).toBe(4);
-    expect(listed.every((p) => p.audioBlob == null)).toBe(true);
+    expect(listed.find((p) => p.id === 'pC')?.charts[0].noteCount).toBe(1);
+    expect(listed.every((p) => !('audioBlob' in p))).toBe(true);
 
     await expect(b.get('pA')).resolves.toMatchObject({ name: 'A', lastOpened: 10 });
     await b.delete('pA');
@@ -236,7 +239,7 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     await expect(b.get('pC')).resolves.toMatchObject({ name: 'C' });
   });
 
-  it('list 带封面字节、不带音频', async () => {
+  it('list 与 getSummary 走轻量摘要：不带封面与音频字节，带 coverPresent / coverVersion / noteCount', async () => {
     const t = makeMemoryProjectBridge();
     const b = new ElectronFileProjectBackend(t.bridge);
     await b.save(makeProject({
@@ -247,9 +250,16 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     }));
     const listed = await b.list();
     expect(listed).toHaveLength(1);
-    expect(listed[0].audioBlob).toBeUndefined();
-    expect(listed[0].coverBlob).toBeInstanceOf(Blob);
-    await expect(listed[0].coverBlob!.arrayBuffer()).resolves.toHaveProperty('byteLength', 2);
+    expect('audioBlob' in listed[0]).toBe(false);
+    expect(listed[0].coverBlob).toBeUndefined();
+    expect(listed[0].audioPresent).toBe(true);
+    expect(listed[0].coverPresent).toBe(true);
+    expect(listed[0].coverVersion).toBe('1-2');
+    expect(listed[0].charts[0]).not.toHaveProperty('notes');
+    expect(listed[0].charts[0].noteCount).toBe(1);
+
+    const summary = await b.getSummary('pSong1');
+    expect(summary).toEqual(listed[0]);
   });
 
   it('删除后记录与音频、封面字节都不在存储里', async () => {
@@ -306,6 +316,45 @@ describe('安全与门面', () => {
 
     expect(new ChartProjectStore()).toBeInstanceOf(ChartProjectStore);
     expect(new IndexedDbProjectBackend()).toBeDefined();
+  });
+
+  it('票 42 · 自定义背景 set / keep / cleared；复制走 copyFrom 不传像素', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    const pixels = blobOf([3, 3, 3]);
+    await b.save(makeProject({
+      liveBgName: 'live.png',
+      liveBgMime: 'image/png',
+      liveBgUseCustom: true,
+      liveBgFit: 'contain',
+      liveBgBlob: pixels,
+    }));
+    expect(t.puts[0].doc.liveBgIntent).toBe('set');
+    expect(Array.from(t.puts[0].liveBg!)).toEqual([3, 3, 3]);
+
+    const restored = await b.get('pSong1');
+    expect(restored!.liveBgBlob).toBeUndefined();
+    await b.save({ ...restored!, name: 'renamed' });
+    expect(t.puts[1].doc.liveBgIntent).toBe('keep');
+    expect(t.puts[1].liveBg).toBeUndefined();
+
+    const copy = makeProject({
+      id: 'pCopy1',
+      liveBgName: 'live.png',
+      liveBgMime: 'image/png',
+      liveBgUseCustom: true,
+      liveBgFit: 'contain',
+    });
+    await b.save(copy, { liveBgCopyFrom: 'pSong1' });
+    expect(t.puts[2].doc.liveBgIntent).toBe('set');
+    expect(t.puts[2].liveBgCopyFrom).toBe('pSong1');
+    expect(t.puts[2].liveBg).toBeUndefined();
+    const copied = await b.getLiveBg('pCopy1');
+    expect(Array.from(new Uint8Array(await copied!.arrayBuffer()))).toEqual([3, 3, 3]);
+
+    await b.save(makeProject({ id: 'pSong1' }));
+    expect(t.puts[t.puts.length - 1].doc.liveBgIntent).toBe('cleared');
+    await expect(b.getLiveBg('pSong1')).resolves.toBeNull();
   });
 
   it('源码不再含 IndexedDB→文件迁移', () => {

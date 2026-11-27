@@ -12,6 +12,8 @@ import { patternBpmRange } from '../../patterns/library';
 import { t } from '../../i18n';
 import BpmRange, { formatBpmRange } from './BpmRange';
 import { useCanvasCapsule } from './useCanvasCapsule';
+import { useCapsuleMaxHeight } from './useCapsuleMaxHeight';
+import { useCapsuleWheelContainment } from './useCapsuleWheelContainment';
 import './CanvasCapsule.css';
 import './PatternPastePill.css';
 
@@ -19,6 +21,8 @@ export default memo(function PatternPastePill() {
   const { armedTool, patternPaste, patternPasteWithBpm, setPatternPasteWithBpm } = useUI();
   const visible = armedTool === 'paste' && patternPaste !== null;
   const { open, toggle, dismiss, rootRef, pillRef } = useCanvasCapsule(visible);
+  useCapsuleMaxHeight(rootRef, visible);
+  useCapsuleWheelContainment(rootRef, visible);
 
   if (!visible || !patternPaste) return null;
 

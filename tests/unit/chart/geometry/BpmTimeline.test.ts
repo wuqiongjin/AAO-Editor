@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BpmTimeline } from '@/src/chart/geometry/BpmTimeline';
-import { DEFAULT_BPM, getBpmEvents, beatToSeconds, secondsToBeat } from '@/src/audio/AudioTiming';
+import { getBpmEvents, beatToSeconds, secondsToBeat } from '@/src/audio/AudioTiming';
 import type { ChartNote } from '@/src/chart/types';
 
 describe('BpmTimeline（秒坐标系）', () => {
@@ -50,14 +50,15 @@ describe('BpmTimeline（秒坐标系）', () => {
 });
 
 describe('AudioTiming 复用 BpmTimeline 后行为不变', () => {
-  it('beatToSeconds / secondsToBeat 与 getBpmEvents 协作', () => {
+  it('beatToSeconds / secondsToBeat 与 getBpmEvents 协作（首条 BPM 即原点）', () => {
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 60, bpm: 240 },
       { type: 'BPM', beat: 30, bpm: 180 },
     ];
     const events = getBpmEvents(notes);
-    expect(events[0]).toEqual({ beat: 0, bpm: DEFAULT_BPM });
-    expect(beatToSeconds(events, 0)).toBe(0);
+    expect(events[0]).toEqual({ beat: 30, bpm: 180 });
+    expect(beatToSeconds(events, 30)).toBe(0);
+    expect(beatToSeconds(events, 0)).toBeCloseTo(-10);
     expect(secondsToBeat(events, beatToSeconds(events, 30))).toBeCloseTo(30, 6);
   });
 });
@@ -140,5 +141,23 @@ describe('BpmTimeline · 倒流区反查与层（issue 104）', () => {
     expect(sols[0].segmentIndex).toBe(1);
     expect(Number.isFinite(sols[0].beat)).toBe(true);
     expect(tl.beatRangesForPositionRange(0, 8).every(r => Number.isFinite(r.start) && Number.isFinite(r.end))).toBe(true);
+  });
+
+  it('最小 beat 上同拍多条 BPM：负向区间 / 反查 / 可见拍区间一律按最后一条生效', () => {
+    const tl = sec([
+      { beat: 1, bpm: -120 },
+      { beat: 1, bpm: 180 },
+    ]);
+    // beat 0 在最小 beat=1 之前，必须按 180（1/3 s/拍）向前外推得 -1/3s，而不是被覆盖的 -120（+0.5s）
+    expect(tl.positionOfBeat(0)).toBeCloseTo(-1 / 3, 6);
+    expect(tl.segmentIndexAtBeat(0)).toBe(1);
+    const sols = tl.beatSolutionsOf(-1 / 3);
+    expect(sols).toHaveLength(1);
+    expect(sols[0]!.segmentIndex).toBe(1);
+    expect(sols[0]!.beat).toBeCloseTo(0, 6);
+    const ranges = tl.beatRangesForPositionRange(-1 / 3, 1 / 3);
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]!.start).toBeCloseTo(0, 6);
+    expect(ranges[0]!.end).toBeCloseTo(2, 6);
   });
 });

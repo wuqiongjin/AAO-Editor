@@ -5,14 +5,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     platform: process.platform,
     versions: process.versions,
     // 谱面工程文件后端：渲染进程经此桥把工程数据落到数据根文件。
-    // get 返回 { doc, audio, cover } 或 null；put 的 doc 是已编码 JSON 文本（issue 232）。
+    // get 返回 { doc: string, audio, cover } 或 null；list/getSummary 返回 JSON 文本（chart-projects 44）；put 的 doc 是已编码 JSON 文本（issue 232）。
     projectStore: {
         get: (id) => ipcRenderer.invoke('project:get', id),
+        getSummary: (id) => ipcRenderer.invoke('project:getSummary', id),
+        touchLastOpened: (id, now) => ipcRenderer.invoke('project:touchLastOpened', id, now),
         put: (payload) => ipcRenderer.invoke('project:put', payload),
         list: () => ipcRenderer.invoke('project:list'),
         delete: (id) => ipcRenderer.invoke('project:delete', id),
         // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1），字节不过 IPC
         uploadRefs: (id) => ipcRenderer.invoke('project:uploadRefs', id),
+        getLiveBg: (id) => ipcRenderer.invoke('project:getLiveBg', id),
     },
     // issue 118：谱面代码另存为。每次弹出系统保存对话框，不记路径。
     chartCodeExport: {
@@ -56,6 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 浏览器侧没有这条桥 = 静态演示版，能力层降级为「平台不可用」。
     communityNet: {
         request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
+        cancel: (requestId) => ipcRenderer.invoke('communityNet:cancel', requestId),
     },
     // bestdori-integration 10：会话 Cookie 的加密持久化（safeStorage 在主进程）。
     // 三条通道**都不收也不回凭据**：恢复 / 落盘 / 清除都由主进程从它自己那份内存 jar 做，

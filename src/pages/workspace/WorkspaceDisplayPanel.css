@@ -48,7 +48,7 @@
   outline-offset: 1px;
 }
 
-/* 浮层面板：半透明毛玻璃 elevated 背景 + 320px 内容宽 */
+/* 浮层面板：elevated 实底 + 320px 内容宽（票 87：播放中不加 backdrop-filter） */
 .wdp__panel {
   width: 320px;
   box-sizing: border-box;
@@ -56,9 +56,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px;
-  background-color: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background-color: var(--bg-elevated);
 }
 
 .wdp__group {
@@ -141,17 +139,6 @@
   min-height: 28px;
   max-width: 132px;
   font-size: var(--text-xs);
-}
-
-/* 操作偏好气泡：微调宽度与偏移，箭头精准对齐 ? 按钮居中，在 320px 面板内完整呈现不截断 */
-.wdp__panel .dialog-field__popover {
-  width: 220px;
-  left: -80px;
-}
-
-.wdp__panel .dialog-field__popover::after,
-.wdp__panel .dialog-field__popover::before {
-  left: 88px;
 }
 
 /* 恢复默认底部行：固定稳定高度，二次确认切换 0 抖动 0 收缩 */

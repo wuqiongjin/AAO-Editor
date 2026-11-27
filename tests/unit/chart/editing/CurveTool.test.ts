@@ -24,8 +24,9 @@ function commitPenStroke(
 }
 import { clickOps, boxSelectOps } from '@/src/chart/editing/ToolActionMatrix';
 import {
-  curveChainClickOps, execCurveOps, placeSpanWithCombination,
-  type CurveConfig, type CurveDraft,
+  DEFAULT_CURVE_CONFIG, DEFAULT_LAST_TEMPLATE_ID, TEMPLATE_CATEGORY_FILTERS,
+  curveChainClickOps, execCurveOps, normalizeCurveConfig, placeSpanWithCombination,
+  resolveLastTemplateId, spanParamFromCurveConfig, type CurveConfig, type CurveDraft,
 } from '@/src/chart/editing/CurveTool';
 import { effectiveSpanParams, countVisibleNodes } from '@/src/chart/editing/SpanCurve';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
@@ -73,6 +74,20 @@ describe('issue 09 · 按下仲裁：曲线工具态 = 画笔优先（ADR-0008 �
       ...base, cx: p.x, cy: p.y, armedTool: 'curve',
       deps: { geometry, viewport, beatDisplay: 4, notes },
       selectedItems: [{ kind: 'note', noteIndex: 0 }, { kind: 'note', noteIndex: 1 }],
+    });
+    expect(intent.kind).toBe('marquee');
+  });
+
+  it('issue 254：Ctrl+左键整条选中（{kind:note}）后点端点 → 不启画笔', () => {
+    const notes: ChartNote[] = [
+      bpmAt0,
+      { type: 'Slide', connections: [{ beat: 2, lane: 3 }, { beat: 6, lane: 5 }] },
+    ];
+    const p = at(3, 2);
+    const intent = resolvePressIntent({
+      ...base, cx: p.x, cy: p.y, armedTool: 'curve',
+      deps: { geometry, viewport, beatDisplay: 4, notes },
+      selectedItems: [{ kind: 'note', noteIndex: 1 }],
     });
     expect(intent.kind).toBe('marquee');
   });
@@ -386,6 +401,175 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     const edited = setNotes.notes[1] as SlideNote;
     expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'template', templateId: 's-curve', precision: 16 });
     expect(edited.connections.filter((c) => c.hidden).length).toBe(expectedLen);
+  });
+
+  it('issue 235 · CurveConfig 携带偏向/幅度/段密时完整写入 SpanTemplateParam 并烘焙', () => {
+    const rich: CurveConfig = {
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: 'zigzag',
+      templateMirrored: true,
+      templateScale: 1.5,
+      templateDensity: 2,
+    };
+    const afterFirst = input({ pos: { beat: 1, lane: 3 }, curveConfig: rich });
+    const draft = (afterFirst[0] as Extract<typeof afterFirst[0], { t: 'setCurveBuffer' }>).draft!;
+    const ops = input({ notes: [bpmAt0], pos: { beat: 3, lane: 3 }, curveDraft: draft, curveConfig: rich });
+    const setNotes = ops.find((o) => o.t === 'setNotes') as { t: 'setNotes'; notes: ChartNote[] };
+    const slide = setNotes.notes[1] as SlideNote;
+    expect(effectiveSpanParams(slide)[0]).toEqual({
+      kind: 'template',
+      templateId: 'zigzag',
+      precision: 16,
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    });
+    // zigzag default 0.45 * 2 lanes * 1.5 = 1.35 → [1.65, 4.35] around center lane 3
+    const hiddens = slide.connections.filter((c) => c.hidden);
+    expect(Math.max(...hiddens.map((c) => c.lane))).toBeCloseTo(4.35, 6);
+    expect(Math.min(...hiddens.map((c) => c.lane))).toBeCloseTo(1.65, 6);
+  });
+
+  it('issue 240 · spanParamFromCurveConfig 按模板能力裁剪无效通用项并透传非默认 extra', () => {
+    const baseCfg: CurveConfig = {
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: 'step',
+      templateMirrored: true,
+      templateScale: 1.5,
+      templateDensity: 2,
+      templateExtras: {
+        step: { stepStyle: 'sharp' },
+        pulse: { pulsePos: 0 },
+      },
+    };
+    // step 不支持偏向与幅度：mirrored / amplitudeScale 不写入 SpanTemplateParam
+    expect(spanParamFromCurveConfig(baseCfg)).toEqual({
+      kind: 'template',
+      templateId: 'step',
+      precision: 16,
+      densityScale: 2,
+      extra: { stepStyle: 'sharp' },
+    });
+
+    // 切去 pulse：按模板 ID 独立读取 pulse 的 extra，且保留偏向与幅度
+    expect(spanParamFromCurveConfig({ ...baseCfg, templateId: 'pulse' })).toEqual({
+      kind: 'template',
+      templateId: 'pulse',
+      precision: 16,
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+      extra: { pulsePos: 0 },
+    });
+
+    // 专属参数为默认值时省略 extra
+    expect(spanParamFromCurveConfig({
+      ...baseCfg,
+      templateId: 'pulse',
+      templateExtras: { pulse: { pulsePos: 50 } },
+    })).toEqual({
+      kind: 'template',
+      templateId: 'pulse',
+      precision: 16,
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    });
+  });
+
+  it('issue 244 · templateBaseline 越界钳进 ±200、按步长 5 吸附；缺省 0', () => {
+    expect(DEFAULT_CURVE_CONFIG.templateBaseline).toBe(0);
+    expect(normalizeCurveConfig({}).templateBaseline).toBe(0);
+    expect(normalizeCurveConfig({ templateBaseline: 999 }).templateBaseline).toBe(200);
+    expect(normalizeCurveConfig({ templateBaseline: -203 }).templateBaseline).toBe(-200);
+    expect(normalizeCurveConfig({ templateBaseline: 37 }).templateBaseline).toBe(35);
+    expect(normalizeCurveConfig({ templateBaseline: 38 }).templateBaseline).toBe(40);
+    expect(normalizeCurveConfig({ templateBaseline: Number.NaN }).templateBaseline).toBe(0);
+    expect(normalizeCurveConfig({ templateBaseline: '100' }).templateBaseline).toBe(0);
+  });
+
+  it('issue 242 · 模板分类白名单与上次模板解析：缺省/非法回落、旧设置按生效模板迁移', () => {
+    expect(TEMPLATE_CATEGORY_FILTERS).toEqual(['all', 'smooth', 'rhythm', 'special']);
+    expect(normalizeCurveConfig({ templateCategory: 'rhythm' }).templateCategory).toBe('rhythm');
+    expect(normalizeCurveConfig({ templateCategory: 'all' }).templateCategory).toBe('all');
+    expect(normalizeCurveConfig({ templateCategory: 'ghost' }).templateCategory).toBe('all');
+
+    expect(resolveLastTemplateId({ lastTemplateId: 'gluten-comb' })).toBe('gluten-comb');
+    // 242 之前只落 templateId：它同时就是「上次选用的」，不能丢回 S 形
+    expect(resolveLastTemplateId({ templateId: 'arc' })).toBe('arc');
+    expect(resolveLastTemplateId({ lastTemplateId: 'ghost', templateId: 'arc' })).toBe('arc');
+    expect(resolveLastTemplateId({})).toBe(DEFAULT_LAST_TEMPLATE_ID);
+    expect(normalizeCurveConfig({ templateId: 'wave' }).lastTemplateId).toBe('wave');
+  });
+
+  it('issue 244 · 切模板不归零：六款双侧摆动模板读到同一个单值', () => {
+    for (const templateId of ['zigzag', 'damped', 'gluten-spindle', 'gluten-saw', 'chain-square', 'chain-alt']) {
+      expect(spanParamFromCurveConfig({
+        family: 'sine', type: 'in', precision: 16, templateId, templateBaseline: 100,
+      }), templateId).toEqual({
+        kind: 'template', templateId, precision: 16, extra: { baseline: 100 },
+      });
+    }
+  });
+
+  it('issue 244 · 默认 0 不写进 SpanParam；未声明基线的模板也不写', () => {
+    expect(spanParamFromCurveConfig({
+      family: 'sine', type: 'in', precision: 16, templateId: 'zigzag', templateBaseline: 0,
+    })).toEqual({ kind: 'template', templateId: 'zigzag', precision: 16 });
+
+    expect(spanParamFromCurveConfig({
+      family: 'sine', type: 'in', precision: 16, templateId: 'pulse', templateBaseline: 100,
+    })).toEqual({ kind: 'template', templateId: 'pulse', precision: 16 });
+  });
+
+  it('issue 244 · 旧记忆迁移：优先当前模板，其次按对象键序取第一个非零值，并从 extras 清除', () => {
+    const current = normalizeCurveConfig({
+      templateId: 'damped',
+      templateExtras: {
+        zigzag: { baseline: 50 },
+        damped: { baseline: -100 },
+        pulse: { pulsePos: 25 },
+      },
+    });
+    expect(current.templateBaseline).toBe(-100);
+    expect(current.templateExtras).toEqual({ pulse: { pulsePos: 25 } });
+
+    // 当前模板没有基线记忆（尖刺不声明）→ 按键序取第一个非零值
+    const byKeyOrder = normalizeCurveConfig({
+      templateId: 'pulse',
+      templateExtras: {
+        'gluten-saw': { baseline: 35 },
+        'chain-alt': { baseline: 100 },
+        pulse: { pulsePos: 25 },
+      },
+    });
+    expect(byKeyOrder.templateBaseline).toBe(35);
+    expect(byKeyOrder.templateExtras).toEqual({ pulse: { pulsePos: 25 } });
+
+    // 只剩基线记忆 → templateExtras 整体退场
+    const onlyBaseline = normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateExtras: { zigzag: { baseline: 60 } },
+    });
+    expect(onlyBaseline.templateBaseline).toBe(60);
+    expect(onlyBaseline.templateExtras).toBeUndefined();
+
+    // 新字段优先于旧记忆
+    expect(normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateBaseline: -50,
+      templateExtras: { zigzag: { baseline: 100 } },
+    })).toMatchObject({ templateBaseline: -50 });
+
+    // 当前模板显式记 0 不阻断「按键序取第一个非零值」
+    expect(normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateExtras: { zigzag: { baseline: 0 }, 'chain-alt': { baseline: 100 } },
+    })).toMatchObject({ templateBaseline: 100 });
   });
 });
 

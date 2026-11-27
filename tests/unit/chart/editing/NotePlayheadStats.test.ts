@@ -113,3 +113,25 @@ describe('formatTimeWhole（整秒）', () => {
     expect(formatTimeWhole(30)).toBe('00:30');
   });
 });
+
+// issue 63 P1：首条 BPM 之前（时间 < 0）的击打物**计入**音符数与 combo ——
+// Sonolus 演示模式开局 combo 就已包含它们；只有画布渲染 / 键音 / 选区排除。
+describe('issue 63 · 首条 BPM 之前的击打物仍计入音符数与 combo', () => {
+  const notes = [
+    { type: 'BPM', beat: -4, bpm: 120 },
+    { type: 'Single', beat: -2, lane: 0 },  // 时间 1s（负拍但可见）
+    { type: 'Single', beat: -5, lane: 1 },  // 时间 −0.5s（首条之前）
+    { type: 'Single', beat: 0, lane: 2 },   // 时间 2s
+  ] as unknown as ChartNote[];
+
+  it('countChartNotes 不因时间 < 0 扣掉', () => {
+    expect(countChartNotes(notes)).toBe(3);
+  });
+
+  it('countNotesUpToBeat 从首条 BPM 起算时包含它之前的所有击打物', () => {
+    // 判定线（beat -4）处：beat ≤ -4 的击打物只有 -5 那条
+    expect(countNotesUpToBeat(notes, -4)).toBe(1);
+    expect(countNotesUpToBeat(notes, -2)).toBe(2);
+    expect(countNotesUpToBeat(notes, 100)).toBe(countChartNotes(notes));
+  });
+});

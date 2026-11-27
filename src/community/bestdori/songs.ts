@@ -13,10 +13,10 @@
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
 import { trail } from '../../diagnostics/trail';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
-import { dedupInflight } from '../inflight';
+import { dedupInflight, forwardAbortSignal } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { invalidResponse, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
+import { abortedRequest, invalidResponse, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
 import { officialAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -46,6 +46,7 @@ async function fetchJson(
   onRetry?: (notice: RetryNotice) => void,
   revalidate = false,
   freshFirst = false,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   return withRetry(
     () => transport.requestJson({
@@ -57,14 +58,15 @@ async function fetchJson(
       ...(revalidate ? { revalidate: true } : {}),
       // 启动后首次访问穿透请求最新，失败自动回退磁盘缓存（票 29）
       ...(freshFirst ? { freshFirst: true } : {}),
+      ...(signal ? { signal } : {}),
     }),
-    { policy: BESTDORI_RETRY_POLICY, onRetry },
+    { policy: BESTDORI_RETRY_POLICY, onRetry, signal },
   );
 }
 
 type CatalogCache = { language: UiLanguage; songs: SongCandidate[] };
 let catalogCache: CatalogCache | null = null;
-let catalogInflight: { language: UiLanguage; promise: Promise<SongCandidate[]> } | null = null;
+let catalogInflight: { language: UiLanguage; promise: Promise<SongCandidate[]>; abort: () => void } | null = null;
 
 /** 测试与语言切换：清掉进程内曲库缓存（票 13 #4） */
 export function clearSongCatalogCache(): void {
@@ -72,10 +74,43 @@ export function clearSongCatalogCache(): void {
   catalogInflight = null;
 }
 
+/** 将候选曲库写入会话内存缓存（票 57：取消拉取回落缓存后，同会话再次打开面板可秒出） */
+export function commitSongCatalogCache(
+  songs: SongCandidate[],
+  language: UiLanguage = getActiveUiLanguage(),
+): SongCandidate[] {
+  const marked = markJsonFromCache(songs);
+  catalogCache = { language, songs: marked };
+  return marked;
+}
+
+/**
+ * 仅从主进程本地磁盘缓存读取曲库索引（票 57）：
+ * **必须同时存在** songs/all.5.json 与 bands/all.1.json 才视作完整缓存，缺任一份回 null。
+ */
+export async function loadSongCatalogFromCache(
+  transport: CommunityTransport,
+  language: UiLanguage = getActiveUiLanguage(),
+  options: { rememberInSession?: boolean } = {},
+): Promise<SongCandidate[] | null> {
+  try {
+    const reqInit = { method: 'GET' as const, headers: bestdoriHeaders(), timeoutMs: BESTDORI_JSON_TIMEOUT_MS, cacheOnly: true };
+    const [index, bands] = await Promise.all([
+      transport.requestJson({ ...reqInit, url: songsIndexUrl() }),
+      transport.requestJson({ ...reqInit, url: bandsIndexUrl() }),
+    ]);
+    const songs = toSongCandidates(index, bands, language);
+    return options.rememberInSession === false ? markJsonFromCache(songs) : commitSongCatalogCache(songs, language);
+  } catch {
+    return null;
+  }
+}
+
 async function fetchStaged(
   transport: CommunityTransport,
   url: string,
   suggestedName: string,
+  mediaKind: 'audio' | 'image',
   timeoutMs: number = BESTDORI_BINARY_TIMEOUT_MS,
 ): Promise<StagedBinary> {
   return withRetry(
@@ -85,6 +120,7 @@ async function fetchStaged(
       headers: bestdoriHeaders('*/*'),
       timeoutMs,
       suggestedName,
+      mediaKind,
     }),
     { policy: BESTDORI_RETRY_POLICY },
   );
@@ -108,17 +144,35 @@ export async function fetchSongCatalog(
   transport: CommunityTransport,
   language: UiLanguage = getActiveUiLanguage(),
   onRetry?: (notice: RetryNotice) => void,
+  signal?: AbortSignal,
 ): Promise<SongCandidate[]> {
+  if (signal?.aborted) throw abortedRequest();
   // 刷新还在飞时优先并进（即便上一份缓存还在）——关窗再开才能接到同一枪
-  if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
+  if (catalogInflight && catalogInflight.language === language) {
+    const existing = catalogInflight;
+    return forwardAbortSignal(existing.promise, existing.abort, signal);
+  }
   if (catalogCache && catalogCache.language === language) return catalogCache.songs;
+
+  const controller = new AbortController();
+  let promise: Promise<SongCandidate[]>;
+  const clearInflight = () => {
+    if (catalogInflight?.promise === promise) catalogInflight = null;
+  };
+  const abort = () => {
+    clearInflight();
+    controller.abort();
+  };
+  const onOuterAbort = () => abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
 
   const started = Date.now();
   trail.record({ module: 'community', action: 'browse-start' });
-  const promise = Promise.all([
-    fetchJson(transport, songsIndexUrl(), onRetry, false, true),
-    fetchJson(transport, bandsIndexUrl(), onRetry, false, true),
+  promise = Promise.all([
+    fetchJson(transport, songsIndexUrl(), onRetry, false, true, controller.signal),
+    fetchJson(transport, bandsIndexUrl(), onRetry, false, true, controller.signal),
   ]).then(([index, bands]) => {
+    if (controller.signal.aborted) throw abortedRequest();
     const songs = toSongCandidates(index, bands, language);
     const fromCache = isJsonFromCache(index) || isJsonFromCache(bands);
     catalogCache = { language, songs: fromCache ? markJsonFromCache(songs) : songs };
@@ -138,9 +192,10 @@ export async function fetchSongCatalog(
     });
     throw err;
   }).finally(() => {
-    if (catalogInflight?.language === language) catalogInflight = null;
+    signal?.removeEventListener('abort', onOuterAbort);
+    clearInflight();
   });
-  catalogInflight = { language, promise };
+  catalogInflight = { language, promise, abort };
   return promise;
 }
 
@@ -183,7 +238,7 @@ export function refreshSongCatalog(
   }).finally(() => {
     if (catalogInflight?.language === language) catalogInflight = null;
   });
-  catalogInflight = { language, promise };
+  catalogInflight = { language, promise, abort: () => {} };
   return promise;
 }
 
@@ -241,7 +296,7 @@ export async function fetchOfficialAudio(
   song: SongCandidate,
   detail: OfficialSongDetail,
 ): Promise<StagedBinary> {
-  const staged = await fetchStaged(transport, officialAudioUrl(detail.bgmId, song.server), audioFileName(song));
+  const staged = await fetchStaged(transport, officialAudioUrl(detail.bgmId, song.server), audioFileName(song), 'audio');
   if (!looksLikeMedia(staged.contentType, 'audio')) {
     throw invalidResponse(`官方音频取不到（拿到的不是音频）：song ${song.id} · ${staged.contentType ?? '无 content-type'}`);
   }
@@ -258,8 +313,13 @@ export async function fetchOfficialCover(
   song: SongCandidate,
   timeoutMs: number = BESTDORI_BINARY_TIMEOUT_MS,
 ): Promise<StagedBinary | null> {
-  const staged = await fetchStaged(transport, jacketPreviewUrl(song), coverFileName(song), timeoutMs);
-  return looksLikeMedia(staged.contentType, 'image') ? staged : null;
+  if (song.jacketImage === '') return null;
+  const staged = await fetchStaged(transport, jacketPreviewUrl(song), coverFileName(song), 'image', timeoutMs);
+  if (isPlatformFallbackPage(staged.contentType)) return null;
+  if (!looksLikeMedia(staged.contentType, 'image')) {
+    throw invalidResponse(`官方封面不是预期图片类型：song ${song.id} · ${staged.contentType}`);
+  }
+  return staged;
 }
 
 /** 音频落进工程后记的名字（也是缓存文件名建议）：`official-29-BLACK SHOUT.mp3`（票 35 统一规则） */
@@ -313,6 +373,7 @@ export function ensureOfficialCoverCached(
   transport: CommunityTransport,
   song: SongCandidate,
 ): Promise<StagedBinary | null> {
+  if (song.jacketImage === '') return Promise.resolve(null);
   return dedupInflight(coverInflight, jacketPreviewUrl(song), () =>
     fetchOfficialCover(transport, song, BESTDORI_COVER_TIMEOUT_MS));
 }

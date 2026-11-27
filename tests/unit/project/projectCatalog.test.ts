@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { convertNotesToChartCode } from '@/src/chart/editing/ChartConverter';
 import {
   addChartToProject,
+  applyChartCodeText,
   chartSwitchLabel,
   diffPillLabel,
   createBlankProject,
+  createOfficialProject,
   deleteChartFromProject,
   duplicateChartInProject,
   duplicateProject,
@@ -19,9 +21,9 @@ import {
   updateChartTags,
   updateUploadedChartMeta,
 } from '@/src/project/projectCatalog';
-import { createUnnamedProject } from '@/src/project/workspaceProject';
+import { createUnnamedProject, emptyChartNotes } from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
-import { setActiveUiLanguage } from '@/src/i18n';
+import { setActiveUiLanguage, t } from '@/src/i18n';
 
 const untitled = '未命名工程';
 
@@ -103,6 +105,92 @@ describe('addChartToProject · 谱面代码 Apply 闸门', () => {
     }, { chartId: 'cBad', now: 9 });
     expect(result.ok).toBe(false);
     expect(src.charts).toHaveLength(1);
+  });
+});
+
+describe('issue 62 · beat 0 / BPM 规则', () => {
+  const official = (overrides: Record<string, unknown> = {}) => createOfficialProject({
+    id: 'pOfficial1',
+    chartId: 'cOfficial1',
+    now: 7,
+    name: '测试曲',
+    artist: null,
+    source: { type: 'bandori', id: 1 },
+    durationSeconds: 30,
+    audioName: null,
+    coverName: null,
+    diff: 3,
+    level: null,
+    ...overrides,
+  });
+
+  it('接受没有 beat 0、但至少有一条 BPM 的谱面代码', () => {
+    const result = applyChartCodeText(JSON.stringify([
+      { type: 'BPM', bpm: 165, beat: 1 },
+      { type: 'BPM', bpm: 150, beat: 2 },
+      { type: 'Single', lane: 0, beat: 19 },
+    ]));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.emptyInput).toBe(false);
+    expect(result.chartCodePristine).toBe(true);
+    expect(result.notes.filter((note) => note.type === 'BPM')).toEqual([
+      { type: 'BPM', bpm: 165, beat: 1 },
+      { type: 'BPM', bpm: 150, beat: 2 },
+    ]);
+  });
+
+  it('非空但没有 BPM：拒绝并指向 needBpm', () => {
+    const result = applyChartCodeText(JSON.stringify([{ type: 'Single', lane: 0, beat: 19 }]));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toEqual([{ noteIndex: -1, reason: t('chartCode.needBpm') }]);
+  });
+
+  it('空数组 []：按空谱面处理（新增谱面落默认 BPM）', () => {
+    const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });
+    const result = addChartToProject(src, {
+      title: null,
+      diff: 2,
+      level: null,
+      codeText: '[]',
+    }, { chartId: 'cHd1', now: 2 });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chart.notes).toEqual(emptyChartNotes());
+    expect(result.chart.appliedChartCodeText).toBeNull();
+    expect(result.chart.chartCodePristine).toBe(false);
+  });
+
+  it('导入来源真的带了谱面但为空：拒绝为 emptyChart', () => {
+    const result = official({ chartCodeText: '[]', chartProvided: true });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toEqual([{ noteIndex: -1, reason: t('chartCode.emptyChart') }]);
+  });
+
+  it('导入来源没带谱面：空文本仍建默认 BPM 空谱', () => {
+    const result = official({ chartCodeText: '', chartProvided: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chart.notes).toEqual(emptyChartNotes());
+  });
+
+  it('导入的来源谱面没有 beat 0：接受', () => {
+    const result = official({
+      chartProvided: true,
+      chartCodeText: JSON.stringify([
+        { type: 'BPM', bpm: 165, beat: 1 },
+        { type: 'Single', lane: 0, beat: 19 },
+      ]),
+    });
+
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -271,6 +359,33 @@ describe('deleteChartFromProject · 至少一张谱面', () => {
     if (!result.ok) return;
     expect(result.project.charts.map((c) => c.id)).toEqual(['cHd1']);
   });
+
+  it('待确认谱面不能删，复制会去掉待确认状态', () => {
+    const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });
+    const added = addChartToProject(src, { title: null, diff: 2, level: null, codeText: '' }, { chartId: 'cHd1', now: 2 });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    const pending = {
+      attemptId: 'attempt-58',
+      at: 1,
+      username: 'author',
+      song: { type: 'bandori' as const, id: 413 },
+      chartDigest: 'digest',
+      tags: [],
+    };
+    const locked = {
+      ...added.project,
+      charts: added.project.charts.map((chart) => (
+        chart.id === 'cEx1' ? { ...chart, pendingPublish: pending } : chart
+      )),
+    };
+    expect(deleteChartFromProject(locked, 'cEx1')).toEqual({ ok: false, reason: 'pending' });
+    const copy = duplicateChartInProject(locked, 'cEx1', { chartId: 'cCopy', now: 3 }, untitled);
+    expect(copy?.charts.find((chart) => chart.id === 'cEx1')?.pendingPublish).toEqual(pending);
+    const duplicated = copy?.charts.find((chart) => chart.id === 'cCopy');
+    expect(duplicated?.upload).toBeNull();
+    expect(duplicated?.pendingPublish).toBeUndefined();
+  });
 });
 
 describe('duplicateProject · 照搬工程、谱面状态不带', () => {
@@ -327,6 +442,25 @@ describe('duplicateProject · 照搬工程、谱面状态不带', () => {
     expect(src.charts[0].completed).toBe(true);
     expect(src.charts[0].upload).toEqual({ postId: 254301, at: 3 });
   });
+
+  it('票 42 · 自定义表演背景元数据一起带走（sidecar 由存储层拷）', () => {
+    const src = createBlankProject({
+      id: 'pSrcBg',
+      chartId: 'cSrcBg',
+      now: 10,
+      name: 'FIRE BIRD',
+      diff: 3,
+    });
+    src.liveBgName = 'live.png';
+    src.liveBgMime = 'image/png';
+    src.liveBgUseCustom = true;
+    src.liveBgFit = 'contain';
+    const copy = duplicateProject(src, { id: 'pCopyBg', chartIds: ['cCopyBg'], now: 99 });
+    expect(copy.liveBgName).toBe('live.png');
+    expect(copy.liveBgMime).toBe('image/png');
+    expect(copy.liveBgUseCustom).toBe(true);
+    expect(copy.liveBgFit).toBe('contain');
+  });
 });
 
 describe('票 42 Q3 · 发布描述草稿持久化', () => {
@@ -365,6 +499,24 @@ describe('票 42 Q3 · 发布描述草稿持久化', () => {
     // 重复调用被拒（只写一次）
     const second = recordChartUpload(uploaded!, 'c1', { postId: 99999, at: 300 });
     expect(second).toBeNull();
+  });
+
+  it('recordChartUpload：待确认谱面只接受同一 attemptId，补记后清掉 pending', () => {
+    const base = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const pending = {
+      attemptId: 'attempt-58',
+      at: 100,
+      username: 'author',
+      song: { type: 'bandori' as const, id: 413 },
+      chartDigest: 'digest',
+      tags: [],
+    };
+    const waiting = { ...base, charts: [{ ...base.charts[0], pendingPublish: pending }] };
+    expect(recordChartUpload(waiting, 'c1', { postId: 71, at: 200 })).toBeNull();
+    expect(recordChartUpload(waiting, 'c1', { postId: 71, at: 200 }, 'other')).toBeNull();
+    const uploaded = recordChartUpload(waiting, 'c1', { postId: 71, at: 200 }, 'attempt-58');
+    expect(uploaded?.charts[0]).toMatchObject({ upload: { postId: 71, at: 200 } });
+    expect(uploaded?.charts[0]).not.toHaveProperty('pendingPublish');
   });
 });
 

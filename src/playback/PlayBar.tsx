@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Volume2, VolumeX, Play, Pause, Lock } from "lucide-react";
 import { formatTimePrecise, formatTimeWhole, parseTimeInput, type TimePrecision } from '../chart/geometry/TimeFormat';
 import { t } from '../i18n';
@@ -42,6 +42,8 @@ export interface PlayBarProps {
   onVolumeChange: (v: number) => void;
   /** 进度条 seek（点击/拖动/时间码双击编辑）：目标秒→引擎定位，暂停不自动播（ADR-0004 + issue 22） */
   onSeek: (sec: number) => void;
+  /** 进度条拖拽态变更（按下 true / 抬起或取消 false），供工作台区分交互式定位与程序化跳点 */
+  onScrubChange?: (scrubbing: boolean) => void;
 }
 
 export default function PlayBar({
@@ -60,9 +62,15 @@ export default function PlayBar({
   onTogglePlay,
   onVolumeChange,
   onSeek,
+  onScrubChange,
 }: PlayBarProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const pendingSeekRef = useRef<number | null>(null);
+  const seekRafRef = useRef<number | null>(null);
+  const onScrubChangeRef = useRef(onScrubChange);
+  onScrubChangeRef.current = onScrubChange;
 
   // 时间码双击原地编辑：改写当前播放位置秒数 → seek（issue 22 §4 / issue 39）
   const [editingTime, setEditingTime] = useState(false);
@@ -106,14 +114,38 @@ export default function PlayBar({
   const ratio = duration > 0 ? Math.max(0, Math.min(1, currentSeconds / duration)) : 0;
   const muted = volume <= 0;
 
+  const drainPendingSeek = useCallback(() => {
+    const target = pendingSeekRef.current;
+    if (target !== null) {
+      pendingSeekRef.current = null;
+      onSeek(target);
+    }
+  }, [onSeek]);
+
+  const flushPendingSeek = useCallback(() => {
+    if (seekRafRef.current !== null) {
+      cancelAnimationFrame(seekRafRef.current);
+      seekRafRef.current = null;
+    }
+    drainPendingSeek();
+  }, [drainPendingSeek]);
+
+  useEffect(() => () => {
+    if (seekRafRef.current !== null) cancelAnimationFrame(seekRafRef.current);
+    if (draggingRef.current) {
+      draggingRef.current = false;
+      onScrubChangeRef.current?.(false);
+    }
+  }, []);
+
   // 从指针位置解析目标秒（点击/拖动共用）
-  const seekFromPointer = useCallback((clientX: number) => {
+  const resolvePointerSeconds = useCallback((clientX: number): number | null => {
     const track = trackRef.current;
-    if (!track || duration <= 0) return;
+    if (!track || duration <= 0) return null;
     const rect = track.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    onSeek(t * duration);
-  }, [duration, onSeek]);
+    return t * duration;
+  }, [duration]);
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     // 允许无音频 seek：合成时间线（ADR-0004 §2）同样由引擎承载，进度定位与滚动条一致
@@ -122,14 +154,34 @@ export default function PlayBar({
     try {
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     } catch { /* 指针无效：忽略捕获，不影响 seek */ }
+    if (!draggingRef.current) {
+      draggingRef.current = true;
+      onScrubChange?.(true);
+    }
     setDragging(true);
-    seekFromPointer(e.clientX);
+    const sec = resolvePointerSeconds(e.clientX);
+    if (sec !== null) onSeek(sec);
   };
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging) return;
-    seekFromPointer(e.clientX);
+    if (!dragging && !draggingRef.current) return;
+    const sec = resolvePointerSeconds(e.clientX);
+    if (sec === null) return;
+    pendingSeekRef.current = sec;
+    if (seekRafRef.current === null) {
+      seekRafRef.current = requestAnimationFrame(() => {
+        seekRafRef.current = null;
+        drainPendingSeek();
+      });
+    }
   };
-  const endDrag = () => setDragging(false);
+  const endDrag = () => {
+    flushPendingSeek();
+    setDragging(false);
+    if (draggingRef.current) {
+      draggingRef.current = false;
+      onScrubChange?.(false);
+    }
+  };
 
   return (
     <div className={`play-bar play-bar--${variant}`}>
@@ -206,7 +258,7 @@ export default function PlayBar({
               rAF 16.7ms 间隔本身已足够平滑） */}
           <div
             className="play-bar__seek-fill"
-            style={{ width: `${ratio * 100}%` }}
+            style={{ transform: `scaleX(${ratio})` }}
           />
           <div
             className="play-bar__seek-dot"

@@ -468,4 +468,66 @@ describe('issue 179 · warmupBandStripStyles 滑条连接带贴图预采样', ()
   });
 });
 
+describe('issue 63 回归 · 滑条结点/子段/同时点击线在时间原点之前跳过直渲', () => {
+  it('renderNotes 对首条 BPM 之前的滑条结点、全负子段与同拍连线均不绘制', async () => {
+    const { renderNotes } = await import('@/src/rendering/render');
+    const { makeRecordingCtx } = await import('@/tests/support/canvas');
+    const geometry = new ChartGeometry([{ beat: 4, bpm: 120 }], { endBeat: 40 }, SURFACE);
+    const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1, virtualWidth: 0, virtualHeight: 0 };
+    const notes: ChartNote[] = [
+      // 原点前单键（beat 1）与滑条首端（beat 1）同拍，不应连同时点击线，也不应画节点或带体
+      { type: 'Single', lane: 1, beat: 1 },
+      {
+        type: 'Slide',
+        connections: [
+          { lane: 2, beat: 1 },
+          { lane: 2, beat: 2 }, // 子段 1→2 全在原点前
+          { lane: 4, beat: 6, flick: true }, // 跨原点 2→6 + 正常可见尾端
+        ],
+      },
+      // 另一条全在原点前的 flick 滑条：主精灵与 flick 装饰箭头均不画
+      {
+        type: 'Slide',
+        connections: [
+          { lane: 5, beat: 0 },
+          { lane: 6, beat: 2, flick: true },
+        ],
+      },
+    ];
+    const spriteRenders: { canvasY: number; kind: string }[] = [];
+    const { proxy, calls } = makeRecordingCtx();
+    const spriteIcon = {
+      render(_ctx: unknown, props: { canvasY: number; canvasSize?: number }) {
+        // drawBandQuad 也会调 spriteIcon.render 画连接带；这里区分节点图标（canvasSize === SLIDE_ICON_SIZE）与带体
+        spriteRenders.push({ canvasY: props.canvasY, kind: props.canvasSize === SLIDE_ICON_SIZE ? 'node' : 'band' });
+      },
+      renderDecorator(_ctx: unknown, anchor: { canvasY: number }) {
+        spriteRenders.push({ canvasY: anchor.canvasY, kind: 'dec' });
+      },
+    };
+    const rc = {
+      geometry, viewport, surface: SURFACE, dpr: 1, beatDisplay: BEAT_DISPLAY, chartEndBeat: 40, notes,
+      selectedItems: [], selectionBox: null, slideBuffer: null, hoverPos: null, hoverItem: null,
+      clipboard: [], markerSeconds: null, armedTool: null, rightButtonHeld: false,
+      spriteIcon, noteIcons: ICONS, previewSlideBands: true,
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, colorAssist: false },
+    } as unknown as RenderCtx;
+    const c = makeCoords(geometry, viewport, BEAT_DISPLAY, notes);
+    const visibleNotes = notes.map((note, index) => ({ note, index }));
+
+    renderNotes(proxy, c, rc, visibleNotes);
+
+    // 只有跨原点子段 (2→6) 的 band（1 次）+ beat 6 尾端节点（1 次）+ flick 装饰（1 次）被绘制；原点前全不画
+    const yAtBeat6 = c.virtualToCanvas(0, c.beatToVirtualY(6)).y;
+    expect(spriteRenders.filter((r) => r.kind !== 'band')).toEqual([
+      { canvasY: yAtBeat6, kind: 'node' },
+      { canvasY: yAtBeat6, kind: 'dec' },
+    ]);
+    expect(spriteRenders.filter((r) => r.kind === 'band')).toHaveLength(1);
+    // 不应画出任何同时点击白线（#fefefe stroke）
+    const strokes = calls.filter(([k]) => k === 'stroke');
+    expect(strokes).toHaveLength(0);
+  });
+});
+
 

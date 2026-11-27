@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ChartProjectStore,
+  summarizeProject,
   type ChartProject,
   type ChartProjectBackend,
 } from '@/src/project/ChartProject';
@@ -31,7 +32,7 @@ function memoryStore(projects: ChartProject[]) {
   const backend: ChartProjectBackend = {
     get: async (id) => disk.get(id) ?? null,
     save: async (project) => { disk.set(project.id, project); },
-    list: async () => [...disk.values()],
+    list: async () => [...disk.values()].map(summarizeProject),
     delete: async (id) => { disk.delete(id); },
   };
   return { store: new ChartProjectStore(backend), disk };

@@ -17,17 +17,18 @@
  *     （搜索是服务端的，两者叠加见文件末尾「客户端过滤」一段）。
  *
  * 列表的两层缓存：
- *   - **会话内**：按 `查询 + offset` 缓存每一页（翻回去 / 重开弹窗零网络）；
+ *   - **会话内**：按 `查询 + offset` 缓存每一页（翻回去 / 重开弹窗零网络）；**零命中的页不存** ——
+ *     同一查询还可能由账号名探测给出结果，缓存空页会把那条旁路在 peek 处挡掉；
  *   - **跨会话**：只有第一页走主进程的 json 档（24h + 先回旧的 + 后台补一枪）；
  *     深页**不落盘** —— offset 会随新帖插入整体漂移，跨会话拼两个时刻的快照会把页码语义搞烂。
  *   - 用户主动刷新走 `force`：绕开会话缓存，并让网关重拉（`revalidate`）。
  */
 import { trail } from '../../diagnostics/trail';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
-import { dedupInflight } from '../inflight';
+import { dedupInflight, forwardAbortSignal } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { invalidResponse, isCommunityError, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
+import { abortedRequest, invalidResponse, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
 import { communityAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -39,7 +40,7 @@ import {
   postDetailUrl,
   postListUrl,
 } from './endpoints';
-import { toPostDetail, toPostPage, type PostCandidate } from './mapping';
+import { toPostDetail, toPostPage, type PostCandidate, type PostDetail } from './mapping';
 
 /** 单页上限（实测 10..50，按 50 拉：上拉加载少打几次请求） */
 export const POST_PAGE_LIMIT = 50;
@@ -61,6 +62,8 @@ export interface PostPageQuery {
    * 刷新失败由调用方保留旧数据（不弹错）。
    */
   force?: boolean;
+  /** 取消信号：立即中断网络等待与重试，不写入 pageCache（票 57） */
+  signal?: AbortSignal;
 }
 
 /** 一页帖子候选；`total` 是平台侧过滤后的总数（翻页终点判断用它），`rawCount` 是本页原始条数（offset 游标，含被丢弃的条目） */
@@ -72,7 +75,7 @@ export interface PostPage {
 
 /** 会话内页缓存（key = 查询 + offset）；同一页的并发只发一次，失败不缓存 */
 const pageCache = new Map<string, PostPage>();
-const pageInflight = new Map<string, Promise<PostPage>>();
+const pageInflight = new Map<string, { promise: Promise<PostPage>; abort: () => void }>();
 
 /** 缓存键：查询词 + 谱师（空 = 不限）+ offset —— 三者任一不同就是另一页，不许互相串味 */
 function pageKey(query: string, offset: number, username: string): string {
@@ -85,7 +88,7 @@ function pageKey(query: string, offset: number, username: string): string {
  * 只缓存**命中**：不存在 / 网络失败不落进来（下一次照样能问到）。
  */
 const idLookupCache = new Map<string, PostCandidate>();
-const idLookupInflight = new Map<string, Promise<PostCandidate | null>>();
+const idLookupInflight = new Map<string, { promise: Promise<PostCandidate | null>; abort: () => void }>();
 
 /** 测试与「刷新」用：清掉会话内页缓存（含 id 直查缓存） */
 export function clearPostPageCache(): void {
@@ -100,7 +103,79 @@ export function peekPostPage(query: string, offset: number, username = ''): Post
 }
 
 export function postPageInflight(query: string, offset: number, username = ''): Promise<PostPage> | null {
-  return pageInflight.get(pageKey(query.trim(), Math.max(0, Math.trunc(offset)), username.trim())) ?? null;
+  return pageInflight.get(pageKey(query.trim(), Math.max(0, Math.trunc(offset)), username.trim()))?.promise ?? null;
+}
+
+function postListRequestBody(query: string, offset: number, limit: number, username: string): string {
+  const pageLimit = Math.min(POST_PAGE_LIMIT, Math.max(POST_PAGE_LIMIT_MIN, limit));
+  return JSON.stringify({
+    search: query,
+    categoryName: 'SELF_POST',
+    categoryId: 'chart',
+    order: 'TIME_DESC',
+    limit: pageLimit,
+    offset,
+    username: username === '' ? undefined : username,
+  });
+}
+
+/**
+ * 空页能不能进会话缓存？只有「与谱师无关」的查询才值得存（票 59）：纯浏览、非账号名形态的关键字、
+ * 纯数字（id 直查不中）—— 重搜时省一趟网络。两类不能存：
+ *   - 账号名形态的关键字：同一趟还会并发账号名探测；
+ *   - 带 `username` 的请求：它就是探测本身（或筛选视图）。
+ * 空页一存，下一次同一查询会在 peek 处短路，探测永远没机会再跑
+ * （清掉谱师芯片后再搜同一账号名，直接回「没有匹配的帖子」）。
+ */
+function canCachePage(page: PostPage, query: string, username: string): boolean {
+  if (page.posts.length > 0) return true;
+  return !(username !== '' || isAccountNameQuery(query));
+}
+
+/** 将一页社区帖子写入会话内存缓存（票 57：取消拉取回落缓存后，同会话重开直接命中） */
+export function commitPostPageCache(
+  { query, offset, username }: Pick<PostPageQuery, 'query' | 'offset' | 'username'>,
+  page: PostPage,
+): PostPage {
+  const at = Math.max(0, Math.trunc(offset));
+  const who = (username ?? '').trim();
+  const key = pageKey(query.trim(), at, who);
+  const marked = markJsonFromCache(page);
+  if (canCachePage(page, query.trim(), who)) pageCache.set(key, marked);
+  return marked;
+}
+
+/**
+ * 仅从主进程本地磁盘缓存读取社区列表第 0 页（票 57）：
+ * offset > 0 的深页不落盘，直接回 null。
+ */
+export async function loadPostPageFromCache(
+  transport: CommunityTransport,
+  { query, offset, limit = POST_PAGE_LIMIT, username }: Pick<PostPageQuery, 'query' | 'offset' | 'limit' | 'username'>,
+  options: { rememberInSession?: boolean } = {},
+): Promise<PostPage | null> {
+  const at = Math.max(0, Math.trunc(offset));
+  if (at !== 0) return null;
+  const who = (username ?? '').trim();
+  const body = postListRequestBody(query, at, limit, who);
+  try {
+    const raw = await transport.requestJson({
+      url: postListUrl(),
+      method: 'POST',
+      headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
+      body,
+      timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+      cacheable: true,
+      cacheOnly: true,
+    });
+    const page = toPostPage(raw);
+    if (!page) return null;
+    return options.rememberInSession === false
+      ? markJsonFromCache(page)
+      : commitPostPageCache({ query, offset: at, username: who }, page);
+  } catch {
+    return null;
+  }
 }
 
 export function clearPostIdLookupCache(): void {
@@ -111,8 +186,9 @@ export function clearPostIdLookupCache(): void {
 /** POST post/list 单页原语（列表 / 搜索 / 分页都走它）：会话内缓存 + inflight 去重 */
 export async function fetchPostPage(
   transport: CommunityTransport,
-  { query, offset, limit = POST_PAGE_LIMIT, username, onRetry, force = false }: PostPageQuery,
+  { query, offset, limit = POST_PAGE_LIMIT, username, onRetry, force = false, signal }: PostPageQuery,
 ): Promise<PostPage> {
+  if (signal?.aborted) throw abortedRequest();
   const at = Math.max(0, Math.trunc(offset));
   const who = (username ?? '').trim();
   const key = pageKey(query.trim(), at, who);
@@ -122,23 +198,26 @@ export async function fetchPostPage(
   }
   // 票 44：同一 key 还在飞（含首拉时点刷新）并进这一趟，不另排一队。
   const inflight = pageInflight.get(key);
-  if (inflight) return inflight;
+  if (inflight) {
+    return forwardAbortSignal(inflight.promise, inflight.abort, signal);
+  }
 
-  const pageLimit = Math.min(POST_PAGE_LIMIT, Math.max(POST_PAGE_LIMIT_MIN, limit));
-  const body = JSON.stringify({
-    search: query,
-    categoryName: 'SELF_POST',
-    categoryId: 'chart',
-    order: 'TIME_DESC',
-    limit: pageLimit,
-    offset: at,
-    // 谱师过滤（票 10）：空 = 不限，`JSON.stringify` 会把 `undefined` 整个丢掉，
-    // 所以「没传 username」的请求体与既往逐字相同
-    username: who === '' ? undefined : who,
-  });
+  const controller = new AbortController();
+  let promise: Promise<PostPage>;
+  const clearInflight = () => {
+    if (pageInflight.get(key)?.promise === promise) pageInflight.delete(key);
+  };
+  const abort = () => {
+    clearInflight();
+    controller.abort();
+  };
+  const onOuterAbort = () => abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
+
+  const body = postListRequestBody(query, at, limit, who);
   const started = Date.now();
   trail.record({ module: 'community', action: 'browse-start' });
-  const promise = withRetry(
+  promise = withRetry(
     () => transport.requestJson({
       url: postListUrl(),
       method: 'POST',
@@ -151,13 +230,15 @@ export async function fetchPostPage(
       // **深页不落盘**：offset 随新帖插入整体漂移，跨会话拼两个时刻的快照会把页码语义搞烂。
       ...(at === 0 ? { cacheable: true, freshFirst: true } : {}),
       ...(force ? { revalidate: true } : {}),
+      signal: controller.signal,
     }),
-    { policy: BESTDORI_RETRY_POLICY, onRetry },
+    { policy: BESTDORI_RETRY_POLICY, onRetry, signal: controller.signal },
   ).then((raw) => {
+    if (controller.signal.aborted) throw abortedRequest();
     const page = toPostPage(raw);
     if (!page) throw invalidResponse('帖子列表不是预期形态');
     const stored = isJsonFromCache(raw) ? markJsonFromCache(page) : page;
-    pageCache.set(key, stored);
+    if (canCachePage(page, query, who)) pageCache.set(key, stored);
     trail.record({
       module: 'community',
       action: 'browse-end',
@@ -174,10 +255,11 @@ export async function fetchPostPage(
     });
     throw err;
   }).finally(() => {
-    if (pageInflight.get(key) === promise) pageInflight.delete(key);
+    signal?.removeEventListener('abort', onOuterAbort);
+    clearInflight();
   });
 
-  pageInflight.set(key, promise);
+  pageInflight.set(key, { promise, abort });
   return promise;
 }
 
@@ -212,6 +294,19 @@ export function numericPostIdQuery(query: string): number | null {
 }
 
 /**
+ * 看起来像站点**账号名**的查询（票 59）：可见 ASCII、无空格、含字母、2–32 字符。
+ *
+ * 为什么要这道闸：`username` 只认精确账号名（中文 / 带空格 / 前缀一律 `REQUEST_INVALID`，
+ * 2026-11-26 实测），探测这些查询只会白打一发。纯数字也排除 —— 那是帖 id 直查的语义。
+ */
+export function isAccountNameQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || trimmed.length > 32) return false;
+  if (!/^[\x21-\x7e]+$/.test(trimmed)) return false;
+  return /[A-Za-z]/.test(trimmed);
+}
+
+/**
  * 直查一条帖（票 32）：命中回候选，任何失败回 **null**（静默 —— 这条是「加分项」，
  * 它抖一下不该把搜索结果整屏打翻）。命中结果进会话内缓存（key = **trim 后**的查询词：面板传进来
  * 的查询词本来就是 trim 过的，这里再 trim 一次是为了别让「248468」和「 248468 」各占一份缓存）。
@@ -219,25 +314,39 @@ export function numericPostIdQuery(query: string): number | null {
 export function fetchPostIdLookup(
   transport: CommunityTransport,
   query: string,
+  signal?: AbortSignal,
 ): Promise<PostCandidate | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   const postId = numericPostIdQuery(query);
   if (postId == null) return Promise.resolve(null);
   const key = query.trim();
   const cached = idLookupCache.get(key);
   if (cached) return Promise.resolve(cached);
   const inflight = idLookupInflight.get(key);
-  if (inflight) return inflight;
+  if (inflight) return forwardAbortSignal(inflight.promise, inflight.abort, signal);
 
-  const promise = fetchPostDetail(transport, postId)
+  const controller = new AbortController();
+  let promise: Promise<PostCandidate | null>;
+  const clearInflight = () => {
+    if (idLookupInflight.get(key)?.promise === promise) idLookupInflight.delete(key);
+  };
+  const abort = () => {
+    clearInflight();
+    controller.abort();
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+
+  promise = fetchPostDetail(transport, postId, controller.signal)
     .then((detail) => {
       idLookupCache.set(key, detail.post);
       return detail.post;
     })
     .catch(() => null)
     .finally(() => {
-      if (idLookupInflight.get(key) === promise) idLookupInflight.delete(key);
+      signal?.removeEventListener('abort', abort);
+      clearInflight();
     });
-  idLookupInflight.set(key, promise);
+  idLookupInflight.set(key, { promise, abort });
   return promise;
 }
 
@@ -249,35 +358,80 @@ export function mergeIdLookupHit(hit: PostCandidate | null, page: PostPage): Pos
 }
 
 /**
- * 搜索用的一页（票 32）：**首页**且查询是纯数字时并发「服务端 search + id 直查」并按上面的规则合并；
- * 其余情况就是 `fetchPostPage`（直查那一路回 null，零额外请求）。
- * 直查只挂在首页（`offset === 0`）：它是「跳转」语义，深页是同一段搜索的翻页，不该每翻一页重问一次；
- * `total` / `rawCount` 也仍取搜索那一路 —— 直查命中不在服务端序列里，翻页游标不该被它带偏。
+ * 搜索首页的返回：多一个「查询精确命中账号名」的信号（票 59）。
+ * 面板据此把列表切成「只看这位谱师」（`search=''` + `username=<账号名>`）。
+ */
+export interface PostSearchPage extends PostPage {
+  authorHit?: { username: string; name: string };
+}
+
+/**
+ * 账号名探测（票 59）：与关键字**并发**发出，账号不存在 / 平台不认（`REQUEST_INVALID`）
+ * 一律回 null —— 这是加分项，抖一下不该把搜索结果整屏打翻。
+ */
+async function probeAuthorAccount(
+  transport: CommunityTransport,
+  query: string,
+  signal?: AbortSignal,
+): Promise<PostPage | null> {
+  try {
+    // 只带这三项：`onRetry` / `force` 属于关键字那一路 —— 透传下去，探测的网络抖动
+    // 会点亮面板的「重试中」，而它的结果本来就会被丢掉
+    return await fetchPostPage(transport, { query: '', offset: 0, username: query, signal });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 搜索用的一页（票 32 + 59）：首页并发三路 —— 服务端 `search` + id 直查（纯数字）+ 账号名探测。
+ *
+ * 合并规则：
+ *   - id 直查命中置顶、按 postId 去重（票 32）；
+ *   - **只有关键字一路什么都没找到、账号一路有结果**时才认账号（回 `authorHit`）——账号名撞上
+ *     歌名 / 歌手（`roki`、`GUMI`）时不能把真正的搜索结果挤掉；反之关键字零命中时，
+ *     账号过滤就是用户想要的那份列表（441 条也只走这一条路的翻页）。
+ *   - 带 `username`（显式谱师筛选）时不发探测、也不发 id 直查：那是「在这个人的作品里找」，
+ *     不是「跳转到某帖」。
  */
 export async function fetchPostSearchPage(
   transport: CommunityTransport,
   opts: PostPageQuery,
-): Promise<PostPage> {
-  const [hit, page] = await Promise.all([
-    opts.offset === 0 ? fetchPostIdLookup(transport, opts.query) : Promise.resolve(null),
+): Promise<PostSearchPage> {
+  const query = opts.query.trim();
+  const filteredByAuthor = (opts.username ?? '').trim() !== '';
+  const firstPage = opts.offset === 0;
+  const bonus = firstPage && !filteredByAuthor;
+  const [hit, page, author] = await Promise.all([
+    bonus ? fetchPostIdLookup(transport, opts.query, opts.signal) : Promise.resolve(null),
     fetchPostPage(transport, opts),
+    bonus && isAccountNameQuery(query) ? probeAuthorAccount(transport, query, opts.signal) : Promise.resolve(null),
   ]);
-  return mergeIdLookupHit(hit, page);
+  const merged = mergeIdLookupHit(hit, page);
+  if (author != null && author.posts.length > 0 && merged.posts.length === 0) {
+    // 展示名取第一条帖的昵称（账号名可能是 `envy09` 这种不体面的登录名）
+    return { ...merged, authorHit: { username: query, name: author.posts[0]?.charter || query } };
+  }
+  return merged;
 }
 
 /** 帖子详情：候选 + 谱面代码原文（选中导入时才拉） */
 export async function fetchPostDetail(
   transport: CommunityTransport,
   postId: number,
-): Promise<{ post: PostCandidate; chartCodeText: string }> {
+  signal?: AbortSignal,
+  fresh = false,
+): Promise<PostDetail> {
   const raw = await withRetry(
     () => transport.requestJson({
       url: postDetailUrl(postId),
       method: 'GET',
       headers: bestdoriHeaders(),
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+      ...(fresh ? { revalidate: true } : {}),
+      ...(signal ? { signal } : {}),
     }),
-    { policy: BESTDORI_RETRY_POLICY },
+    { policy: BESTDORI_RETRY_POLICY, signal },
   );
   const detail = toPostDetail(raw, postId);
   if (!detail) throw invalidResponse(`社区帖详情不是预期形态（post ${postId}）`);
@@ -304,53 +458,53 @@ function looksLikeMedia(contentType: string | null, media: 'audio' | 'image'): b
   return /^audio\//i.test(contentType);
 }
 
-async function fetchCustomMedia(
+async function fetchCustomBinary(
   transport: CommunityTransport,
   url: string,
   suggestedName: string,
-  media: 'audio' | 'image',
+  mediaKind: 'audio' | 'image',
   timeoutMs: number = BESTDORI_BINARY_TIMEOUT_MS,
 ): Promise<StagedBinary> {
-  const staged = await withRetry(
+  return withRetry(
     () => transport.requestBinary({
       url,
       method: 'GET',
       headers: bestdoriHeaders('*/*'),
       timeoutMs,
       suggestedName,
+      mediaKind,
     }),
     { policy: BESTDORI_RETRY_POLICY },
   );
-  if (!looksLikeMedia(staged.contentType, media)) {
-    throw invalidResponse(`帖内素材取不到（拿到的不是${media === 'audio' ? '音频' : '图片'}）：${staged.contentType ?? '无 content-type'}`);
+}
+
+/** 帖内音频 → 素材缓存（主线，取不到整笔失败） */
+export async function fetchCustomAudio(transport: CommunityTransport, post: PostCandidate): Promise<StagedBinary> {
+  if (post.song.kind !== 'custom') {
+    throw invalidResponse(`帖子 ${post.postId} 不是 custom 曲目，没有帖内音频`);
+  }
+  const staged = await fetchCustomBinary(transport, post.song.audioUrl, customAudioName(post), 'audio');
+  if (!looksLikeMedia(staged.contentType, 'audio')) {
+    throw invalidResponse(`帖内素材取不到（拿到的不是音频）：${staged.contentType ?? '无 content-type'}`);
   }
   return staged;
 }
 
-/** 帖内音频 → 素材缓存（主线，取不到整笔失败；媒体判定在 fetchCustomMedia 一处做） */
-export function fetchCustomAudio(transport: CommunityTransport, post: PostCandidate): Promise<StagedBinary> {
-  if (post.song.kind !== 'custom') {
-    return Promise.reject(invalidResponse(`帖子 ${post.postId} 不是 custom 曲目，没有帖内音频`));
-  }
-  return fetchCustomMedia(transport, post.song.audioUrl, customAudioName(post), 'audio');
-}
-
 /**
- * 帖内封面 → 素材缓存；帖子没给封面 / 取到的不是图片（SPA 回退页等）都回 **null**
- * （= 这次导入不带封面，同官方曲口径）。不抛错：封面缺失不挡「工程 + 音频 + 谱面」这条主线。
+ * 帖内封面 → 素材缓存；帖子没给封面 / SPA 回退页回 **null**（= 未提供封面）。
+ * 网关返回的 invalid-response（坏图）与网络/HTTP 错误原样抛出，交给导入层做 coverFailed 降级提示（票 56）。
  */
 export async function fetchCustomCover(
   transport: CommunityTransport,
   post: PostCandidate,
 ): Promise<StagedBinary | null> {
   if (post.song.kind !== 'custom' || post.song.coverUrl == null) return null;
-  try {
-    const staged = await fetchCustomMedia(transport, post.song.coverUrl, customCoverName(post), 'image');
-    return staged;
-  } catch (error) {
-    if (isCommunityError(error) && error.kind === 'invalid-response') return null;
-    throw error;
+  const staged = await fetchCustomBinary(transport, post.song.coverUrl, customCoverName(post), 'image');
+  if (isPlatformFallbackPage(staged.contentType)) return null;
+  if (!looksLikeMedia(staged.contentType, 'image')) {
+    throw invalidResponse(`帖内封面不是预期图片类型：post ${post.postId} · ${staged.contentType}`);
   }
+  return staged;
 }
 
 /** 音频落进工程后记的名字：`community-248468-All You Wanted (GBP Edit).mp3`（票 35 统一规则） */
@@ -404,7 +558,8 @@ export function ensureCustomCoverCached(
   if (post.song.kind !== 'custom' || post.song.coverUrl == null) return Promise.resolve(null);
   const coverUrl = post.song.coverUrl;
   return dedupInflight(coverInflight, post.postId, () =>
-    fetchCustomMedia(transport, coverUrl, customCoverName(post), 'image', BESTDORI_COVER_TIMEOUT_MS)
+    fetchCustomBinary(transport, coverUrl, customCoverName(post), 'image', BESTDORI_COVER_TIMEOUT_MS)
+      .then((staged) => (looksLikeMedia(staged.contentType, 'image') ? staged : null))
       .catch(() => null));
 }
 

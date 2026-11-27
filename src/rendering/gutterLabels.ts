@@ -180,11 +180,12 @@ export function bpmExpandedNumeralsOnCanvas(ys: readonly number[], fontPx: numbe
 }
 
 /**
- * beat 0 数字中心在线上方半个字高：贴判定线时整盒在画布内，滚动时与线 1:1 钉住并裁切。
- * 不能按画布底边钳 y（字会停在底边、线自己走）。其它拍仍居中于线。
+ * 时间原点（首条 BPM）那一条的数字中心在线上方半个字高：贴判定线时整盒在画布内，
+ * 滚动时与线 1:1 钉住并裁切。不能按画布底边钳 y（字会停在底边、线自己走）。
+ * 其它拍仍居中于线。issue 63：原点不再假定是 beat 0，由调用方传 `startBeat`。
  */
-export function bpmLabelAnchorY(beat: number, y: number, fontPx: number, _surfaceH: number): number {
-  if (beat !== 0) return y;
+export function bpmLabelAnchorY(beat: number, y: number, fontPx: number, startBeat = 0): number {
+  if (beat !== startBeat) return y;
   return y - fontPx / 2;
 }
 
@@ -231,6 +232,7 @@ export function clampGutterLabelY(layout: GutterLabelLayout, surfaceH: number, f
 export function layoutBpmLabelYs(
   items: ReadonlyArray<{ beat: number; lineCanvasY: number }>,
   fontPx: number,
+  startBeat = 0,
 ): number[] {
   const n = items.length;
   const ys = items.map((it) => it.lineCanvasY);
@@ -263,8 +265,8 @@ export function layoutBpmLabelYs(
     members.sort((a, b) => items[a]!.beat - items[b]!.beat || a - b);
     const center = members.reduce((s, i) => s + items[i]!.lineCanvasY, 0) / members.length;
     const minBeat = Math.min(...members.map((i) => items[i]!.beat));
-    // beat 0 组贴判定线：最低一枚中心落在线上（再经 bpmLabelAnchorY 上移半个字高后整盒在画布内），其余只往上排。
-    const start = minBeat === 0
+    // 时间原点（首条 BPM）组贴判定线：最低一枚中心落在线上（再经 bpmLabelAnchorY 上移半个字高后整盒在画布内），其余只往上排。
+    const start = minBeat === startBeat
       ? center - (members.length - 1) * fontPx
       : center - ((members.length - 1) * fontPx) / 2;
     members.forEach((idx, k) => {
@@ -335,6 +337,7 @@ export interface BpmGutterLayout {
 /**
  * 沟槽 BPM 显示模型（issue 159 定案 2 + issue 161）：线 y 相同且 ≥2 条 → 摘要（展开组除外）；
  * 其余走 159 盒相交错开；展开组钉线错开、不平移进画布（出界靠绘制裁切）。
+ * `startBeat` = 时间原点（首条 BPM，issue 63）：该组按"贴判定线"口径排布。
  */
 export function layoutBpmGutter(
   notes: ReadonlyArray<{ type: string; beat?: number; bpm?: number }>,
@@ -342,6 +345,7 @@ export function layoutBpmGutter(
   virtualYOf: (beat: number) => number,
   fontPx: number,
   expandedKey: number | null,
+  startBeat = 0,
 ): BpmGutterLayout {
   const slots: { noteIndex: number; beat: number; bpm: number; lineCanvasY: number; key: number }[] = [];
   notes.forEach((n, noteIndex) => {
@@ -379,13 +383,13 @@ export function layoutBpmGutter(
     }
   }
   const numerals: BpmGutterNumeral[] = [];
-  const staggerYs = layoutBpmLabelYs(staggerItems, fontPx);
+  const staggerYs = layoutBpmLabelYs(staggerItems, fontPx, startBeat);
   staggerItems.forEach((it, i) => {
     numerals.push({ noteIndex: it.noteIndex, beat: it.beat, bpm: it.bpm, y: staggerYs[i]!, groupKey: null });
   });
   if (expandedSlots.length > 0) {
     expandedSlots.sort((a, b) => a.beat - b.beat || a.noteIndex - b.noteIndex);
-    const raw = layoutBpmLabelYs(expandedSlots, fontPx);
+    const raw = layoutBpmLabelYs(expandedSlots, fontPx, startBeat);
     const key = expandedSlots[0]!.key;
     expandedSlots.forEach((it, i) => {
       numerals.push({ noteIndex: it.noteIndex, beat: it.beat, bpm: it.bpm, y: raw[i]!, groupKey: key });
@@ -402,6 +406,29 @@ export function layoutBpmGutter(
  * 纵向钉在 lineCanvasY；传入 surfaceH 时命中盒与画布求交（半截可点，完全出画 y1≥y2）。
  * 纯函数（不依赖 canvas 测量），供命中判定与单测共用。
  */
+/**
+ * BPM 就地编辑 HTML 输入框（ADR-0008 §5）：覆盖在沟槽数字上。
+ * 宽高估算与 `FinalVirtualCanvas` 原内联公式同款；纵向先按 `bpmLabelAnchorY` 对齐数字中心，
+ * 再把整盒钳进画布（issue 253：±3px 内边距会让时间原点那一条的底边溢出，`focus()` 带动滚动宿主）。
+ */
+export function bpmInlineInputBox(
+  beat: number,
+  lineCanvasY: number,
+  value: string,
+  fontPx: number,
+  trackStartX: number,
+  surfaceH: number,
+  startBeat = 0,
+): { left: number; top: number; width: number; height: number; fontPx: number } {
+  const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
+  const width = Math.max((value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
+  const height = fontPx + 6;
+  const lineY = bpmLabelAnchorY(beat, lineCanvasY, fontPx, startBeat);
+  const unclampedTop = lineY - fontPx / 2 - 3;
+  const top = Math.max(0, Math.min(unclampedTop, surfaceH - height));
+  return { left: Math.max(0, rightEdge - width), top, width, height, fontPx };
+}
+
 export function bpmLabelBox(
   trackStartX: number,
   lineCanvasY: number,

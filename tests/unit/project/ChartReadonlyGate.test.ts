@@ -24,10 +24,15 @@ const initialNotes: ChartNote[] = [
   { beat: 8, lane: 4, type: 'Single' },
 ];
 
-function makeChart(overrides: { upload?: ChartUploadRecord | null; notes?: ChartNote[] } = {}) {
+function makeChart(overrides: {
+  upload?: ChartUploadRecord | null;
+  pendingPublish?: true;
+  notes?: ChartNote[];
+} = {}) {
   return {
     notes: overrides.notes ?? [...initialNotes],
     upload: overrides.upload ?? null,
+    ...(overrides.pendingPublish ? { pendingPublish: true as const } : {}),
   };
 }
 
@@ -48,6 +53,26 @@ describe('chartReadonlyGate · 只读闸门判定', () => {
       rejected: 'uploaded_readonly',
       message: '已上传谱面本体不可修改',
     });
+  });
+
+  it('待确认：isChartUploaded 仍为 false，编辑闸门按 publish_pending 拒绝，复制仍可', () => {
+    const chart = makeChart({ pendingPublish: true });
+    expect(isChartUploaded(chart)).toBe(false);
+    expect(isChartReadonly(chart)).toBe(true);
+    expect(checkChartEditAllowed(chart)).toEqual({
+      allowed: false,
+      rejected: 'publish_pending',
+      message: '发布结果待确认，谱面暂时不可修改',
+    });
+    const originalNotes = chart.notes;
+    const blocked = executeWithReadonlyGate(chart, 'place', (notes) => ({
+      notes: [...notes, { beat: 12, lane: 3, type: 'Single' } as ChartNote],
+    }));
+    expect(blocked).toMatchObject({ ok: false, rejected: 'publish_pending' });
+    expect(blocked.notes).toBe(originalNotes);
+    const copied = executeWithReadonlyGate(chart, 'copy', (notes) => ({ notes: notes as ChartNote[], result: true }));
+    expect(copied.ok).toBe(true);
+    expect(copied.result).toBe(true);
   });
 });
 
@@ -222,6 +247,9 @@ describe('chartReadonlyGate · isChartEditFunction 与 withReadonlyGate', () => 
     // 非编辑类：切换工具态、复制、播放、侧栏折叠等
     expect(isChartEditFunction('switchSingle')).toBe(false);
     expect(isChartEditFunction('switchMouse')).toBe(false);
+    expect(isChartEditFunction('switchDelete')).toBe(false);
+    expect(isChartEditFunction('switchCopy')).toBe(false);
+    expect(isChartEditFunction('switchCut')).toBe(false);
     expect(isChartEditFunction('execCopy')).toBe(false);
     expect(isChartEditFunction('play')).toBe(false);
     expect(isChartEditFunction('jumpToMarker')).toBe(false);

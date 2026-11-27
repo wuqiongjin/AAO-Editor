@@ -22,6 +22,8 @@ export const ASSET_SCHEME = 'aao-asset';
 export const ASSET_THUMB_HOST = 'thumb';
 /** 原始字节那一支的 host（票 16：预览大图 / 音频共用；音频的 Range 由协议侧处理） */
 export const ASSET_RAW_HOST = 'raw';
+/** 本地工程封面缩略图那一支的 host（chart-projects 44） */
+export const ASSET_PROJECT_COVER_HOST = 'project-cover';
 
 /** 缩略图 URL：`upstreamUrl` 是**素材原图**的地址（缓存按它寻址） */
 export function assetThumbUrl(upstreamUrl: string): string {
@@ -31,4 +33,10 @@ export function assetThumbUrl(upstreamUrl: string): string {
 /** 原始字节 URL（票 16）：读缓存里按 `upstreamUrl` 寻址的那份原件，未缓存回 404 */
 export function assetRawUrl(upstreamUrl: string): string {
   return `${ASSET_SCHEME}://${ASSET_RAW_HOST}/?url=${encodeURIComponent(upstreamUrl)}`;
+}
+
+/** 本地工程封面缩略图 URL（chart-projects 44）：`version` 为 `${mtimeMs}-${size}`，防同毫秒覆盖命中旧缓存 */
+export function projectCoverUrl(projectId: string, version?: string | null): string {
+  const base = `${ASSET_SCHEME}://${ASSET_PROJECT_COVER_HOST}/?id=${encodeURIComponent(projectId)}`;
+  return version ? `${base}&v=${encodeURIComponent(version)}` : base;
 }

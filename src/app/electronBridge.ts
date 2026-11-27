@@ -28,10 +28,14 @@ import type { AppUpdateState, UpdateSource } from './appUpdate';
 /* 谱面工程文件后端 */
 export interface ElectronProjectBridge {
   get(id: string): Promise<ProjectGetWire | null>;
+  getSummary?(id: string): Promise<string | null>;
+  touchLastOpened?(id: string, now: number): Promise<boolean>;
   put(payload: ProjectPutWire): Promise<unknown>;
-  list(): Promise<ProjectListItem[]>;
+  list(): Promise<string | ProjectListItem[]>;
   delete(id: string): Promise<unknown>;
   uploadRefs(id: string): Promise<ProjectUploadRefs | null>;
+  /** 自定义表演背景 sidecar（票 42）；get/list 不带像素 */
+  getLiveBg(id: string): Promise<Uint8Array | null>;
 }
 
 /* 谱面代码 / 二进制另存 */
@@ -80,6 +84,7 @@ export interface I18nBridge {
 /* 社区平台唯一网络出口（ADR-0011 §2） */
 export interface CommunityNetBridge {
   request(payload: CommunityRequest): Promise<CommunityWireResult>;
+  cancel?(requestId: string): Promise<void> | void;
 }
 
 export interface CommunitySessionBridge {

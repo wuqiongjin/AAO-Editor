@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest';
 import {
   getDefaultConfig, resolveAction, buildBindingIndex, setFunctionBinding,
   bindingTakenByOther, loadConfig, formatKey, categoryShortcuts, functionMode,
-  maskFunctionBinding, bindingToRestore, pruneShortcutMasks, type ShortcutMasks,
+  maskFunctionBinding, bindingToRestore, pruneShortcutMasks, isReservedSystemQuit,
+  type ShortcutMasks,
 } from '@/src/settings/ShortcutConfig';
 
 const keyEvent = (key: string, ctrl = false, shift = false): KeyboardEvent =>
   ({ key, ctrlKey: ctrl, metaKey: false, shiftKey: shift } as KeyboardEvent);
+
+/** issue 257：⌘Q / Control+Q 的同弦事件（显式平台参数由被测函数接收） */
+const quitEvent = (init: Partial<KeyboardEvent> = {}): KeyboardEvent =>
+  ({ key: 'q', ctrlKey: false, metaKey: true, altKey: false, shiftKey: false, ...init } as KeyboardEvent);
 
 const boundCountOf = (cfg: Record<string, string | null>): number =>
   Object.values(cfg).filter((b) => b !== null).length;
@@ -59,6 +64,29 @@ describe('ShortcutConfig 默认配置', () => {
   it('loadConfig 修复曲线切换旧默认键（旧存档 c 回落为 w）', () => {
     const cfg = loadConfig({ getItem: () => JSON.stringify({ switchCurve: 'c' }) });
     expect(cfg.switchCurve).toBe('w');
+  });
+
+  // issue 256：复制 / 剪切进持工具态，切换键与删除（T / Ctrl+T）同构
+  it('issue 256：复制/剪切 = 切换 C / X，执行仍是 Ctrl+C / Ctrl+X，出厂零冲突', () => {
+    const cfg = getDefaultConfig();
+    expect(cfg.switchCopy).toBe('c');
+    expect(cfg.switchCut).toBe('x');
+    expect(cfg.execCopy).toBe('ctrl+c');
+    expect(cfg.execCut).toBe('ctrl+x');
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
+    expect(resolveAction(keyEvent('c'), cfg)).toBe('switchCopy');
+    expect(resolveAction(keyEvent('x'), cfg)).toBe('switchCut');
+    expect(resolveAction(keyEvent('c', true), cfg)).toBe('execCopy');
+    expect(resolveAction(keyEvent('x', true), cfg)).toBe('execCut');
+    expect(functionMode('switchCopy')).toBe('switch');
+    expect(functionMode('switchCut')).toBe('switch');
+  });
+
+  it('issue 256：老功能已占用 c 时，新增的 switchCopy 载入退让为 null', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ switchMouse: 'c' }) });
+    expect(cfg.switchMouse).toBe('c');
+    expect(cfg.switchCopy).toBeNull();
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
   });
 
   // issue 185 / ADR-0023 §4：收藏选区 = 新的执行类功能（默认 Ctrl+Shift+D）
@@ -183,14 +211,18 @@ describe('展示辅助', () => {
   });
 
   it('formatKey 格式化', () => {
-    expect(formatKey('ctrl+f')).toBe('Ctrl+F');
-    expect(formatKey(' ')).toBe('Space');
-    expect(formatKey('ctrl+ ')).toBe('Ctrl+Space'); // 「跳回起点标记」组合键中空格的展示
-    expect(formatKey('ctrl+shift+q')).toBe('Ctrl+Shift+Q');
+    // 显式锁 Win32：257 让展示按平台分支，Mac 字形由本文件 issue 257 段覆盖
+    expect(formatKey('ctrl+f', 'win32')).toBe('Ctrl+F');
+    expect(formatKey(' ', 'win32')).toBe('Space');
+    expect(formatKey('ctrl+ ', 'win32')).toBe('Ctrl+Space'); // 「跳回起点标记」组合键中空格的展示
+    expect(formatKey('ctrl+shift+q', 'win32')).toBe('Ctrl+Shift+Q');
+    expect(formatKey('arrowleft', 'win32')).toBe('←');
+    expect(formatKey('arrowright', 'win32')).toBe('→');
+    expect(formatKey('ctrl+arrowleft', 'win32')).toBe('Ctrl+←');
   });
 
   it('categoryShortcuts 合并 切换/执行', () => {
-    const lines = categoryShortcuts(getDefaultConfig(), 'single');
+    const lines = categoryShortcuts(getDefaultConfig(), 'single', 'win32');
     expect(lines).toContainEqual({ mode: '切换', key: 'F' });
     expect(lines).toContainEqual({ mode: '执行', key: 'Ctrl+F' });
   });
@@ -200,6 +232,63 @@ describe('展示辅助', () => {
     const index = buildBindingIndex(dft);
     expect(index.size).toBe(boundCountOf(dft));
     expect(index.get('f')).toBe('switchSingle');
+  });
+});
+
+// issue 257（2026-11-26 定案）：Mac 上 ctrl 展示为 ⌘；⌘Q 只退出、不进产品分发；
+// Control+Q 仍是镜像；Win/Linux 出厂串 ctrl+q 不动。
+describe('issue 257 · macOS 修饰键展示与 ⌘Q 保留', () => {
+  it('formatKey 按平台分流：Mac 的 ctrl 显示 ⌘，Win/Linux 仍是 Ctrl', () => {
+    expect(formatKey('ctrl+f', 'darwin')).toBe('⌘F');
+    expect(formatKey('ctrl+shift+q', 'darwin')).toBe('⌘⇧Q');
+    expect(formatKey('ctrl+ ', 'darwin')).toBe('⌘Space');
+    for (const platform of ['win32', 'linux'] as const) {
+      expect(formatKey('ctrl+f', platform)).toBe('Ctrl+F');
+      expect(formatKey('ctrl+q', platform)).toBe('Ctrl+Q');
+    }
+  });
+
+  it('formatKey 保留键 ctrl+q 在 Mac 显示 ⌃Q', () => {
+    expect(formatKey('ctrl+q', 'darwin')).toBe('⌃Q');
+    expect(formatKey('ctrl+q', 'win32')).toBe('Ctrl+Q');
+  });
+
+  it('tooltip 与快捷键页同源：镜像执行键在 Mac 显示 ⌃Q', () => {
+    expect(categoryShortcuts(getDefaultConfig(), 'mirror', 'darwin'))
+      .toContainEqual({ mode: '执行', key: '⌃Q' });
+    expect(categoryShortcuts(getDefaultConfig(), 'mirror', 'win32'))
+      .toContainEqual({ mode: '执行', key: 'Ctrl+Q' });
+  });
+
+  it('darwin 上 ⌘Q（metaKey 且非物理 ctrlKey）不解析为 execMirror，交给系统退出', () => {
+    const cfg = getDefaultConfig();
+    expect(isReservedSystemQuit(quitEvent(), 'darwin')).toBe(true);
+    expect(resolveAction(quitEvent(), cfg, 'canvas', 'darwin')).toBeNull();
+    // Win/Linux 出厂串不动：meta 仍按 ctrl 同义词处理
+    expect(resolveAction(quitEvent(), cfg, 'canvas', 'win32')).toBe('execMirror');
+  });
+
+  it('物理 Control+Q 在 darwin 仍执行镜像', () => {
+    const cfg = getDefaultConfig();
+    const ctrlQ = quitEvent({ metaKey: false, ctrlKey: true });
+    expect(isReservedSystemQuit(ctrlQ, 'darwin')).toBe(false);
+    expect(resolveAction(ctrlQ, cfg, 'canvas', 'darwin')).toBe('execMirror');
+  });
+
+  it('⌘Q 之外的修饰键组合不被误伤（⌘A / ⌘S 这轮不动）', () => {
+    const cfg = getDefaultConfig();
+    const cmd = (key: string): KeyboardEvent => quitEvent({ key });
+    for (const platform of ['darwin', 'win32'] as const) {
+      expect(isReservedSystemQuit(cmd('a'), platform)).toBe(false);
+      expect(isReservedSystemQuit(cmd('s'), platform)).toBe(false);
+    }
+    expect(resolveAction(cmd('a'), cfg, 'canvas', 'darwin')).toBe('execSkill');
+    expect(resolveAction(cmd('s'), cfg, 'canvas', 'darwin')).toBe('execLDirectional');
+  });
+
+  it('改键捕获拒绝 ⌘Q：保留.chord 判定可用于录制弹窗', () => {
+    expect(isReservedSystemQuit(quitEvent(), 'darwin')).toBe(true);
+    expect(isReservedSystemQuit(quitEvent({ ctrlKey: true }), 'darwin')).toBe(false);
   });
 });
 

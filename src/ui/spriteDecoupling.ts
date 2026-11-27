@@ -44,9 +44,23 @@ export interface DecoupledSprite {
   h: number;
   /** 安全边距（像素） */
   padding: number;
+  /** 打包进单张不可变 ImageBitmap 图集后的各级裁切源（高密动态预览零纹理切换、零分配） */
+  packedDraws?: DecoupledDrawSource[];
+  /** 未打包路径下按级缓存的裁切描述符（免去逐次新建对象） */
+  drawSources?: Array<DecoupledDrawSource | undefined>;
 }
 
-const decoupledCaches = new WeakMap<HTMLImageElement, Map<string, DecoupledSprite>>();
+const decoupledCaches = new WeakMap<HTMLImageElement, Map<number | string, DecoupledSprite>>();
+
+function rectCacheKey(x: number, y: number, w: number, h: number): number | string {
+  if (
+    (x | 0) === x && (y | 0) === y && (w | 0) === w && (h | 0) === h
+    && (x | y | w | h) >= 0 && x < 8192 && y < 8192 && w < 8192 && h < 8192
+  ) {
+    return ((x * 8192 + y) * 8192 + w) * 8192 + h;
+  }
+  return `${x},${y},${w},${h}`;
+}
 
 /** 默认离屏画布工厂（实例/测试可替身注入） */
 function createOffscreenCanvasDefault(): HTMLCanvasElement | null {
@@ -62,7 +76,17 @@ export function getDecoupledSprite(
   rect: { x: number; y: number; w: number; h: number },
   createCanvas: () => HTMLCanvasElement | null = createOffscreenCanvasDefault,
 ): DecoupledSprite | null {
-  const { x, y, w, h } = rect;
+  return getDecoupledSpriteByRect(img, rect.x, rect.y, rect.w, rect.h, createCanvas);
+}
+
+export function getDecoupledSpriteByRect(
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  createCanvas: () => HTMLCanvasElement | null = createOffscreenCanvasDefault,
+): DecoupledSprite | null {
   if (w <= 0 || h <= 0) return null;
 
   let imgMap = decoupledCaches.get(img);
@@ -71,7 +95,7 @@ export function getDecoupledSprite(
     decoupledCaches.set(img, imgMap);
   }
 
-  const key = `${x},${y},${w},${h}`;
+  const key = rectCacheKey(x, y, w, h);
   const cached = imgMap.get(key);
   if (cached) return cached;
 
@@ -124,6 +148,10 @@ export function getDecoupledMipLevel(
   level: number,
   createCanvas: () => HTMLCanvasElement | null = createOffscreenCanvasDefault,
 ): CanvasImageSource {
+  if (decoupled.packedDraws && decoupled.packedDraws.length > 0) {
+    const idx = level <= 0 ? 0 : level >= decoupled.packedDraws.length ? decoupled.packedDraws.length - 1 : level;
+    return decoupled.packedDraws[idx]!.source;
+  }
   if (level <= 0) return decoupled.baseCanvas;
   const chain = decoupled.mipChain;
   if (chain[level]) return chain[level]!;
@@ -176,13 +204,28 @@ export interface DecoupledDrawSource {
  */
 export function decoupledMipLevelFor(srcW: number, srcH: number, destW: number, destH: number): number {
   if (!(srcW > 0) || !(srcH > 0) || !(destW > 0) || !(destH > 0)) return 0;
-  const downs = [srcW / destW, srcH / destH].filter((r) => r > 1);
-  if (downs.length === 0) return 0;
-  const maxLevel = Math.floor(Math.log2(Math.min(srcW, srcH) / 1));
-  const lMax = Math.max(0, Math.ceil(Math.log2(Math.max(...downs) / 4.5)));
-  const lNoUp = Math.floor(Math.log2(Math.min(...downs)));
-  const level = Math.min(lMax, lNoUp);
-  return Math.max(0, Math.min(level, maxLevel));
+  const rx = srcW / destW;
+  const ry = srcH / destH;
+  if (!(rx > 1) && !(ry > 1)) return 0;
+  let maxDown: number;
+  let minDown: number;
+  if (rx > 1 && ry > 1) {
+    maxDown = rx > ry ? rx : ry;
+    minDown = rx < ry ? rx : ry;
+  } else if (rx > 1) {
+    maxDown = rx;
+    minDown = rx;
+  } else {
+    maxDown = ry;
+    minDown = ry;
+  }
+  const minSrc = srcW < srcH ? srcW : srcH;
+  const maxLevel = Math.floor(Math.log2(minSrc));
+  const lMax = Math.max(0, Math.ceil(Math.log2(maxDown / 4.5)));
+  const lNoUp = Math.floor(Math.log2(minDown));
+  const level = lMax < lNoUp ? lMax : lNoUp;
+  const clamped = level < maxLevel ? level : maxLevel;
+  return clamped > 0 ? clamped : 0;
 }
 
 /**
@@ -193,18 +236,145 @@ export function getDecoupledDrawSource(
   level: number,
   createCanvas: () => HTMLCanvasElement | null = createOffscreenCanvasDefault,
 ): DecoupledDrawSource {
-  const source = getDecoupledMipLevel(decoupled, level, createCanvas);
+  const safeLevel = level <= 0 ? 0 : level;
+  if (decoupled.packedDraws && decoupled.packedDraws.length > 0) {
+    const idx = safeLevel >= decoupled.packedDraws.length ? decoupled.packedDraws.length - 1 : safeLevel;
+    return decoupled.packedDraws[idx]!;
+  }
+  const isDefault = createCanvas === createOffscreenCanvasDefault;
+  if (isDefault && decoupled.drawSources?.[safeLevel]) {
+    return decoupled.drawSources[safeLevel]!;
+  }
+  const source = getDecoupledMipLevel(decoupled, safeLevel, createCanvas);
   const mipW = (source as { width: number }).width;
   const mipH = (source as { height: number }).height;
   const totalW = decoupled.w + decoupled.padding * 2;
   const totalH = decoupled.h + decoupled.padding * 2;
   const kx = mipW / totalW;
   const ky = mipH / totalH;
-  return {
+  const entry: DecoupledDrawSource = {
     source,
     sx: decoupled.padding * kx,
     sy: decoupled.padding * ky,
     sw: decoupled.w * kx,
     sh: decoupled.h * ky,
   };
+  if (isDefault) {
+    decoupled.drawSources ??= [];
+    decoupled.drawSources[safeLevel] = entry;
+  }
+  return entry;
+}
+
+/**
+ * 票 89：把预热完毕的解耦切片及其全部 Mip 级位图（约 340 张独立 `HTMLCanvasElement`）
+ * 货架式合批打包进单张不可变 `ImageBitmap` 图集，随后将临时离屏画布缩至 1×1 释放 GPU SharedImage 显存，
+ * 让同帧数百颗音符绘制共享单张 GPU 纹理完成 Skia 批处理。
+ */
+export function packDecoupledSprites(sprites: readonly DecoupledSprite[]): ImageBitmap | null {
+  if (
+    typeof OffscreenCanvas === 'undefined'
+    || typeof OffscreenCanvas.prototype.transferToImageBitmap !== 'function'
+  ) {
+    return null;
+  }
+  const unique = new Set<DecoupledSprite>();
+  for (const s of sprites) {
+    if (!s.packedDraws && s.mipChain.length > 0) unique.add(s);
+  }
+  if (unique.size === 0) return null;
+
+  interface PackItem {
+    sprite: DecoupledSprite;
+    level: number;
+    src: CanvasImageSource;
+    pw: number;
+    ph: number;
+    ox: number;
+    oy: number;
+  }
+
+  const E = 2;
+  const margin = E * 2;
+  const items: PackItem[] = [];
+  let maxCellW = 0;
+  for (const sprite of unique) {
+    for (let level = 0; level < sprite.mipChain.length; level++) {
+      const src = sprite.mipChain[level]!;
+      const pw = Math.max(1, (src as { width: number }).width | 0);
+      const ph = Math.max(1, (src as { height: number }).height | 0);
+      if (pw + margin * 2 > maxCellW) maxCellW = pw + margin * 2;
+      items.push({ sprite, level, src, pw, ph, ox: 0, oy: 0 });
+    }
+  }
+  items.sort((a, b) => b.ph - a.ph);
+
+  const atlasW = Math.max(2048, maxCellW);
+  let curX = 0;
+  let curY = 0;
+  let rowH = 0;
+  for (const item of items) {
+    const cellW = item.pw + margin * 2;
+    const cellH = item.ph + margin * 2;
+    if (curX > 0 && curX + cellW > atlasW) {
+      curX = 0;
+      curY += rowH;
+      rowH = 0;
+    }
+    item.ox = curX + margin;
+    item.oy = curY + margin;
+    curX += cellW;
+    if (cellH > rowH) rowH = cellH;
+  }
+  const atlasH = Math.max(1, curY + rowH);
+
+  try {
+    const atlasCanvas = new OffscreenCanvas(atlasW, atlasH);
+    const actx = atlasCanvas.getContext('2d');
+    if (!actx) return null;
+    actx.imageSmoothingEnabled = false;
+    for (const { src, pw, ph, ox, oy } of items) {
+      actx.drawImage(src, 0, 0, pw, ph, ox, oy, pw, ph);
+      actx.drawImage(src, 0, 0, pw, 1, ox, oy - E, pw, E);
+      actx.drawImage(src, 0, ph - 1, pw, 1, ox, oy + ph, pw, E);
+      actx.drawImage(src, 0, 0, 1, ph, ox - E, oy, E, ph);
+      actx.drawImage(src, pw - 1, 0, 1, ph, ox + pw, oy, E, ph);
+    }
+    const bitmap = atlasCanvas.transferToImageBitmap();
+    try {
+      const warm = new OffscreenCanvas(1, 1);
+      warm.getContext('2d')?.drawImage(bitmap, 0, 0, 1, 1, 0, 0, 1, 1);
+    } catch {
+      /* 忽略预上传异常 */
+    }
+    for (const sprite of unique) {
+      sprite.packedDraws = new Array<DecoupledDrawSource>(sprite.mipChain.length);
+    }
+    for (const { sprite, level, pw, ph, ox, oy } of items) {
+      const totalW = sprite.w + sprite.padding * 2;
+      const totalH = sprite.h + sprite.padding * 2;
+      const kx = pw / totalW;
+      const ky = ph / totalH;
+      sprite.packedDraws![level] = {
+        source: bitmap,
+        sx: ox + sprite.padding * kx,
+        sy: oy + sprite.padding * ky,
+        sw: sprite.w * kx,
+        sh: sprite.h * ky,
+      };
+    }
+    for (const sprite of unique) {
+      for (const src of sprite.mipChain) {
+        const cv = src as { width?: number; height?: number };
+        if (typeof cv.width === 'number' && typeof cv.height === 'number') {
+          cv.width = 1;
+          cv.height = 1;
+        }
+      }
+      sprite.drawSources = undefined;
+    }
+    return bitmap;
+  } catch {
+    return null;
+  }
 }

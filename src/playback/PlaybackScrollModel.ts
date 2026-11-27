@@ -16,7 +16,7 @@
 //   判定线 = 画布【底边】= 虚拟 Y surface.h/scale（渲染面底边）。
 //   scrollY ∈ [0, chartEndVirtualY]：
 //     scrollY = 0            → 判定线处 = 谱面末端（最顶端）
-//     scrollY = chartEndY    → 判定线处 = beat 0（最底端）
+//     scrollY = chartEndY    → 判定线处 = 时间原点（首条 BPM；issue 63，不再假定 beat 0）（最底端）
 //   **issue 104 修法 5：秒 ↔ scrollY 改为纯线性**（`scrollY = chartEndVirtualY − 秒 × 像素密度`），
 //   不再借道「秒 → 拍 → 像素」——倒流区里「秒 → 拍」多值，借道必然取到错层的拍（滚动会跳）。
 //   像素密度 = `geometry.virtualPxPerSecond`（与 bpm 无关的常数），故两条映射严格互逆。
@@ -90,7 +90,7 @@ export class PlaybackScrollModel {
     return this.judgeLineOffsetPx > 0 && es > 0 ? this.judgeLineOffsetPx / es : 0;
   }
 
-  /** 谱面末端虚拟高度 = 可滚 scrollY 上限（起点 beat 0 落在判定线）。 */
+  /** 谱面末端虚拟高度 = 可滚 scrollY 上限（时间原点落在判定线）。 */
   maxCanvasScrollY(): number {
     return this.geometry.chartEndVirtualY + this.offsetVirtualY();
   }
@@ -100,7 +100,7 @@ export class PlaybackScrollModel {
     return this.offsetVirtualY();
   }
 
-  /** 判定线锚定：scrollY=minCanvasScrollY 时判定线在末端，scrollY=maxCanvasScrollY 时判定线在 beat0。 */
+  /** 判定线锚定：scrollY=minCanvasScrollY 时判定线在末端，scrollY=maxCanvasScrollY 时判定线在时间原点。 */
   scrollYForSeconds(seconds: number): number {
     const raw = this.maxCanvasScrollY() - seconds * this.geometry.virtualPxPerSecond;
     return clamp(raw, this.minCanvasScrollY(), this.maxCanvasScrollY());
@@ -168,7 +168,7 @@ export class PlaybackScrollModel {
   getAnchorSeconds(): number { return this.anchorSeconds; }
 
   /**
-   * issue 166：「打开 / 恢复谱面 → 视口归零到 beat 0」的模型侧落点。
+   * issue 166：「打开 / 恢复谱面 → 视口归零到时间原点（首条 BPM，issue 63）」的模型侧落点。
    * 与按秒重锚的语义相反（重锚 = 保留当前秒，ADR/issue 24 定案），故这里直接把锚点归 0
    * 并**丢弃**待重锚 —— 否则重锚会用（被污染或过期的）旧锚点把视图拉回非开头位置。
    */

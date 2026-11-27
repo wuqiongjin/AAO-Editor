@@ -7,7 +7,8 @@ import {
     normalizeChartCodeText,
     parseCodeText,
     validateChartCode,
-    hasBeat0Bpm
+    hasBeat0Bpm,
+    ensureChartCodeBpm,
 } from '@/src/chart/editing/ChartConverter';
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
 import type { ChartNote } from '@/src/chart/types';
@@ -275,6 +276,44 @@ describe('Chart Converter', () => {
         expect(hasBeat0Bpm([{ beat: 0, type: 'BPM', bpm: 120 }])).toBe(true);
         expect(hasBeat0Bpm([{ beat: 4, type: 'Single', lane: 0 }] as ChartCodeNote[])).toBe(false);
         expect(hasBeat0Bpm([{ beat: 0, type: 'Single', lane: 0 }] as ChartCodeNote[])).toBe(false);
+    });
+});
+
+// issue 62（2026-11-27 修正口径）：完整代码编辑器只保证「应用后至少一条 BPM」。
+// beat 0 不再特殊：允许删；一条 BPM 都没有才补默认 120@0。
+describe('issue 62 · ensureChartCodeBpm（完整代码应用的 BPM 保底）', () => {
+    test('空代码（空文本 / []）→ 插入默认 BPM（120@0）', () => {
+        expect(ensureChartCodeBpm([])).toEqual({
+            code: [{ beat: 0, type: 'BPM', bpm: 120 }],
+            injected: true,
+        });
+    });
+
+    test('有 BPM 但无 beat 0 → 原样应用（不补 beat 0、不改写 BPM 数据）', () => {
+        const code: ChartCodeNote[] = [
+            { beat: 2, type: 'BPM', bpm: 150 },
+            { beat: 1, type: 'BPM', bpm: 165 },
+        ];
+        expect(ensureChartCodeBpm(code)).toEqual({ code, injected: false });
+    });
+
+    test('删掉 beat 0、还有其它 BPM → 允许（原点自动变成剩余首条 BPM）', () => {
+        const code: ChartCodeNote[] = [
+            { beat: 1, type: 'BPM', bpm: 165 },
+            { beat: 2, type: 'BPM', bpm: 150 },
+        ];
+        expect(ensureChartCodeBpm(code)).toEqual({ code, injected: false });
+    });
+
+    test('一条 BPM 都没有（哪怕有音符）→ 插入默认 120@0，音符保留', () => {
+        const code: ChartCodeNote[] = [{ beat: 4, lane: 0, type: 'Single' }];
+        expect(ensureChartCodeBpm(code)).toEqual({
+            code: [
+                { beat: 0, type: 'BPM', bpm: 120 },
+                { beat: 4, lane: 0, type: 'Single' },
+            ],
+            injected: true,
+        });
     });
 });
 

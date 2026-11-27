@@ -2,7 +2,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import { useNow } from '../../../app/ProviderTree';
-import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
+import { newChartId, type ChartProject, type ChartSummary, type ProjectSummary } from '../../../project/ChartProject';
 import {
   DIFF_COLORS,
   DIFF_SHORT,
@@ -10,12 +10,12 @@ import {
   toggleChartCompleted,
   updateChartInfo,
 } from '../../../project/projectCatalog';
-import { chartStatus } from '../../../project/workspaceProject';
+import { chartStatus, isProjectAudioLocked } from '../../../project/workspaceProject';
+import { isChartReadonly } from '../../../project/chartReadonlyGate';
 import {
   displayProjectName,
   untitledProjectLabel,
 } from '../../../project/ui/projectUi';
-import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import { postUrl } from '../../../community/bestdori/endpoints';
 import { projectTimeAt, type ProjectSortKey } from '../../../project/projectSort';
 import { t } from '../../../i18n';
@@ -31,8 +31,8 @@ export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton, sort,
   onHome, onSelect, onOpen, onEdit, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, onPublishChart, mutate,
 }: {
-  list: ChartProject[];
-  sel: ChartProject;
+  list: ProjectSummary[];
+  sel: ProjectSummary;
   currentId: string | null;
   listWidth: number;
   onListWidthChange: (width: number) => void;
@@ -44,20 +44,21 @@ export function ProjectDetail({
   onHome: () => void;
   onSelect: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
-  onEdit: (p: ChartProject) => void;
-  onDelete: (p: ChartProject) => void;
-  onChartForm: (v: { project: ChartProject; chart: ProjectChart | null }) => void;
-  onDeleteChart: (v: { project: ChartProject; chart: ProjectChart }) => void;
+  onEdit: (p: ProjectSummary) => void;
+  onDelete: (p: ProjectSummary) => void;
+  onChartForm: (v: { project: ProjectSummary; chart: ChartSummary | null }) => void;
+  onDeleteChart: (v: { project: ProjectSummary; chart: ChartSummary }) => void;
   /** 跳音频页（带作用域）——作用域对象由页面侧构造，这里只负责触发 */
   onOpenAudio: () => void;
   /** 跳预览页（带作用域二级 chartId，chart-preview 02）——同上，作用域由页面侧构造 */
   onPreviewChart: (chartId: string) => void;
   /** 打开发布弹窗（票 11；入口在工程管理页，ADR-0015 §4 后果） */
-  onPublishChart: (chart: ProjectChart) => void;
+  onPublishChart: (chart: ChartSummary) => void;
   mutate: (id: string, fn: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
-  const locked = uploads.length > 0;
+  const locked = isProjectAudioLocked(sel);
+  const pending = sel.charts.some((chart) => chart.pendingPublish);
   // relTime 的 now 走共享 ticker（issue 36）：30s 一跳，三处「N 分钟前」随时间自己走
   const now = useNow();
   // 发布入口的能力灰化（票 41）：写能力被挡住时按钮灰掉，why 挂在按钮 title 上，
@@ -67,7 +68,7 @@ export function ProjectDetail({
   const publishEntry = capabilityBlock !== 'unsupported-runtime';
   const verifying = session.verifying;
   const signedOut = capabilityBlock === 'signed-out' && !verifying;
-  const [signInForChart, setSignInForChart] = useState<ProjectChart | null>(null);
+  const [signInForChart, setSignInForChart] = useState<ChartSummary | null>(null);
   // 左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
   // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
   useEffect(() => {
@@ -152,7 +153,7 @@ export function ProjectDetail({
               <Play size={14} />{t('projects.openInWorkspace')}
             </button>
             <button type="button" className="pp-btn" onClick={() => onEdit(sel)}><Pencil size={14} />{t('projects.editInfo')}</button>
-            <button type="button" className="pp-icon-btn is-danger" title={t('projects.delete')} onClick={() => onDelete(sel)}><Trash2 size={15} /></button>
+            <button type="button" className="pp-icon-btn is-danger" disabled={pending} title={t('projects.delete')} onClick={() => onDelete(sel)}><Trash2 size={15} /></button>
           </div>
         </header>
         <section>
@@ -160,18 +161,19 @@ export function ProjectDetail({
           <div className="pc-charts">
             {sel.charts.map((c) => {
               const up = chartStatus(c) === 'uploaded';
+              const readonly = isChartReadonly(c);
               return (
                 <div key={c.id} className="pc-chart">
                   <DiffLevelBadge
                     chart={c}
-                    uploaded={up}
+                    uploaded={readonly}
                     onCommit={(patch) => void mutate(sel.id, (p) => updateChartInfo(p, c.id, {
                       title: c.title, diff: patch.diff, level: patch.level,
                     }, Date.now()))}
                   />
                   <span className="pc-chart__title">
                     <b>{effectiveTitle(sel, c)}</b>
-                    <small className="pp-muted">{t('projects.notesMeta', { count: countChartNotes(c.notes), time: relTime(c.lastModified, now) })}</small>
+                    <small className="pp-muted">{t('projects.notesMeta', { count: c.noteCount, time: relTime(c.lastModified, now) })}</small>
                   </span>
                   {/* 状态徽标即控件（票 41）：点开就地小菜单切「未完成 / 已完成」，
                       行尾独立「标为完成」文字按钮已撤（低频动作不占动作组宽位）。
@@ -199,10 +201,14 @@ export function ProjectDetail({
                       <button
                         type="button"
                         className="pp-btn pp-btn--sm"
-                        disabled={verifying || (!canPublish && !signedOut)}
-                        aria-disabled={signedOut || undefined}
-                        title={verifying ? t('community.account.verifying') : (capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined)}
+                        disabled={!c.pendingPublish && (verifying || (!canPublish && !signedOut))}
+                        aria-disabled={(!c.pendingPublish && signedOut) || undefined}
+                        title={c.pendingPublish ? undefined : verifying ? t('community.account.verifying') : (capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined)}
                         onClick={() => {
+                          if (c.pendingPublish) {
+                            onPublishChart(c);
+                            return;
+                          }
                           if (verifying) return;
                           if (signedOut) {
                             setSignInForChart(c);
@@ -211,15 +217,17 @@ export function ProjectDetail({
                           onPublishChart(c);
                         }}
                       >
-                        <Upload size={12} />{t(up ? 'projects.publish.update' : 'projects.publish.action')}
+                        <Upload size={12} />{c.pendingPublish
+                          ? t('projects.publish.recovery.check')
+                          : t(up ? 'projects.publish.update' : 'projects.publish.action')}
                       </button>
                     )}
                     <button
                       type="button"
                       className="pp-icon-btn"
-                      disabled={up}
-                      title={up ? t('projects.editChartDisabled') : t('projects.editChart')}
-                      onClick={() => { if (!up) onChartForm({ project: sel, chart: c }); }}
+                      disabled={readonly}
+                      title={c.pendingPublish ? t('projects.publish.recovery.pending') : up ? t('projects.editChartDisabled') : t('projects.editChart')}
+                      onClick={() => { if (!readonly) onChartForm({ project: sel, chart: c }); }}
                     >
                       <Pencil size={14} />
                     </button>
@@ -234,6 +242,7 @@ export function ProjectDetail({
                     <button
                       type="button"
                       className="pp-icon-btn is-danger"
+                      disabled={c.pendingPublish}
                       title={t('projects.deleteChart')}
                       onClick={() => onDeleteChart({ project: sel, chart: c })}
                     >

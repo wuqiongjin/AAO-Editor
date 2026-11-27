@@ -25,7 +25,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "electron .",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:preview": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron . --dev\"",
     "electron:build": "npm run build:release && electron-builder",
     "electron:dist": "npm run build:release && electron-builder --publish=never"
   },

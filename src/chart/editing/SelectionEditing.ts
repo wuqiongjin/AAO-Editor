@@ -4,6 +4,7 @@ import { spanConnIndices, regionIdentity, slideSpans } from './SlideSegments';
 import { mirrorNote, mirrorLane } from './NoteEditing';
 import { effectiveSpanParams, mirrorSpanParam } from './SpanCurve';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
+import { hasAnyBpmNote } from './ChartConverter';
 
 /**
  * 滑条子部分选择与编辑规则（ADR-0001 §6）
@@ -34,9 +35,9 @@ const groupByNote = (items: SelectionItem[]): Map<number, SelectionItem[]> => {
  *   再对含 hidden 的段删一次才真正移除，用户不写代码即可创造 hidden）；删端点 = 移除端点（issue 80 口径）
  * 同一滑条内多个子部分删除会合并处理。
  *
- * **例外（issue 59 / ADR-0001 保底）**：beat 0 的 BPM 线**不可删除** —— 谱面必须有初始 BPM，
- * 对它执行删除退化为「重置为初始状态」（bpm = DEFAULT_BPM）。用户改过值（如 180）后再删，
- * 看到的就是数值回到 120，而不是整条线消失。删除工具点击 / 右键 / 框选后 Delete 三条通路同此语义。
+ * **BPM 保底（issue 62，2026-11-27 修正）**：beat 0 不再特殊，BPM 线照常删除；
+ * 但删掉最后一条 BPM 时不留下没有时间轴的谱面 —— 退化为重置出 `beat 0, bpm = DEFAULT_BPM`。
+ * （原先「beat 0 的 BPM 线不可删除」的规则已随 issue 62 废除。）
  */
 export function deleteSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[] {
   return removeSelection(notes, items);
@@ -117,11 +118,7 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
 
   const result: ChartNote[] = [];
   notes.forEach((note, i) => {
-    if (fullRemove.has(i)) {
-      // beat 0 的 BPM 线不可删 → 退化为重置为初始状态（bpm = 120），见 deleteSelection 注释
-      if (note.type === 'BPM' && note.beat === 0) result.push({ ...note, bpm: DEFAULT_BPM });
-      return;
-    }
+    if (fullRemove.has(i)) return;
     if (isSlide(note) && (nodeRemove.has(i) || splitAfter.has(i) || nodeToHidden.has(i))) {
       // issue 92：先对副本原位转 hidden（仅设 hidden:true，其余字段不动），再走统一拆分算法——
       // 转 hidden 后滑条自然落入既有 hidden 口径（hidden 对段透明、删段清 hidden、段首尾收口）。
@@ -134,6 +131,11 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
     }
     result.push(note);
   });
+  // issue 62 Q2b：谱面至少要有一条 BPM。删掉最后一条（且它不在 beat 0）→ 与删 beat 0 同构，
+  // 退化为重置出默认 BPM，而不是把谱面留成没有时间轴的非法态。
+  if (hasAnyBpmNote(notes) && !hasAnyBpmNote(result)) {
+    result.unshift({ type: 'BPM', beat: 0, bpm: DEFAULT_BPM });
+  }
   return result;
 }
 

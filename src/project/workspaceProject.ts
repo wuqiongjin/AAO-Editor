@@ -3,15 +3,17 @@
 // 切工程时编辑态整体换成新工程，剪贴板不清空。
 import { DEFAULT_BPM } from '../audio/AudioTiming';
 import { DEFAULT_CHART_DURATION_SECONDS } from '../audio/chartDuration';
+import { defaultCharterCredit } from './charterCredit';
 import { createHistory, type HistoryState } from '../chart/editing/History';
 import type { ChartNote, SelectionItem } from '../chart/types';
-import type { ChartProject, ChartUploadRecord, ProjectChart } from './ChartProject';
+import type { ChartProject, ChartUploadRecord, PendingChartPublish, ProjectChart } from './ChartProject';
 
 export type ChartStatus = 'unfinished' | 'completed' | 'uploaded';
 
 export interface ChartStatusFields {
   completed: boolean;
   upload: ChartUploadRecord | null;
+  pendingPublish?: PendingChartPublish | true;
 }
 
 export interface ProjectPickFields {
@@ -35,9 +37,9 @@ export function isProjectUnfinished(project: { charts: ChartStatusFields[] }): b
   return project.charts.some((c) => chartStatus(c) === 'unfinished');
 }
 
-/** 工程里只要有一张已上传谱面，共享的音频与谱面时长锁定（ADR-0015 §4） */
+/** 已上传或发布待确认时，共享音频与谱面时长锁定。 */
 export function isProjectAudioLocked(project: { charts: ChartStatusFields[] }): boolean {
-  return project.charts.some((c) => chartStatus(c) === 'uploaded');
+  return project.charts.some((c) => c.upload || c.pendingPublish);
 }
 
 
@@ -69,6 +71,8 @@ export function createUnnamedProject(opts: { id: string; chartId: string; now: n
     lastModified: opts.now,
     appliedChartCodeText: null,
     chartCodePristine: false,
+    // 票 79：只在新建谱面这一刻落值；换账号 / 登出都不回写已有谱面
+    charterCredit: defaultCharterCredit(),
   };
   return {
     id: opts.id,
@@ -83,7 +87,10 @@ export function createUnnamedProject(opts: { id: string; chartId: string; now: n
   };
 }
 
-export function pickCurrentChart(project: ChartProject, chartId?: string | null): ProjectChart {
+export function pickCurrentChart<T extends { id: string }>(
+  project: { id: string; charts: readonly T[] },
+  chartId?: string | null,
+): T {
   if (chartId) {
     const found = project.charts.find((c) => c.id === chartId);
     if (found) return found;

@@ -266,7 +266,7 @@ describe('票 15 · 接线：scheme 特权 + 处理器注册', () => {
     registerAssetSchemePrivileges(protocol);
 
     expect(privileged).toEqual([
-      { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true } },
+      { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
     ]);
   });
 

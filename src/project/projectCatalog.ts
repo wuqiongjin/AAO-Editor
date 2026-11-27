@@ -2,13 +2,15 @@
 // 新建 / 复制工程 / 新增谱面（Apply 闸门）/ 复制谱面 / 切换器标签文案。
 import {
   convertChartCodeToNotes,
-  hasBeat0Bpm,
+  hasBpm,
   parseCodeText,
   type ValidationError,
 } from '../chart/editing/ChartConverter';
 import type { ChartNote } from '../chart/types';
 import type { ChartDifficulty, ChartProject, ChartTag, ChartUploadRecord, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
+import { getBpmEvents, maxNoteEndSeconds } from '../audio/AudioTiming';
+import { defaultCharterCredit } from './charterCredit';
 import { clampChartDuration } from '../audio/chartDuration';
 import { t } from '../i18n';
 
@@ -92,7 +94,7 @@ export function duplicateProject(
   /** 现有工程显示名：重名时递增「（副本 2）…」（与复制谱面同口径，issue 19 #6） */
   taken: readonly string[] = [],
 ): ChartProject {
-  const charts = src.charts.map((chart, i) => ({
+  const charts = src.charts.map(({ pendingPublish: _pendingPublish, ...chart }, i) => ({
     ...chart,
     id: ids.chartIds[i] ?? chart.id,
     notes: cloneJson(chart.notes),
@@ -117,28 +119,41 @@ export interface AppliedChartCode {
   notes: ChartNote[];
   appliedChartCodeText: string | null;
   chartCodePristine: boolean;
+  /** 输入为空文本或空数组 `[]`：调用方据此决定「默认空谱」还是「拒绝」。 */
+  emptyInput: boolean;
 }
 
 export type ApplyChartCodeResult =
   | ({ ok: true } & AppliedChartCode)
   | { ok: false; errors: ValidationError[] };
 
+function emptyAppliedChartCode(): AppliedChartCode {
+  return {
+    notes: emptyChartNotes(),
+    appliedChartCodeText: null,
+    chartCodePristine: false,
+    emptyInput: true,
+  };
+}
+
 export function applyChartCodeText(codeText: string): ApplyChartCodeResult {
   const trimmed = codeText.trim();
-  if (!trimmed) {
-    return { ok: true, notes: emptyChartNotes(), appliedChartCodeText: null, chartCodePristine: false };
-  }
+  if (!trimmed) return { ok: true, ...emptyAppliedChartCode() };
   // 一次解析同时给出 code 与全部错误（不再「先 parse 校验、再 parse 取数组」）
   const parsed = parseCodeText(trimmed);
   if (!parsed.ok) return { ok: false, errors: parsed.errors };
-  if (!hasBeat0Bpm(parsed.code)) {
-    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm0') }] };
+  // issue 62：空数组按「空谱面」处理——新增谱面落默认 BPM，导入由调用方按 chartProvided 拒绝。
+  if (parsed.code.length === 0) return { ok: true, ...emptyAppliedChartCode() };
+  // issue 62：不再要求 beat 0；但必须至少有一条 BPM（位置不限）。
+  if (!hasBpm(parsed.code)) {
+    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm') }] };
   }
   return {
     ok: true,
     notes: convertChartCodeToNotes(parsed.code),
     appliedChartCodeText: trimmed,
     chartCodePristine: true,
+    emptyInput: false,
   };
 }
 
@@ -147,6 +162,8 @@ export type AddChartInput = {
   diff: ChartDifficulty;
   level: number | null;
   codeText: string;
+  /** 谱师署名（票 79）：给了就用手填值，没给才落登录账号名 */
+  charterCredit?: string | null;
 };
 
 export type AddChartResult =
@@ -172,6 +189,10 @@ export function addChartToProject(
     lastModified: ids.now,
     appliedChartCodeText: applied.appliedChartCodeText,
     chartCodePristine: applied.chartCodePristine,
+    // 票 79：手动填写 > 登录账号名 > 空，只在新建这一刻定下来
+    charterCredit: input.charterCredit === undefined
+      ? defaultCharterCredit()
+      : (input.charterCredit?.trim() || null),
   };
   return { ok: true, project: { ...project, charts: [...project.charts, chart] }, chart };
 }
@@ -197,15 +218,20 @@ export interface OfficialProjectInput {
   /** 官方曲长（秒）：音频落地后由实际时长校正，先按官方数据起 */
   durationSeconds: number;
   /** 音频名（写进工程记录的显示名；二进制本身走素材缓存，见 ChartProject 的 ProjectBinarySources） */
-  audioName: string;
+  audioName: string | null;
   /** 封面名；这首曲子没有封面时给 null */
   coverName: string | null;
   /** 这张谱面的难度：不勾「带官方谱面」时就是 Expert（3） */
   diff: ChartDifficulty;
   /** 等级：只有勾了「带官方谱面」才给（等级是作品属性，人还没作谱，不预填） */
   level: number | null;
-  /** 官方谱面代码原文（勾了才给）；走 Apply 闸门，过不了就整笔不建 */
+  /** 外部谱面代码原文（勾了 / 帖子带了才给）；走 Apply 闸门，过不了就整笔不建 */
   chartCodeText?: string;
+  /**
+   * 来源是否真的提供了谱面内容（issue 62）：用于区分「没带谱面 → 建默认空谱」与
+   * 「带了但解析为空（如 `[]`）→ 整笔拒绝」。官方谱面降级 / 不勾选时为 false。
+   */
+  chartProvided?: boolean;
 }
 
 export type OfficialProjectResult =
@@ -215,6 +241,10 @@ export type OfficialProjectResult =
 export function createOfficialProject(input: OfficialProjectInput): OfficialProjectResult {
   const applied = applyChartCodeText(input.chartCodeText ?? '');
   if (!applied.ok) return { ok: false, errors: applied.errors };
+  // issue 62：来源确实带了谱面，却是空数组 → 不是「没带谱面」，整笔拒绝。
+  if (input.chartProvided && applied.emptyInput) {
+    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.emptyChart') }] };
+  }
 
   const base = createUnnamedProject({ id: input.id, chartId: input.chartId, now: input.now });
   const chart: ProjectChart = {
@@ -233,7 +263,11 @@ export function createOfficialProject(input: OfficialProjectInput): OfficialProj
       name: input.name.trim() || null,
       artist: input.artist?.trim() || null,
       source: input.source,
-      durationSeconds: clampChartDuration(input.durationSeconds),
+      durationSeconds: clampChartDuration(
+        input.audioName == null
+          ? Math.max(input.durationSeconds, maxNoteEndSeconds(applied.notes, 1, getBpmEvents(applied.notes)))
+          : input.durationSeconds,
+      ),
       audioName: input.audioName,
       coverName: input.coverName,
       charts: [chart],
@@ -262,7 +296,7 @@ export function duplicateChartInProject(
 ): ChartProject | null {
   const index = project.charts.findIndex((c) => c.id === chartId);
   if (index < 0) return null;
-  const src = project.charts[index];
+  const { pendingPublish: _pendingPublish, ...src } = project.charts[index];
   const taken = project.charts.map((c) => chartEffectiveTitle(project.name, c.title, untitled));
   const copy: ProjectChart = {
     ...src,
@@ -282,9 +316,11 @@ export function duplicateChartInProject(
 export function deleteChartFromProject(
   project: ChartProject,
   chartId: string,
-): { ok: true; project: ChartProject } | { ok: false; reason: 'last' | 'missing' } {
+): { ok: true; project: ChartProject } | { ok: false; reason: 'last' | 'missing' | 'pending' } {
   if (project.charts.length <= 1) return { ok: false, reason: 'last' };
-  if (!project.charts.some((c) => c.id === chartId)) return { ok: false, reason: 'missing' };
+  const chart = project.charts.find((c) => c.id === chartId);
+  if (!chart) return { ok: false, reason: 'missing' };
+  if (chart.pendingPublish) return { ok: false, reason: 'pending' };
   return { ok: true, project: { ...project, charts: project.charts.filter((c) => c.id !== chartId) } };
 }
 
@@ -292,7 +328,7 @@ export function toggleChartCompleted(project: ChartProject, chartId: string, now
   return {
     ...project,
     charts: project.charts.map((c) => (
-      c.id === chartId && !c.upload
+      c.id === chartId && !c.upload && !c.pendingPublish
         ? { ...c, completed: !c.completed, lastModified: now }
         : c
     )),
@@ -309,12 +345,14 @@ export function recordChartUpload(
   project: ChartProject,
   chartId: string,
   record: ChartUploadRecord,
+  attemptId?: string,
 ): ChartProject | null {
   const target = project.charts.find((c) => c.id === chartId);
-  if (!target || target.upload) return null;
+  if (!target || target.upload || target.pendingPublish?.attemptId !== attemptId) return null;
+  const { pendingPublish: _pendingPublish, ...chart } = target;
   return {
     ...project,
-    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record } : c)),
+    charts: project.charts.map((c) => (c.id === chartId ? { ...chart, upload: record } : c)),
   };
 }
 
@@ -341,7 +379,24 @@ export function updateChartTags(
   const next = normalizeChartTags(tags);
   return {
     ...project,
-    charts: project.charts.map((c) => (c.id === chartId && !c.upload ? { ...c, tags: next } : c)),
+    charts: project.charts.map((c) => (c.id === chartId && !c.upload && !c.pendingPublish ? { ...c, tags: next } : c)),
+  };
+}
+
+/**
+ * 更新谱师署名（票 79 / ADR-0024 §6）。**已上传谱面也可改**：它是导出画面用的元数据，
+ * 与难度 / 等级 / 标签同档，不碰音符、不改谱面本体只读规则；也不戳 `lastModified`
+ * （口径同 `updateChartTags`，改署名不算"谱面被写过"）。
+ */
+export function updateChartCharterCredit(
+  project: ChartProject,
+  chartId: string,
+  credit: string | null,
+): ChartProject {
+  const clean = credit?.trim() || null;
+  return {
+    ...project,
+    charts: project.charts.map((c) => (c.id === chartId ? { ...c, charterCredit: clean } : c)),
   };
 }
 
@@ -389,7 +444,7 @@ export function updateChartInfo(
   return {
     ...project,
     charts: project.charts.map((c) => {
-      if (c.id !== chartId || c.upload) return c;
+      if (c.id !== chartId || c.upload || c.pendingPublish) return c;
       const unchanged = c.title === cleanTitle && c.diff === patch.diff && c.level === patch.level;
       return {
         ...c,
@@ -402,12 +457,39 @@ export function updateChartInfo(
   };
 }
 
+/**
+ * 谱面信息弹窗的一次保存（票 79）：名称 / 难度 / 等级走 `updateChartInfo`（已上传会跳过），
+ * 谱师署名是元数据、一律可写 —— 两条各管各的，不把「已上传谱面本体只读」的闸门撬开。
+ * 工程页与工作台的切换器共用这一份，免得两处各写一遍次序。
+ */
+export function applyChartInfoPatch(
+  project: ChartProject,
+  chartId: string,
+  patch: { title: string | null; diff: ChartDifficulty; level: number | null; charterCredit: string | null },
+  now: number,
+): ChartProject {
+  return updateChartCharterCredit(
+    updateChartInfo(project, chartId, patch, now),
+    chartId,
+    patch.charterCredit,
+  );
+}
+
+/** 曲目署名逐项归一：没给 = 沿用原值；空白 = 清空（null）。 */
+function creditPatch(raw: string | null | undefined, prev: string | null | undefined): string | null {
+  return raw === undefined ? (prev ?? null) : (raw?.trim() || null);
+}
+
 export function updateProjectInfo(
   project: ChartProject,
   patch: {
     name: string | null;
     artist: string | null;
     source: SongSource;
+    /** 曲目署名（票 79）：工程级 3 项，可选以兼容其它调用点 */
+    lyricist?: string | null;
+    composer?: string | null;
+    arranger?: string | null;
     coverName?: string | null;
     coverBlob?: Blob;
     clearCover?: boolean;
@@ -417,6 +499,9 @@ export function updateProjectInfo(
     ...project,
     name: patch.name?.trim() || null,
     artist: patch.artist?.trim() || null,
+    lyricist: creditPatch(patch.lyricist, project.lyricist),
+    composer: creditPatch(patch.composer, project.composer),
+    arranger: creditPatch(patch.arranger, project.arranger),
     source: patch.source,
   };
   if (patch.clearCover) {

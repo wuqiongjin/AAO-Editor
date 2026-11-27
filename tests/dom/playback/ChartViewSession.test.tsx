@@ -11,6 +11,7 @@ import '@testing-library/jest-dom/vitest';
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render } from '@testing-library/react';
 import { useRef } from 'react';
+import type { AudioEngine } from '@/src/audio/AudioEngine';
 import type { ChartNote } from '@/src/chart/types';
 import type { FinalVirtualCanvasHandle } from '@/src/chart/components/canvas/FinalVirtualCanvas';
 import { useChartViewSession, type ChartViewSession } from '@/src/playback/useChartViewSession';
@@ -33,13 +34,16 @@ interface Box {
   session: ChartViewSession | null;
 }
 
+const NOOP = () => {};
+
 function Harness(props: {
   box: Box;
   canvas: FinalVirtualCanvasHandle;
   chartDuration: number;
+  engine?: AudioEngine | null;
   onSecondsChange: (sec: number) => void;
 }) {
-  const { box, canvas, chartDuration, onSecondsChange } = props;
+  const { box, canvas, chartDuration, engine = null, onSecondsChange } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<FinalVirtualCanvasHandle>(canvas);
   const session = useChartViewSession({
@@ -49,9 +53,9 @@ function Harness(props: {
     chartDuration,
     verticalRatio: 1,
     scale: 1,
-    engine: null,
+    engine,
     onSecondsChange,
-    onPlayingChange: () => {},
+    onPlayingChange: NOOP,
   });
   box.session = session;
   // 与工作台页同款接线：滚动宿主的 onScroll 直连会话的 onScrollbarScroll
@@ -78,13 +82,13 @@ function mockLayout(host: HTMLDivElement) {
   };
 }
 
-function mount(chartDuration = 30) {
+function mount(chartDuration = 30, engine: AudioEngine | null = null) {
   const box: Box = { session: null };
   const setScrollY = vi.fn();
   const canvas: FinalVirtualCanvasHandle = { setScrollY };
   const onSecondsChange = vi.fn();
   const renderHarness = (duration: number) => (
-    <Harness box={box} canvas={canvas} chartDuration={duration} onSecondsChange={onSecondsChange} />
+    <Harness box={box} canvas={canvas} chartDuration={duration} engine={engine} onSecondsChange={onSecondsChange} />
   );
   const view = render(renderHarness(chartDuration));
   const host = view.container.firstElementChild as HTMLDivElement;
@@ -143,7 +147,47 @@ describe('architecture-refactor 09 · 谱面视口会话（DOM 不变量行为�
       layout.writeScrollTop(0);
       fireEvent.scroll(host);
     });
-    expect(setScrollY).toHaveBeenCalledWith(0);
+    expect(setScrollY).toHaveBeenCalledWith(0, 'scrollbar');
     expect(onSecondsChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('Playbar 拖拽（setScrubbing）传递 playbar 标记且暂停态 seek 不重复调用 stopPlayback；程序化 seek 不带标记', () => {
+    const engine = {
+      isPlaying: false,
+      seek: vi.fn(),
+      pause: vi.fn(),
+      getSeconds: vi.fn(() => 0),
+    } as unknown as AudioEngine;
+    const { box, setScrollY, onSecondsChange, host } = mount(30, engine);
+    act(() => { box.session!.onCanvasScrollChange(300, SCROLL_HEIGHT); });
+    setScrollY.mockClear();
+    onSecondsChange.mockClear();
+
+    // 1) Playbar 交互式拖拽：传递 'playbar'，且暂停态不重复触发 pause / 二次 setScrollY / 二次 onSecondsChange
+    act(() => {
+      box.session!.setScrubbing(true);
+      box.session!.seek(12);
+    });
+    const expected12 = box.session!.scrollModel.scrollTargetForSeconds(12, MAX_SCROLL).scrollY;
+    expect(setScrollY).toHaveBeenCalledTimes(1);
+    expect(setScrollY).toHaveBeenCalledWith(expected12, 'playbar');
+    expect(engine.pause).not.toHaveBeenCalled();
+    expect(onSecondsChange).toHaveBeenCalledExactlyOnceWith(12);
+
+    // seek 写入 scrollTop 登记的回声必须被吞掉，不触发 'scrollbar' 反算
+    setScrollY.mockClear();
+    onSecondsChange.mockClear();
+    act(() => { fireEvent.scroll(host); });
+    expect(setScrollY).not.toHaveBeenCalled();
+    expect(onSecondsChange).not.toHaveBeenCalled();
+
+    // 2) 结束拖拽后的程序化 seek：不带 'playbar' 标记
+    act(() => {
+      box.session!.setScrubbing(false);
+      box.session!.seek(18);
+    });
+    const expected18 = box.session!.scrollModel.scrollTargetForSeconds(18, MAX_SCROLL).scrollY;
+    expect(setScrollY).toHaveBeenCalledTimes(1);
+    expect(setScrollY).toHaveBeenCalledWith(expected18);
   });
 });

@@ -8,28 +8,84 @@ import type { OpeningItemId } from './openingItems';
 //   - **四段时长是用户逐段拍板的，钉死常量**（首期不可调）。
 
 /** ① 开场淡入：第 0 帧纯黑 → 开场画面浮现 */
-export const OPENING_FADE_IN_SECONDS = 1.0;
+export const OPENING_FADE_IN_SECONDS = 1;
 /** ② 停留：整屏静止读信息 */
-export const OPENING_HOLD_SECONDS = 1.5;
+export const OPENING_HOLD_SECONDS = 2.2;
 /** ③ 入场过渡：开场画面淡出到**只有表演背景图**的场地上 */
-export const OPENING_FADE_OUT_SECONDS = 1.0;
+export const OPENING_FADE_OUT_SECONDS = 1.75;
 /** ④ 轨道淡入：整块轨道（场地图的扇形车道 + 判定线）浮现 */
-export const OPENING_TRACK_IN_SECONDS = 1.5;
-/** 开场段总长（= 四段之和）；视频总长 = 它 + 谱面时长 */
+export const OPENING_TRACK_IN_SECONDS = 1.8;
+/** 开场段总长（= 四段之和）；视频总长 = 它 + 前导补偿（票 74）+ 谱面时长 + 末击尾段（票 75）（结尾段另加 7.5s，见 ADR-0016 §5.2） */
 export const OPENING_SECONDS =
   OPENING_FADE_IN_SECONDS + OPENING_HOLD_SECONDS + OPENING_FADE_OUT_SECONDS + OPENING_TRACK_IN_SECONDS;
 
 /** ①②③ 结束的时刻（④ 的起点） */
 export const OPENING_TRACK_IN_AT = OPENING_SECONDS - OPENING_TRACK_IN_SECONDS;
 
+/**
+ * 四段时长的**可覆盖形状**：定稿是 6.75s（2026-10-27 原型回填），仍可按组覆盖。
+ * 缺省 = 上面那四个常量；导出编排仍按 `OPENING_SECONDS`，要用别的段长得显式传进来。
+ */
+export interface OpeningTiming {
+  fadeIn: number;
+  hold: number;
+  fadeOut: number;
+  trackIn: number;
+}
+
+/** 定稿的 1 / 2.2 / 1.75 / 1.8（合计 6.75 s，配 7.0 s 的人潮素材） */
+export const OPENING_TIMING: OpeningTiming = {
+  fadeIn: OPENING_FADE_IN_SECONDS,
+  hold: OPENING_HOLD_SECONDS,
+  fadeOut: OPENING_FADE_OUT_SECONDS,
+  trackIn: OPENING_TRACK_IN_SECONDS,
+};
+
+/** 一组时长加起来 = 开场段总长 */
+export function openingSecondsOf(timing: OpeningTiming = OPENING_TIMING): number {
+  return Math.max(0, timing.fadeIn) + Math.max(0, timing.hold) + Math.max(0, timing.fadeOut) + Math.max(0, timing.trackIn);
+}
+
+/** ④ 的起点（①②③ 之和） */
+export function openingTrackInAt(timing: OpeningTiming = OPENING_TIMING): number {
+  return Math.max(0, timing.fadeIn) + Math.max(0, timing.hold) + Math.max(0, timing.fadeOut);
+}
+
+/**
+ * 封面后面那层垫层的**轻推**（票 50 定案 A）：
+ *   - `at`：封面落定后多久开始推（秒）
+ *   - `seconds`：推完用多久
+ *   - `distance`：露出厚度的倍率（1 = 定稿的 `OPENING_STACK_T` = 0.011H）
+ * 2026-10-27 用户反馈「当前位移太小、根本看不出来」⇒ 三个都可调。
+ */
+export interface OpeningStack {
+  at: number;
+  seconds: number;
+  distance: number;
+}
+
+
 // ---------------- 版式比例（照游戏内参考图实测；单位 = 帧高 / 帧宽） ----------------
 
-/** 封面边长 / 帧高（方形，水平居中，不加圆角） */
-export const OPENING_COVER_RATIO = 0.48;
+/** 封面边长 / 帧高（方形，水平居中，不加圆角）；2026-11-15 定版值 0.45 */
+export const OPENING_COVER_RATIO = 0.45;
 /** 堆叠垫层露出厚度 t / 帧高（顶条 + 右条） */
 export const OPENING_STACK_T = 0.011;
 /** 垫层内缩 i / 帧高：垫层方形边长 = 封面 + t − i */
 export const OPENING_STACK_INSET = 0.01;
+/**
+ * 堆叠**缓出**（票 50 · 定案 A 轻推）：垫层从封面正后方**向右上**推出到 `OPENING_STACK_T × distance`。
+ * 单层、小位移 —— 不是折扇（B）也不是整板（C）。卡片落定后起推，1.0s 内缓出到位。
+ */
+export const OPENING_STACK_DRIFT_AT = 0.4;
+export const OPENING_STACK_DRIFT_SECONDS = 2.5;
+
+/** 定稿的那一推（0.4s 起、2.5s 推完、1.45 倍厚度 —— 2026-10-27 原型回填） */
+export const OPENING_STACK: OpeningStack = {
+  at: OPENING_STACK_DRIFT_AT,
+  seconds: OPENING_STACK_DRIFT_SECONDS,
+  distance: 1.45,
+};
 /** 难度徽章字号 / 帧高（徽章高 = 字号 × 1.85） */
 export const OPENING_BADGE_FONT = 0.024;
 export const OPENING_BADGE_HEIGHT_FACTOR = 1.85;
@@ -105,6 +161,8 @@ export function openingStackMetrics(
   h: number,
   items: readonly OpeningItemId[],
   creditLinesCount: number = 0,
+  /** 垫层露出厚度的倍率（缺省 1 = 定稿） */
+  stackDistance: number = 1,
 ): OpeningMetrics {
   const cover = Math.round(OPENING_COVER_RATIO * h);
   const badgeFont = Math.round(OPENING_BADGE_FONT * h);
@@ -152,7 +210,7 @@ export function openingStackMetrics(
     top,
     cover,
     coverX: Math.round((w - cover) / 2),
-    stackD: Math.round(OPENING_STACK_T * h),
+    stackD: Math.round(OPENING_STACK_T * Math.max(0, stackDistance) * h),
     stackInset: Math.round(OPENING_STACK_INSET * h),
     badgeTop: Number.isNaN(badgeTop) ? NaN : top + badgeTop,
     badgeH,

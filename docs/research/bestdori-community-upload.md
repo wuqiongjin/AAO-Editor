@@ -34,7 +34,7 @@ Cookie 有效期、多端登录未测。
 
 ## 3. 发帖：`POST /api/post`
 
-需登录。成功：`{"result":true,"id":<postId>}`。失败几乎都是 HTTP 200 + `{"result":false,"code":"…"}`。
+需登录。成功：`{"result":true,"id":<postId>}`。失败几乎都是 HTTP 200 + `{"result":false,"code":"…"}`。`code` 缺或空时，本仓库网关兜底写成 `UNKNOWN`（不是站点点名的业务码）。官网把 `BLOCKED` 解释为发帖过多；本仓库把它当作明确不会建帖的拒绝，不当「可能已建帖」。
 
 ### 3.1 Body 字段（社区谱 = `SELF_POST` / `chart`）
 
@@ -173,7 +173,7 @@ i18n 里的「删除」是通用 `btnDelete`（列表项打叉），不是删帖
 3. Custom：走 upload 三步，再把 URL 填进 `song.audio` / `song.cover`。
 4. 导出谱面后先 `sanitizeAll`，再 POST。
 5. 发帖不可逆；UI 必须二次确认，并写明发后不能改谱、不能删。
-6. 自控速率。前端有「Too many posts / uploads」文案，阈值未测。
+6. 自控速率。前端有「Too many posts / uploads」文案，阈值未测。`BLOCKED` 走这条，不当发帖结果待确认。
 7. 渲染进程不要直连 `bestdori.com`（无 CORS）；只走 Electron 主进程。
 
 

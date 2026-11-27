@@ -24,7 +24,7 @@ import {
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
 import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../rendering/playbackMarker';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
+import { GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmInlineInputBox } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
 import { buildPatternPastePayload } from '../../../patterns/paste';
@@ -35,6 +35,7 @@ import {
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
+import { ctrlWheelZoomFactor, wheelDeltaPx, wheelScrollBoost } from './wheelScroll';
 // 画布实时信息叠加（issue 22 / issue 179 / issue 188）：判定线处 BPM（左下）+ 已过 / 总数（右下）。
 // 独立子组件消费 currentSeconds，使 80ms 时间码节流更新只重渲本轻量 HUD，不触发整张画布重渲染。
 const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
@@ -71,6 +72,8 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
 });
 
 interface FinalVirtualCanvasProps {
+  /** 当前工程 id（issue 45：拆除顶层 key remount 后用于显式清空工程级瞬态编辑态） */
+  projectId?: string | null;
   /** issue 218 判定线向上偏移（CSS px） */
   judgeLineOffsetY?: number;
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
@@ -102,13 +105,15 @@ interface FinalVirtualCanvasProps {
  */
 export interface FinalVirtualCanvasHandle {
   /** 应用目标 scrollY（画布跟随）：值由 PlaybackScrollModel 计算，画布内部钳制到可滚范围。 */
-  setScrollY: (scrollY: number) => void;
+  setScrollY: (scrollY: number, source?: 'scrollbar' | 'playbar') => void;
   /** issue 101：播放 RAF 启动/停止时同步打标，避免首帧仍走无预算的静止重建。 */
   setPlaybackActive?: (active: boolean) => void;
   /** issue 213：由外部 rAF 循环或测试注入当前屏幕帧间隔（ms），驱动瓦片调度器按 60Hz/120Hz/144Hz 自适应 */
   setFrameInterval?: (intervalMs: number) => void;
   /** 播放起点（ADR-0004 §4）：Editor 经此做回跳。**秒**（时间轴锚定，issue 152）。 */
   getMarkerSeconds?: () => number | null;
+  /** 切谱面/重对齐音频时清空画布持有的标记点（issue 45） */
+  clearMarker?: () => void;
   /** Esc 快照（issue 135）：手势四旗 + 锚点；选区 / 持工具态由 Editor 填进 resolveEscapeTarget。 */
   getEscapeFlags?: () => {
     pen: boolean;
@@ -160,6 +165,7 @@ const offsetVirtualY = (offsetPx: number | undefined, scale: number) =>
     (offsetPx != null && offsetPx > 0 && scale > 0 ? offsetPx / scale : 0);
 
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
+    projectId,
     judgeLineOffsetY,
     onScrollChange,
     scrollHostRef,
@@ -253,11 +259,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const [renderTick, setRenderTick] = useState(0);
     const zoomGestureUntilRef = useRef(0);
     const zoomSettleTimerRef = useRef<number | undefined>(undefined);
+    const prevScalePropRef = useRef(scale);
+    const lastScaleChangeAtRef = useRef(-Infinity);
+    const armZoomGesture = useCallback((now: number = performance.now()) => {
+        zoomGestureUntilRef.current = now + 240;
+        if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
+        zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
+    }, []);
     const playbackActiveRef = useRef(false);
     const scrollYRef = useRef(0);
     const renderCanvasRef = useRef<() => void>(() => {});
     // 渲染目标（候选 3）：本画布的 surface / dpr / 两层离屏缓存的所有者；surface 或画质变化只 configure，不重建
     const targetRef = useRef<RenderTarget | null>(null);
+    const manualScrollRef = useRef(false);
     useEffect(() => () => { targetRef.current?.noteLayer.reset(); }, []);
     // issue 213：当前物理屏幕帧间隔（默认 16.67ms / 60Hz），由挂载期 rAF 探测与播放循环权威注入
     const frameIntervalRef = useRef<number>(DEFAULT_FRAME_INTERVAL_MS);
@@ -483,9 +497,23 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     // 就地编辑输入框挂载即聚焦全选（光标置于数字内，§5）
+    // issue 253：必须 preventScroll——时间原点那一条的输入盒贴判定线，默认 focus 会滚动 .ws-chart-area，整谱跟着跳。
     const attachBpmInput = useCallback((el: HTMLInputElement | null) => {
-        if (el) { el.focus(); el.select(); }
+        if (el) { el.focus({ preventScroll: true }); el.select(); }
     }, []);
+
+    // issue 45：拆除顶层 key={projectId} 后，切工程时显式重置此前依赖卸载自动归零的瞬态编辑态
+    useEffect(() => {
+        setSlideBuffer(null);
+        setCurveDraft(null);
+        setBpmEdit(null);
+        setExpandedBpmGroupKey(null);
+        setMarkerSeconds(null);
+        setMarkerDomHovered(false);
+        setMarkerLineHovered(false);
+        session.cancel();
+        lastBpmRef.current = 120;
+    }, [projectId, session]);
 
     session.bindWorld({
         notes, selectedItems, armedTool, beatDisplay, chartEndBeat,
@@ -494,6 +522,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
         hitPlaybackMarker, hitBpmGutter, expandedBpmGroupKey,
         pinchMode: display.pinchMode,
+        stretchCurveOnNodeDrag: display.stretchCurveOnNodeDrag,
     });
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
@@ -648,7 +677,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const dpr = resolveCanvasDpr(display.imageQuality);
         let target = targetRef.current;
         if (!target || target.canvas !== canvas) {
-            target = createRenderTarget({ canvas, surface: surf, dpr, frameInterval: frameIntervalRef.current });
+            target?.noteLayer.reset();
+            target = createRenderTarget({
+                canvas, surface: surf, dpr, frameInterval: frameIntervalRef.current,
+                onScrollTileReady: () => renderCanvasRef.current(),
+            });
             targetRef.current = target;
         } else {
             target.configure({ surface: surf, dpr, frameInterval: frameIntervalRef.current });
@@ -691,6 +724,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
             playing: isPlayingRef.current || playbackActiveRef.current, // issue 101 / issue 232：播放滚动帧套瓦片重建预算（ref 覆盖 React 首帧竞态）
+            manualScroll: manualScrollRef.current,
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             // issue 51/53 第二轮：轨道颜色主题 + 线形分层开关 + 文字大小系数（进静态层渲染参数）
@@ -699,6 +733,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // 背景皮肤（issue 29 Q4）：进静态层绘制
             background,
         };
+        manualScrollRef.current = false;
         target.renderFrame(view);
     }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, pastePayloadAt, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
@@ -709,10 +744,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const member = notes.find((n) => n.type === 'BPM' && bpmCoincidentKey(beatToVirtualY(n.beat)) === expandedBpmGroupKey);
         if (!member) { setExpandedBpmGroupKey(null); return; }
         const lineCanvasYOf = (beat: number) => virtualToCanvas(0, beatToVirtualY(beat)).y;
-        const layout = layoutBpmGutter(notes, lineCanvasYOf, beatToVirtualY, fontPx, expandedBpmGroupKey);
+        const layout = layoutBpmGutter(notes, lineCanvasYOf, beatToVirtualY, fontPx, expandedBpmGroupKey, geometry.startBeat);
         const ys = layout.numerals.filter((n) => n.groupKey === expandedBpmGroupKey).map((n) => n.y);
         if (!bpmExpandedNumeralsOnCanvas(ys, fontPx, surf.h)) setExpandedBpmGroupKey(null);
-    }, [expandedBpmGroupKey, notes, viewport, surf.h, display.labelScale, beatToVirtualY, virtualToCanvas]);
+    }, [expandedBpmGroupKey, notes, viewport, surf.h, display.labelScale, beatToVirtualY, virtualToCanvas, geometry.startBeat]);
 
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
@@ -749,7 +784,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // Ctrl+滚轮 = 缩放；普通滚动交给父容器（原生）
         if (e.ctrlKey) {
             e.preventDefault();
-            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            const zoomFactor = ctrlWheelZoomFactor(e.deltaY);
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
             const effNewScale = geometry.effectiveScale(newScale);
             // issue 144：钳住不动不改数字
@@ -759,15 +794,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const sy = off > 0 ? viewport.scrollY + off * (1 / effNewScale - 1 / viewport.scale) : viewport.scrollY;
             setViewport(prev => ({ ...prev, scrollY: sy, scale: effNewScale }));
             // 回写工具栏缩放数字（issue 10 回归修复）：ui.scale 与 viewport.scale 保持同一生效值
+            prevScalePropRef.current = effNewScale;
+            lastScaleChangeAtRef.current = performance.now();
             setScale(effNewScale);
             // 缩放手势窗口（issue 10）：手势中瓦片只按比例 blit；停止 250ms 后 settle 一次高清重渲
-            zoomGestureUntilRef.current = performance.now() + 240;
-            if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
-            zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
+            armZoomGesture(lastScaleChangeAtRef.current);
             return;
         }
 
         const invert = display.invertWheel ?? false;
+        const host = scrollHostRef?.current;
+        if (!host) return;
+        const boost = wheelScrollBoost(geometry.effectiveScale(viewport.scale));
+        // 未缩小、未反转、非 Shift 时保持父容器原生滚动，避免改动默认手感
+        if (!e.shiftKey && !invert && boost === 1) return;
+        const viewportPx = host.clientHeight || host.getBoundingClientRect().height || 1;
 
         // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
         // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
@@ -775,34 +816,30 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
         // issue 200：invertWheel 开启时，与普通滚动同频反转。
         if (e.shiftKey) {
-            const host = scrollHostRef?.current;
-            if (!host) return;
-            const rawDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            const rawDelta = Math.abs(wheelDeltaPx(raw, e.deltaMode, viewportPx));
             if (rawDelta === 0) return;
             e.preventDefault();
             const delta = invert ? -rawDelta : rawDelta;
-            host.scrollTop += delta;
+            host.scrollTop += delta * boost;
             return;
         }
 
-        // issue 200：开启滚轮反转时，拦截普通纵向滚动并取反（仅作用于纵向 deltaY，不劫持触控板横向手势）
-        if (invert) {
-            const host = scrollHostRef?.current;
-            if (!host) return;
-            if (e.deltaY === 0) return;
-            e.preventDefault();
-            host.scrollTop -= e.deltaY;
-            return;
-        }
-        // 普通滚轮滚动由父容器处理，不在这里处理
+        // 普通纵向滚动：缩小时按 1/scale 加速；invertWheel 只翻方向、不改倍率。
+        // 仅作用于 deltaY，不劫持触控板横向手势。
+        const deltaY = wheelDeltaPx(e.deltaY, e.deltaMode, viewportPx);
+        if (deltaY === 0) return;
+        e.preventDefault();
+        host.scrollTop += (invert ? -deltaY : deltaY) * boost;
     }, [geometry, viewport, setScale, display.invertWheel, scrollHostRef]);
 
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
     useImperativeHandle(ref, () => ({
-        setScrollY: (scrollY: number) => {
+        setScrollY: (scrollY: number, source?: 'scrollbar' | 'playbar') => {
             const scaledBounds = getScaledVirtualBounds(viewport.scale);
             const offsetVirtual = offsetVirtualY(judgeLineOffsetY, viewport.scale);
             const newScrollY = Math.max(scaledBounds.minY + offsetVirtual, Math.min(scaledBounds.maxY - surf.h / viewport.scale + offsetVirtual, scrollY));
+            manualScrollRef.current = source === 'scrollbar' || source === 'playbar';
             scrollYRef.current = newScrollY;
             if (playbackActiveRef.current) {
                 // issue 198：播放帧同步通知手势内核实时视口，避免框选起点/落点基于陈旧 React viewport 计算出负数
@@ -834,6 +871,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做回跳
         getMarkerSeconds: () => markerSeconds,
+        clearMarker: () => {
+            setMarkerSeconds(null);
+            setMarkerDomHovered(false);
+            setMarkerLineHovered(false);
+        },
         getEscapeFlags: () => ({
             ...session.escapeGestureFlags(),
             anchor: slideBuffer !== null || curveDraft !== null,
@@ -943,7 +985,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 修复：渲染前先核对 viewport.scale == effectiveScale(新 geometry)；若不等，先同步 setViewport
     // （useLayoutEffect 内的 setState 会在 paint 前引发同步重渲染），本次不绘制；重渲染后 renderCanvas
     // 闭包已带正确 scale，再按正确轨道宽原子绘制。保证 surface 变化帧轨道宽即正确、无陈旧帧。
+    const wasActiveRef = useRef<boolean>(active ?? true);
+    const activeRef = useRef<boolean>(active ?? true);
+    activeRef.current = active ?? true;
+
     useLayoutEffect(() => {
+        if (Math.abs(scale - prevScalePropRef.current) > 1e-9) {
+            const now = performance.now();
+            if (now - lastScaleChangeAtRef.current < 300) {
+                armZoomGesture(now);
+            }
+            prevScalePropRef.current = scale;
+            lastScaleChangeAtRef.current = now;
+        }
         const es = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
         if (Math.abs(viewport.scale - es) > 1e-9) {
             setViewport((prev) =>
@@ -951,19 +1005,23 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             );
             return; // 待重渲染后再绘制
         }
+        if (!activeRef.current) return;
         renderCanvas();
-    }, [renderCanvas, viewport.scale, geometry, scale]);
+    }, [renderCanvas, viewport.scale, geometry, scale, armZoomGesture]);
 
     // 回到工作台强制补一帧（issue 29 用户反馈2）：五页保活挂载（AppShell），离开工作台期间的背景皮肤的
     // 换图/开关/透明度变化不经过任何画布交互路径，可能停在旧帧直到用户滚动。经 ref 取最新 renderCanvas，
     // 仅在 active 翻转为 true 时补绘一次，不增加交互帧成本。
     const paintOnActivateRef = useRef<() => void>(() => {});
     paintOnActivateRef.current = renderCanvas;
-    const wasActiveRef = useRef<boolean>(active ?? true);
     useEffect(() => {
         const now = active ?? true;
         if (now && !wasActiveRef.current) {
             paintOnActivateRef.current();
+        } else if (!now && wasActiveRef.current) {
+            // 票 88：离开工作台切到预览/其他页时释放静态背景+条带及音符瓦片离屏层，缓解 8GB 机器显存占用；切回时上面激活 branch 立即补绘
+            targetRef.current?.staticLayer?.reset();
+            targetRef.current?.noteLayer?.reset();
         }
         wasActiveRef.current = now;
     }, [active]);
@@ -1031,23 +1089,24 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     if (bpmEdit) {
         const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
         const { trackStartX } = geometry.trackGeometry(viewport.scale);
-        const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
-        const width = Math.max((bpmEdit.value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
         const gutter = layoutBpmGutter(
             notes,
             (beat) => virtualToCanvas(0, beatToVirtualY(beat)).y,
             beatToVirtualY,
             fontPx,
             expandedBpmGroupKey,
+            geometry.startBeat,
         );
         const num = gutter.numerals.find((n) => Math.abs(n.beat - bpmEdit.beat) < 1e-9);
-        const lineY = bpmLabelAnchorY(
+        bpmInputBox = bpmInlineInputBox(
             bpmEdit.beat,
             num?.y ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y,
+            bpmEdit.value,
             fontPx,
+            trackStartX,
             surf.h,
+            geometry.startBeat,
         );
-        bpmInputBox = { left: Math.max(0, rightEdge - width), top: lineY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
     }
 
     // issue 50（Q24 a）：surface 为 null 时不渲染（chartArea 还未就绪；保护所有依赖 surface 的几何/绘制）

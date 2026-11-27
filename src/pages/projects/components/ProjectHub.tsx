@@ -1,11 +1,11 @@
 // 工程管理页的启动台视图（原 ProjectsPage.tsx 的 ProjectStartView + 0 工程引导横幅）。
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Copy, FolderPlus, Music2, Music4, Play, Users } from 'lucide-react';
-import type { ChartProject } from '../../../project/ChartProject';
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Copy, FolderPlus, MoreHorizontal, Music2, Music4, Pencil, Play, Trash2, Users } from 'lucide-react';
+import type { ProjectSummary } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../../project/projectCatalog';
 import { PROJECT_SORT_KEYS, projectTimeAt, sortAnchorId, type ProjectSortKey } from '../../../project/projectSort';
 import { chartStatus } from '../../../project/workspaceProject';
-import { displayProjectName } from '../../../project/ui/projectUi';
+import { displayProjectName, ProjectMenuItem } from '../../../project/ui/projectUi';
 import { useAppNav } from '../../../layouts/AppNav';
 import { useNow } from '../../../app/ProviderTree';
 import EmptyState from '../../../ui/EmptyState';
@@ -13,7 +13,7 @@ import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 import { t } from '../../../i18n';
 import { effectiveTitle, projectTimeTag, relTime, statusLabel } from '../projectFormat';
 import { moveGridSelection } from '../projectGridSelection';
-import { Cover, StatusBadge } from './ProjectBits';
+import { Cover, Menu, StatusBadge } from './ProjectBits';
 import type { NewSource } from './ProjectDialogs';
 
 // 引导横幅（issue 09）：0 工程时占住 hero 节点——与有工程时的 hero 同位置、同尺寸
@@ -61,10 +61,74 @@ function PendingGrid({ shimmer }: { shimmer: boolean }) {
   );
 }
 
-export function ProjectStartView({
-  list, ready, currentId, sort, onSort, onDetail, onOpen, onNew, projectMenu, importSources = false,
+const ProjectCard = memo(function ProjectCard({
+  p, isCurrent, isSelected, sort, now, onDetail, onOpen, onEdit, onCopy, onDelete,
 }: {
-  list: ChartProject[];
+  p: ProjectSummary;
+  isCurrent: boolean;
+  isSelected: boolean;
+  sort: ProjectSortKey;
+  now: number;
+  onDetail: (id: string) => void;
+  onOpen: (id: string) => void;
+  onEdit: (p: ProjectSummary) => void;
+  onCopy: (id: string) => void;
+  onDelete: (p: ProjectSummary) => void;
+}) {
+  return (
+    <div className="pb-card-wrap">
+      <div
+        data-project-id={p.id}
+        className={`pb-card${isCurrent ? ' is-current' : ''}${isSelected ? ' is-selected' : ''}`}
+        onClick={() => onDetail(p.id)}
+        onDoubleClick={() => onDetail(p.id)}
+      >
+        <div className="pb-card__cover">
+          <Cover project={p} size={172} fluid />
+          {isCurrent && <em className="pb-card__current">{t('projects.current')}</em>}
+          <span className="pb-card__menu" onClick={(e) => e.stopPropagation()}>
+            <Menu trigger={<button type="button" className="pp-icon-btn" title={t('projects.more')}><MoreHorizontal size={16} /></button>}>
+              {() => (
+                <>
+                  <ProjectMenuItem icon={<Pencil size={14} />} label={t('projects.editInfo')} onClick={() => onEdit(p)} />
+                  <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.duplicate')} onClick={() => onCopy(p.id)} />
+                  <ProjectMenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => onDelete(p)} />
+                </>
+              )}
+            </Menu>
+          </span>
+          <button
+            type="button"
+            className="pb-card__play"
+            title={t('projects.play')}
+            onClick={(e) => { e.stopPropagation(); onOpen(p.id); }}
+          >
+            <Play size={16} />
+          </button>
+        </div>
+        <b className={p.name ? '' : 'pp-muted'}>{displayProjectName(p)}</b>
+        <small className="pp-muted">{p.artist ?? '—'} · {projectTimeTag(sort)} {relTime(projectTimeAt(p, sort), now)}</small>
+        <span className="pb-card__dots">
+          {p.charts.map((c) => (
+            <span
+              key={c.id}
+              className={`pb-dot pb-dot--${chartStatus(c)}`}
+              style={{ '--c': DIFF_COLORS[c.diff] } as CSSProperties}
+              title={`${DIFF_NAMES[c.diff]} · ${statusLabel(c)}`}
+            >
+              {DIFF_SHORT[c.diff]}
+            </span>
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+});
+
+export function ProjectStartView({
+  list, ready, currentId, sort, onSort, onDetail, onOpen, onNew, onEdit, onCopy, onDelete, importSources = false,
+}: {
+  list: ProjectSummary[];
   /** 目录是否已读回来（issue 29）：未就绪 ≠ 0 工程 —— 未就绪不渲染空态，也不显示 0 计数 */
   ready: boolean;
   currentId: string | null;
@@ -73,7 +137,9 @@ export function ProjectStartView({
   onDetail: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
   onNew: (src: NewSource) => void;
-  projectMenu: (p: ChartProject) => ReactNode;
+  onEdit: (p: ProjectSummary) => void;
+  onCopy: (id: string) => void;
+  onDelete: (p: ProjectSummary) => void;
   /** 有没有社区平台出口（静态演示版没有）：决定官方 / 社区两格露不露 */
   importSources?: boolean;
 }) {
@@ -144,7 +210,7 @@ export function ProjectStartView({
       if (list.length === 0) return;
       // 弹窗（新建 / 编辑工程 / 谱面信息 / 删除确认 —— 都走通用壳 .dialog__scrim）与卡片菜单
       // 都挂 scrim，开着就不响应
-      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
+      if (document.querySelector('.dialog__scrim, .is-portaled')) return;
       // 焦点在输入框时放行原生行为（与 useShortcutDispatch 同口径）
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
@@ -264,41 +330,19 @@ export function ProjectStartView({
         ) : (
         <div className="pb-grid" ref={gridRef}>
           {list.map((p) => (
-            <div
+            <ProjectCard
               key={p.id}
-              data-project-id={p.id}
-              className={`pb-card${p.id === currentId ? ' is-current' : ''}${p.id === effectiveSelectedId ? ' is-selected' : ''}`}
-              onClick={() => onDetail(p.id)}
-              onDoubleClick={() => onDetail(p.id)}
-            >
-              <div className="pb-card__cover">
-                <Cover project={p} size={172} fluid />
-                {p.id === currentId && <em className="pb-card__current">{t('projects.current')}</em>}
-                <span className="pb-card__menu" onClick={(e) => e.stopPropagation()}>{projectMenu(p)}</span>
-                <button
-                  type="button"
-                  className="pb-card__play"
-                  title={t('projects.play')}
-                  onClick={(e) => { e.stopPropagation(); openProject(p.id); }}
-                >
-                  <Play size={16} />
-                </button>
-              </div>
-              <b className={p.name ? '' : 'pp-muted'}>{displayProjectName(p)}</b>
-              <small className="pp-muted">{p.artist ?? '—'} · {projectTimeTag(sort)} {relTime(projectTimeAt(p, sort), now)}</small>
-              <span className="pb-card__dots">
-                {p.charts.map((c) => (
-                  <span
-                    key={c.id}
-                    className={`pb-dot pb-dot--${chartStatus(c)}`}
-                    style={{ '--c': DIFF_COLORS[c.diff] } as CSSProperties}
-                    title={`${DIFF_NAMES[c.diff]} · ${statusLabel(c)}`}
-                  >
-                    {DIFF_SHORT[c.diff]}
-                  </span>
-                ))}
-              </span>
-            </div>
+              p={p}
+              isCurrent={p.id === currentId}
+              isSelected={p.id === effectiveSelectedId}
+              sort={sort}
+              now={now}
+              onDetail={onDetail}
+              onOpen={openProject}
+              onEdit={onEdit}
+              onCopy={onCopy}
+              onDelete={onDelete}
+            />
           ))}
         </div>
         )}

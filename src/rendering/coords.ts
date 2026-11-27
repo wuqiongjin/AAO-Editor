@@ -6,6 +6,12 @@ import type { ChartNote } from '../chart/types';
 
 export interface Coords {
   trackGeometry: (scale: number) => ReturnType<ChartGeometry['trackGeometry']>;
+  /**
+   * 时间原点拍位（首条 BPM；issue 63）。START 线与「开始线那一条 BPM 数字上移半字高」用它，
+   * 不要假定是 0 —— 片段粘贴的幽灵用 `previewGeometry` 造 Coords，故必须随 Coords 走而不是读 rc.geometry。
+   * 注意：可见性 / 命中的判据是**时间**（`geometry.isBeforeOrigin`），不是与 startBeat 比大小。
+   */
+  startBeat: number;
   beatToVirtualY: (beat: number) => number;
   /** 虚拟Y → 秒（布局轴直读，issue 104 修法 3：hover 读数用它，倒流区里不经"拍"） */
   virtualYToSeconds: (virtualY: number) => number;
@@ -47,6 +53,7 @@ export function makeCoords(
   let cachedVisibleNotes: { note: ChartNote; index: number }[] | null = null;
   return {
     trackGeometry: (s) => (s === scale ? cachedTrackGeometry : geometry.trackGeometry(s)),
+    startBeat: geometry.startBeat,
     beatToVirtualY: (beat) => geometry.beatToVirtualY(beat, scale),
     virtualYToSeconds: (y) => geometry.virtualYToSeconds(y, scale),
     secondsToVirtualY: (seconds) => geometry.secondsToVirtualY(seconds, scale),

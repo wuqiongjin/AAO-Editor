@@ -10,7 +10,7 @@ import { mergeChainWithSlides } from './SlideCombination';
 import { applyPlacement, cleanReplacePosition, keyToolIdOf } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
 import { isCanvasHiddenConn } from './NoteEditing';
-import { bendSpan, smoothBendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams, type SmoothPinchCursor } from './SpanCurve';
+import { bendSpan, smoothBendSpan, countVisibleNodes, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams, type SmoothPinchCursor } from './SpanCurve';
 import type { CurvePrecision } from './Easing';
 
 /**
@@ -145,24 +145,23 @@ const sumBeat = (beat: number, subBeat: number, beatDisplay: number) =>
   beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
 
 /**
- * 对受动可见结点相邻的自由段（未被参数化缓动接管的段）中的 hidden 采样点执行几何仿射拉伸。
+ * 刚体平移某段内部未在 `alreadyMoved` 中的 hidden 采样点（用于整条框选或同段双端一起平移时保形）。
  */
-function remapAdjacentFreeSpans(
+function translateSpanHidden(
   conns: ConnectionNote[],
-  prevConns: ConnectionNote[],
-  spans: ReturnType<typeof slideSpans>,
-  movedVisible: number[],
-  beatDisplay: number,
-  shouldSkipSpan?: (spanIndex: number) => boolean,
+  sp: { start: number; end: number },
+  dBeat: number,
+  dLane: number,
+  alreadyMoved: ReadonlySet<number>,
 ): ConnectionNote[] {
-  let conns2 = conns;
-  for (let s = 0; s < spans.length; s++) {
-    const sp = spans[s]!;
-    const adjacent = movedVisible.some(ci => ci === sp.start || ci === sp.end);
-    if (!adjacent || shouldSkipSpan?.(s)) continue;
-    conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
+  let out = conns;
+  for (let ci = sp.start + 1; ci < sp.end; ci++) {
+    const c = out[ci]!;
+    if (!isCanvasHiddenConn(c) || alreadyMoved.has(ci)) continue;
+    if (out === conns) out = conns.map((x) => ({ ...x }));
+    out[ci] = { ...c, beat: c.beat + dBeat, lane: c.lane + dLane };
   }
-  return conns2;
+  return out;
 }
 
 /** 工作数组元素：note + 其在入参 notes 中的原下标（覆盖/接合会增删元素，靠它重映射选区） */
@@ -185,8 +184,11 @@ export function planDragMove(
   items: SelectionItem[],
   delta: DragDelta,
   /** chartEndBeat = 谱面末端；beatDisplay = 子拍细分（subBeat 的单位分母，用于真实拍位换算）；
-   *  bendPrecision = 拨弯普通段时的补采样密度（issue 09 S3，缺省 1/16） */
-  bounds: { chartEndBeat: number; beatDisplay: number; bendPrecision?: CurvePrecision },
+   *  startBeat = 时间原点（首条 BPM，issue 63；缺省 0 = 旧口径：不允许拖到 beat 0 之前）；
+   *  isBeatInBounds = 由调用方从 geometry 注入的时间/布局边界（负首 BPM 与倒流区需按时间判，优先于拍域）；
+   *  bendPrecision = 拨弯普通段时的补采样密度（issue 09 S3，缺省 1/16）；
+   *  stretchCurveOnNodeDrag = 拖动可见结点时跳过缓动/模板重烘焙，直接拉伸既有采样点并清除受影响段参数 */
+  bounds: { chartEndBeat: number; beatDisplay: number; startBeat?: number; isBeatInBounds?: (beat: number) => boolean; bendPrecision?: CurvePrecision; stretchCurveOnNodeDrag?: boolean },
 ): DragMoveResult {
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
@@ -255,11 +257,13 @@ export function planDragMove(
 
   const inBeat = (beat: number, sub: number) => {
     const b = sumBeat(beat, sub, beatDisplay);
-    return b >= -EPS && b <= bounds.chartEndBeat + EPS;
+    if (bounds.isBeatInBounds) return bounds.isBeatInBounds(b);
+    // issue 63：下界 = 时间原点（首条 BPM）；缺省 0 保持旧口径
+    return b >= (bounds.startBeat ?? 0) - EPS && b <= bounds.chartEndBeat + EPS;
   };
 
   // 整组 / 整条滑条与粘贴同口径：可见包围盒共用一个 dLane，贴墙刚体停下，不夹扁相对位置。
-  // 只拖部分结点时包围盒 = 那些可见结点，允许单独改形。hidden / 负 beat 不进包围盒，随组平移可继续越界。
+  // 只拖部分结点时包围盒 = 那些可见结点，允许单独改形。hidden 结点不进包围盒，随组平移可继续越界。
   const movedVisibleLanes = (n: ChartNote, plan: Plan): number[] => {
     if (isKey(n)) return [n.lane];
     if (!isSlideish(n)) return [];
@@ -349,7 +353,12 @@ export function planDragMove(
           // 1. 若移动的可见结点相邻曲线段，该段内的 hidden 采样点通过 remapFreeSpanHidden 做几何相对拉伸
           let conns2 = conns;
           if (movedVisible.length > 0) {
-            conns2 = remapAdjacentFreeSpans(conns, prevConns, slideSpans(prevConns), movedVisible, beatDisplay);
+            const movedSet = new Set(movedVisible);
+            for (const sp of slideSpans(prevConns)) {
+              if (movedSet.has(sp.start) || movedSet.has(sp.end)) {
+                conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
+              }
+            }
           }
 
           // 2. 全部结点（可见点 + hidden 采样点）完整保留，按 beat 升序统一稳定排序
@@ -378,19 +387,45 @@ export function planDragMove(
           delete (m as { spanParams?: unknown }).spanParams;
           moved.set(i, m as ChartNote);
         } else {
-          // 未发生可见跨越：沿用既有逻辑（重烘焙缓动段 / 拉伸自由段）
+          // 未发生可见跨越：
+          // - 某段两可见端点同移（含框选整条滑条）：hidden 随刚体平移，不拉伸也不自由化（Q5）
+          // - 仅单端移动：默认重烘焙参数段 + 拉伸自由段；开启 stretchCurveOnNodeDrag 时统一仿射拉伸并清除该段参数
           moved.set(i, { ...n, connections: conns });
           if (movedVisible.length > 0) {
-            const conns2 = remapAdjacentFreeSpans(
-              conns,
-              prevConns,
-              slideSpans(conns),
-              movedVisible,
-              beatDisplay,
-              s => !!bySpan[s],
-            );
+            const spans = slideSpans(conns);
+            const movedSet = new Set(movedVisible);
+            const stretchOnDrag = !!bounds.stretchCurveOnNodeDrag;
+            let conns2 = conns;
+            let hasStretchedParameterizedSpan = false;
+            const nextBySpan = stretchOnDrag && Object.keys(bySpan).length > 0 ? { ...bySpan } : null;
+
+            for (let s = 0; s < spans.length; s++) {
+              const sp = spans[s]!;
+              const movedStart = movedSet.has(sp.start);
+              const movedEnd = movedSet.has(sp.end);
+              if (movedStart && movedEnd) {
+                conns2 = translateSpanHidden(conns2, sp, delta.dBeat, dLane, plan.conns);
+                continue;
+              }
+              if (movedStart === movedEnd) continue;
+              if (stretchOnDrag || !bySpan[s]) {
+                conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
+              } else {
+                hasStretchedParameterizedSpan = true;
+              }
+              if (nextBySpan) delete nextBySpan[s];
+            }
+
             let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
-            m = reprojectSpanParams(m, beatDisplay);
+            if (nextBySpan) {
+              if (Object.keys(nextBySpan).length > 0) {
+                m.spanParams = { visibleCount: countVisibleNodes(conns2), bySpan: nextBySpan };
+              } else {
+                delete (m as { spanParams?: unknown }).spanParams;
+              }
+            } else if (hasStretchedParameterizedSpan) {
+              m = reprojectSpanParams(m, beatDisplay);
+            }
             moved.set(i, m as ChartNote);
 
             // 验收反馈 #4：重烘焙增删 hidden → 被拖可见结点的下标可能整体平移。

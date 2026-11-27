@@ -23,12 +23,15 @@ import IconButton from '../../ui/IconButton';
 import { t, type MessageKey } from '../../i18n';
 import {
   CONTAINER_FALLBACK_ORDER,
+  ENDING_SECONDS,
   EXPORT_FPS,
   OPENING_ITEM_IDS,
   OPENING_SECONDS,
   VIDEO_EXPORT_TIERS,
   isAacCodec,
+  probeVideoExportSupport,
   tierOf,
+  type EndingStamp,
   type OpeningItemId,
   type VideoContainerChoice,
   type VideoExportProgress,
@@ -56,18 +59,20 @@ function Row({
 
 /** 下拉（与「显示」面板同一枚 `.select-control`——图像品质 / 轨道颜色那一套，不新造样式） */
 function Select<T extends string>({
-  value, label, options, onChange,
+  value, label, options, onChange, disabled,
 }: {
   value: T;
   label: string;
   options: ReadonlyArray<{ value: T; label: string }>;
   onChange: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <select
       className="select-control"
       value={value}
       aria-label={label}
+      disabled={disabled}
       onChange={(e) => {
         const hit = options.find((o) => o.value === e.target.value);
         if (hit) onChange(hit.value);
@@ -75,6 +80,49 @@ function Select<T extends string>({
     >
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
+  );
+}
+
+/**
+ * 分段组的标题 + 可选的问号说明（说明不单独占行：点问号弹一小片气泡）。
+ * 自持展开态与"点外面收起"—— 两个分段组（开场 / 结尾）各有一枚，互不牵连。
+ */
+function GroupHead({ title, help }: { title: string; help?: string }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div className="pvex__group-title-wrap" ref={wrapRef}>
+      <h4 className="pvex__group-title">{title}</h4>
+      {help && (
+        <>
+          <button
+            type="button"
+            className={`pvex__help-btn${open ? ' is-active' : ''}`}
+            title={help}
+            aria-label={help}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <HelpCircle size={13} />
+          </button>
+          {open && (
+            <div className="pvex__help-popover" role="tooltip">
+              {help}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -145,10 +193,30 @@ export interface VideoExportOpeningView {
   items: Record<OpeningItemId, boolean>;
 }
 
+/**
+ * 结尾画面的设置视图（chart-preview 52）：总开关 + 结算形态下拉。
+ *
+ * 三档（ALL PERFECT / FULL COMBO / CLEAR）都能选（2026-11-09 用户验收：CLEAR 正式支持）。
+ * `clear` = 普通 Clear：无中央章、无角标，但仍有金星徽与普通烟花。形态是渲染层 / 音效的
+ * 输入（`settings.export.ending.stamp`）；默认仍是 AP。
+ */
+export interface VideoExportEndingView {
+  enabled: boolean;
+  /** 结算形态：`ap` = ALL PERFECT、`fc` = FULL COMBO、`clear` = 普通 Clear */
+  stamp: EndingStamp;
+}
+
+/** 弹窗里「结算形态」三档全暴露（与 `ENDING_STAMP_IDS` 归一化白名单同序） */
+const ENDING_STAMP_CHOICES = ['ap', 'fc', 'clear'] as const satisfies readonly EndingStamp[];
+
 export interface VideoExportControlProps {
   /** 没有可导出的谱面 / 素材未就绪 */
   disabled?: boolean;
   spec: VideoExportSpec;
+  /** 结尾画面设置（null = 本弹层不显示结尾那一组） */
+  ending?: VideoExportEndingView | null;
+  /** 改结尾画面设置：只传要改的字段（`updateSettings` 段内合并） */
+  onEndingChange?: (patch: Partial<VideoExportEndingView>) => void;
   /** 视频开场设置（null = 本弹层不显示开场那一组） */
   opening?: VideoExportOpeningView | null;
   /**
@@ -168,15 +236,18 @@ export interface VideoExportControlProps {
   notice: VideoExportNotice | null;
   /** 清除结果文案 */
   onDismissNotice?: () => void;
-  /** 本机实际会用的编码组合（null = 还没探）；面板打开时调 `onProbe` 探一次 */
+  /** 本机实际会用的编码组合（null = 还没探 / 由面板自己探） */
   support?: VideoExportSupport | null;
   probing?: boolean;
+  /** 测试注入：若传入则面板打开时 idle 后再调，避免 PreviewPage 同步 setState */
   onProbe?: () => void;
 }
 
 export default function VideoExportControl({
   disabled = false,
   spec,
+  ending = null,
+  onEndingChange,
   opening = null,
   onOpeningChange,
   onSpecChange,
@@ -186,31 +257,74 @@ export default function VideoExportControl({
   cancelling = false,
   notice,
   onDismissNotice,
-  support = null,
+  support,
   probing = false,
   onProbe,
 }: VideoExportControlProps) {
   const [open, setOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [localSupport, setLocalSupport] = useState<VideoExportSupport | null>(null);
+  const [probedKey, setProbedKey] = useState<string | null>(null);
   const btnRef = useRef<HTMLSpanElement>(null);
   /** 面板 portal 到 body ⇒ 它**不在** `btnRef` 里，判"点外面"必须把它也算进来 */
   const panelRef = useRef<HTMLDivElement>(null);
-  const helpWrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!helpOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!helpWrapRef.current?.contains(e.target as Node)) {
-        setHelpOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [helpOpen]);
 
   const tier = tierOf(spec.tier);
   const busy = progress != null;
+  const specKey = `${spec.tier}|${spec.muted}|${spec.container}`;
+  const parentOwnsSupport = support !== undefined;
+  const resolvedSupport = parentOwnsSupport ? support : (probedKey === specKey ? localSupport : null);
+
+  // 票 87：探测排进 idle，不在 PreviewPage 上同步 setProbing；规格没变就复用上次结论。
+  useEffect(() => {
+    if (!open || parentOwnsSupport) return;
+    if (probedKey === specKey) return;
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let rafId = 0;
+    let cancelled = false;
+    const scheduleProbe = () => {
+      const run = () => {
+        if (cancelled) return;
+        if (onProbe) {
+          setProbedKey(specKey);
+          onProbe();
+          return;
+        }
+        void probeVideoExportSupport({
+          tier: spec.tier,
+          muted: spec.muted,
+          preferred: spec.container,
+        }).then((result) => {
+          if (cancelled) return;
+          setProbedKey(specKey);
+          setLocalSupport(result);
+        }).catch(() => {
+          if (cancelled) return;
+          setProbedKey(specKey);
+          setLocalSupport(null);
+        });
+      };
+      const idle = globalThis as {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+        cancelIdleCallback?: (id: number) => void;
+      };
+      if (typeof idle.requestIdleCallback === 'function') {
+        idleId = idle.requestIdleCallback(run, { timeout: 400 });
+      } else {
+        timeoutId = window.setTimeout(run, 0);
+      }
+    };
+    // 先让面板那一帧画完，探测不要跟挂载挤在同一次 longtask 里。
+    rafId = requestAnimationFrame(() => scheduleProbe());
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      const idle = globalThis as { cancelIdleCallback?: (id: number) => void };
+      if (idleId != null) idle.cancelIdleCallback?.(idleId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [open, parentOwnsSupport, probedKey, specKey, onProbe, spec.tier, spec.muted, spec.container]);
 
   /** 量触发钮定面板位；等值守卫免得平白制造一次重渲 */
   const computePos = useCallback(() => {
@@ -278,7 +392,7 @@ export default function VideoExportControl({
       label: t(`preview.video.export.format.${id}` as MessageKey),
     })),
   ];
-  const note = outcomeNote(support, probing, spec.container, spec.muted);
+  const note = outcomeNote(resolvedSupport, probing, spec.container, spec.muted);
 
   return (
     <div className="pvex">
@@ -294,10 +408,7 @@ export default function VideoExportControl({
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => {
-            if (!open) {
-              computePos();
-              onProbe?.(); // 面板一开就问一遍本机编码能力（下面那行结论要说的就是它）
-            }
+            if (!open) computePos();
             setOpen(!open);
           }}
         />
@@ -342,29 +453,15 @@ export default function VideoExportControl({
               />
             </Row>
 
-            {/* 曲目信息片头（chart-preview 30）：总开关管整段，下面三行是开场里画哪些信息项。
+            {/* 曲目信息片头（chart-preview 30 / 79）：总开关管整段，下面 7 行是开场里画哪些信息项。
                 关掉时当场置灰（与「导出信息」那一组同一套行为，管什么由这个行为自己说明）。 */}
             {opening && onOpeningChange && (
               <section className="pvex__group pvex__group--sub">
                 <div className="pvex__group-head">
-                  <div className="pvex__group-title-wrap" ref={helpWrapRef}>
-                    <h4 className="pvex__group-title">{t('preview.video.export.opening')}</h4>
-                    <button
-                      type="button"
-                      className={`pvex__help-btn${helpOpen ? ' is-active' : ''}`}
-                      title={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                      aria-label={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                      aria-expanded={helpOpen}
-                      onClick={() => setHelpOpen((v) => !v)}
-                    >
-                      <HelpCircle size={13} />
-                    </button>
-                    {helpOpen && (
-                      <div className="pvex__help-popover" role="tooltip">
-                        {t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                      </div>
-                    )}
-                  </div>
+                  <GroupHead
+                    title={t('preview.video.export.opening')}
+                    help={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
+                  />
                   <Toggle
                     label={t('preview.video.export.opening')}
                     checked={opening.enabled}
@@ -384,6 +481,36 @@ export default function VideoExportControl({
                     </Row>
                   );
                 })}
+              </section>
+            )}
+
+            {/* 结尾画面（chart-preview 52）：同「曲目信息片头」——总开关 + 缩进子项（结算形态三档）。
+                关掉 = 回到旧行为（末击尾段播完切末帧、总长 = 开场 + 前导 + 谱面 + 尾段）。 */}
+            {ending && onEndingChange && (
+              <section className="pvex__group pvex__group--sub">
+                <div className="pvex__group-head">
+                  <GroupHead
+                    title={t('preview.video.export.ending')}
+                    help={t('preview.video.export.ending.note', { seconds: ENDING_SECONDS })}
+                  />
+                  <Toggle
+                    label={t('preview.video.export.ending')}
+                    checked={ending.enabled}
+                    onChange={(v) => onEndingChange({ enabled: v })}
+                  />
+                </div>
+                <Row label={t('preview.video.export.ending.stamp')} disabled={!ending.enabled}>
+                  <Select<EndingStamp>
+                    label={t('preview.video.export.ending.stamp')}
+                    value={ending.stamp}
+                    disabled={!ending.enabled}
+                    options={ENDING_STAMP_CHOICES.map((id) => ({
+                      value: id,
+                      label: t(`preview.video.export.ending.stamp.${id}` as MessageKey),
+                    }))}
+                    onChange={(stamp) => onEndingChange({ stamp })}
+                  />
+                </Row>
               </section>
             )}
 

@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { makeCoords } from '@/src/rendering/coords';
-import { renderToolPreview, renderDragGhost, renderSlideBuffer } from '@/src/rendering/render';
+import { renderToolPreview, renderDragGhost, renderSlideBuffer, renderNotes } from '@/src/rendering/render';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
@@ -15,7 +15,7 @@ const BEAT_DISPLAY = 4;
 const ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
 const stubCtx = makeNoopCtx();
 
-interface Capture { renders: unknown[]; decorators: unknown[] }
+interface Capture { renders: unknown[]; decorators: unknown[]; decoratorScales: number[] }
 
 type Sprite = Record<string, unknown> & { src?: string };
 
@@ -26,6 +26,7 @@ interface SceneOpts {
   dragGhost?: ChartNote[];
   /** hover 位置所在的 lane/beat（不传 = 无 hoverPos） */
   hover?: { lane: number; beat: number } | null;
+  noteSize?: number;
 }
 
 /** 搭一个最小渲染上下文并捕获 spriteIcon 的 render / renderDecorator 调用 */
@@ -34,7 +35,7 @@ function scene(opts: SceneOpts) {
   const viewport = { scrollX: 0, scrollY: 0, scale: 1, virtualWidth: 0, virtualHeight: 0 };
   const notes: ChartNote[] = opts.notes ?? [];
   const c = makeCoords(geometry, viewport, BEAT_DISPLAY, notes);
-  const cap: Capture = { renders: [], decorators: [] };
+  const cap: Capture = { renders: [], decorators: [], decoratorScales: [] };
   const at = opts.hover
     ? c.virtualToCanvas(c.getNoteVirtualX(opts.hover.lane), c.getNoteVirtualY(opts.hover.beat))
     : null;
@@ -57,20 +58,26 @@ function scene(opts: SceneOpts) {
     armedTool: opts.tool ?? 'mouse',
     spriteIcon: {
       render: (_ctx: unknown, cfg: unknown) => cap.renders.push(cfg),
-      renderDecorator: (_ctx: unknown, _anchor: unknown, dec: unknown) => cap.decorators.push(dec),
+      renderDecorator: (_ctx: unknown, _anchor: unknown, dec: unknown, scale?: number) => {
+        cap.decorators.push(dec);
+        if (typeof scale === 'number') cap.decoratorScales.push(scale);
+      },
     },
     noteIcons: ICONS,
-    display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: false, colorAssist: false },
+    display: { noteSize: opts.noteSize ?? 1, slideOpacity: 1, simultaneousClickLines: false, colorAssist: false },
   } as unknown as RenderCtx;
   return { c, rc, cap };
 }
 
 /** 在指定 lane/beat 处跑一次放置态幽灵 */
-function ghostAt(tool: string, lane: number, beat: number, opt?: { slideBuffer?: SceneOpts['slideBuffer'] }): Capture {
-  const s = scene({ tool, hover: { lane, beat }, slideBuffer: opt?.slideBuffer });
+function ghostAt(tool: string, lane: number, beat: number, opt?: { slideBuffer?: SceneOpts['slideBuffer']; noteSize?: number }): Capture {
+  const s = scene({ tool, hover: { lane, beat }, slideBuffer: opt?.slideBuffer, noteSize: opt?.noteSize });
   renderToolPreview(stubCtx, s.c, s.rc);
   return s.cap;
 }
+
+const scaleOf = (cfg: unknown) => (cfg as { scale: number }).scale;
+const widthOf = (cfg: unknown) => (cfg as { canvasWidth: number }).canvasWidth;
 
 describe('幽灵形态 = 画布实绘同形', () => {
   it('滑键幽灵带顶部箭头装饰（本体 + 挂件）', () => {
@@ -181,5 +188,63 @@ describe('滑条外观幽灵的结点选款 = 实绘同款（issue 65①）', ()
     expect(nodes[0]).toMatchObject({ x: ICONS.slideEndpointFor(2).x, y: ICONS.slideEndpointFor(2).y });
     expect(nodes[1]).toMatchObject({ x: among.x, y: among.y, src: among.src });
     expect(nodes[2]).toMatchObject({ x: ICONS.slideEndpointFor(4).x, y: ICONS.slideEndpointFor(4).y });
+  });
+});
+
+describe('幽灵尺寸随节奏图示大小（issue 252）', () => {
+  it('单键幽灵 scale = viewport.scale × noteSize，并与实绘同值', () => {
+    const note: ChartNote = { type: 'Single', lane: 3, beat: 50, subBeat: 0 };
+    const s = scene({ tool: 'single', hover: { lane: 3, beat: 50 }, notes: [note], noteSize: 1.5 });
+    renderNotes(stubCtx, s.c, s.rc, [{ note, index: 0 }]);
+    const realScale = scaleOf(s.cap.renders[0]);
+    s.cap.renders.length = 0;
+    renderToolPreview(stubCtx, s.c, s.rc);
+    expect(scaleOf(s.cap.renders[0])).toBe(realScale);
+    expect(realScale).toBe(1.5);
+  });
+
+  it('滑键幽灵本体与顶部箭头都 × noteSize', () => {
+    const cap1 = ghostAt('flick', 3, 50, { noteSize: 1 });
+    const cap2 = ghostAt('flick', 3, 50, { noteSize: 2 });
+    expect(scaleOf(cap1.renders[0])).toBe(1);
+    expect(scaleOf(cap2.renders[0])).toBe(2);
+    expect(cap1.decoratorScales[0]).toBe(1);
+    expect(cap2.decoratorScales[0]).toBe(2);
+  });
+
+  it('方向键幽灵本体 scale × noteSize（轨距仍由 viewport.scale 决定）', () => {
+    const cap1 = ghostAt('ldirectional', 3, 50, { noteSize: 1 });
+    const cap2 = ghostAt('ldirectional', 3, 50, { noteSize: 2 });
+    expect(cap1.renders.length).toBeGreaterThan(0);
+    expect(cap1.renders.map(scaleOf)).toEqual(cap1.renders.map(() => 1));
+    expect(cap2.renders.map(scaleOf)).toEqual(cap2.renders.map(() => 2));
+  });
+
+  it('滑条段带宽与端点图标都 × noteSize', () => {
+    const buf = { beat: 48, lane: 2, subBeat: 0 };
+    const cap1 = ghostAt('slide', 4, 52, { slideBuffer: buf, noteSize: 1 });
+    const cap2 = ghostAt('slide', 4, 52, { slideBuffer: buf, noteSize: 2 });
+    expect(cap1.renders).toHaveLength(2);
+    expect(widthOf(cap2.renders[0])).toBe(widthOf(cap1.renders[0]) * 2);
+    expect(scaleOf(cap1.renders[1])).toBe(1);
+    expect(scaleOf(cap2.renders[1])).toBe(2);
+  });
+
+  it('拖拽幽灵（滑条结点）图标 scale × noteSize', () => {
+    const slide = {
+      type: 'Slide',
+      connections: [
+        { beat: 48, lane: 2, subBeat: 0 },
+        { beat: 52, lane: 4, subBeat: 0 },
+      ],
+    } as unknown as ChartNote;
+    const s1 = scene({ tool: 'mouse', hover: null, dragGhost: [slide], noteSize: 1 });
+    renderDragGhost(stubCtx, s1.c, s1.rc);
+    const s2 = scene({ tool: 'mouse', hover: null, dragGhost: [slide], noteSize: 2 });
+    renderDragGhost(stubCtx, s2.c, s2.rc);
+    const nodes1 = s1.cap.renders.filter((r) => srcOf(r) !== ICONS.slideBand.src);
+    const nodes2 = s2.cap.renders.filter((r) => srcOf(r) !== ICONS.slideBand.src);
+    expect(nodes1.map(scaleOf)).toEqual(nodes1.map(() => 1));
+    expect(nodes2.map(scaleOf)).toEqual(nodes2.map(() => 2));
   });
 });

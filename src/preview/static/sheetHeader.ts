@@ -6,9 +6,10 @@
 //   （工程 id 派生色相的深色渐变，hue 由页面算好传入 —— preview 域不 import 工程域）。
 //   横带高 `EXPORT_HEADER_H`（= 392 封面 + 上下各 24），横带以下才是面板（`panelLayout` 的 headerH）。
 //
-// 信息区字段（`settings.export`，7 项可开关；默认 = 谱面标题 + 难度等级 + BPM）：
+// 信息区字段（`settings.export`，8 项可开关；默认 = 谱面标题 + 难度等级 + BPM）：
 //   大字标题 = 谱面标题（未填回落工程名）；副行 = 工程名（与标题重复时去重不画）；
-//   指标 chips = 难度等级 / 时长 / 音符数 / BPM / 导出时间（按字段表顺序）。
+//   指标 chips = 难度等级 / 时长 / 音符数 / BPM / 导出时间 / 谱师（按字段表顺序；票 79 加的
+//   谱师是末位一枚、默认关，超长只截这一枚，不改通用打包策略）。
 //   三个槽位**整体垂直居中**（`layoutInfoStack`）；头带底部还有一道「深缝 + 亮线」与面板区分界。
 // 窄图（≤2 面板）：封面自动缩窄（最多占图宽一半，392 封顶），文字走截断 —— 不因图窄而画爆。
 //
@@ -21,7 +22,10 @@
 import { t } from '../../i18n';
 import type { ExportFieldSettings } from '../../settings/AppSettings';
 import { formatTimeCompact } from '../../chart/geometry/TimeFormat';
+import { bpmRangeText } from '../../chart/analysis/BpmRange';
 import { HEADER_SANS as headerSans } from '../fontStack';
+
+export { bpmRangeText } from '../../chart/analysis/BpmRange';
 
 /** 头部横带高度（CSS px）：392 封面 + 上下各 24 padding。改它要同步复算宽图面积上限（ADR-0016 §7） */
 export const EXPORT_HEADER_H = 440;
@@ -53,6 +57,8 @@ const CHIP_ACCENTS = {
   noteCount: '#c4b5fd',
   bpm: '#fcd34d',
   exportedAt: '#94a3b8',
+  /** 谱师（票 79）：末位那枚，兼作超长截断的标记来源 */
+  charter: '#6ee7b7',
 } as const;
 /**
  * 头带 / 面板区的分界（2026-10-06 用户定案 C）：由深渐暗的一道"缝" + 最底部一条亮线。
@@ -108,6 +114,8 @@ export interface SheetHeaderInput {
   bpms: readonly number[];
   /** 导出时刻（ms 时间戳；本地时区写到分钟） */
   exportedAt: number;
+  /** 谱师署名（票 79）：谱面级、自由文本；开关开但为空 ⇒ 不画 */
+  charterCredit?: string | null;
   /** 信息字段开关（`settings.export`） */
   fields: ExportFieldSettings;
   /** 封面图（null / 空 Blob = 走色相占位块） */
@@ -121,6 +129,11 @@ export interface HeaderChip {
   text: string;
   /** CSS 颜色（`#rrggbb` 最佳：描边要按它取半透明版本） */
   accent: string;
+  /**
+   * 只给这枚做「超宽截断」而不是整枚跳过（票 79 Q16=A）。
+   * `packChipRows` 的通用策略不动 —— 既有 7 枚超宽仍是跳过。
+   */
+  truncate?: boolean;
 }
 
 /** 信息区要画的东西（由输入按字段开关算出；空槽位 = 不画） */
@@ -141,24 +154,6 @@ const trimmed = (s: string | null | undefined): string | null => {
 /** 千位分组（手搓，不赌运行环境 ICU 的 `toLocaleString`） */
 function groupThousands(n: number): string {
   return String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
-/** BPM 读数：整数原样、小数最多两位（谱面 BPM 可以是小数） */
-function formatBpm(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
-}
-
-/**
- * BPM 摘要（用户 2026-10-06 定案口径）：多条取**绝对值**的 min–max（倒流区的负 BPM 按速度读，
- * 如 "120–240"），单条只写一个值；没有有效值（空 / 全 0 / 非有限）→ null。
- * 只出**区间文本**，套 i18n 外壳（"BPM …"）在 `buildSheetHeaderModel` 里、与其它 chips 同一处。
- */
-export function bpmRangeText(bpms: readonly number[]): string | null {
-  const values = bpms.filter((v) => Number.isFinite(v) && v !== 0).map((v) => Math.abs(v));
-  if (values.length === 0) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  return min === max ? formatBpm(min) : `${formatBpm(min)}–${formatBpm(max)}`;
 }
 
 /** 导出时刻（本地时区，写到分钟，如 2026-10-06 21:30） */
@@ -209,6 +204,18 @@ export function buildSheetHeaderModel(input: SheetHeaderInput): SheetHeaderModel
       accent: CHIP_ACCENTS.exportedAt,
     });
   }
+  // 票 79：谱师是第 8 枚、**末位** chip；开关开但值为空 ⇒ 不画也不占位。
+  // 值原样输出（联合创作由作者自己写分隔符），只在画图前按 textW 截断一次。
+  if (fields.charter) {
+    const credit = trimmed(input.charterCredit);
+    if (credit) {
+      chips.push({
+        text: t('preview.export.chip.charter', { name: credit }),
+        accent: CHIP_ACCENTS.charter,
+        truncate: true,
+      });
+    }
+  }
   return { title, subtitle, chips };
 }
 
@@ -231,6 +238,21 @@ export function truncateText(text: string, maxW: number, measure: (s: string) =>
   let cut = text;
   while (cut.length > 0 && measure(`${cut}…`) > maxW) cut = cut.slice(0, -1);
   return cut.length > 0 ? `${cut}…` : '';
+}
+
+/**
+ * 票 79 Q16=A：只给打了 `truncate` 标记的 chip 截到 `maxTextW`（= textW − 两侧 padding），
+ * 保证 `packChipRows` 算出的整枚宽度不超过 `textW`、不会被「单枚超宽整枚跳过」吃掉。
+ * 其它 chip 原样返回 —— 既有 7 枚的通用打包策略一字不改（两行放满仍截掉后面的）。
+ */
+export function fitChipTexts(
+  chips: readonly HeaderChip[],
+  measure: (s: string) => number,
+  maxTextW: number,
+): HeaderChip[] {
+  return chips.map((c) => (
+    c.truncate ? { ...c, text: truncateText(c.text, maxTextW, measure) } : c
+  ));
 }
 
 // ---------------------------------------------------------------- 版式
@@ -452,7 +474,9 @@ function drawInfo(ctx: CanvasRenderingContext2D, model: SheetHeaderModel, m: She
   // chips 分行必须**在设置 chips 字体之后**量：measureText 读的是当前 font，
   // 拿标题的字号（或默认 10px）去分行，行数会和真正落笔时的重排对不上 —— 竖直居中就跟着错一整行。
   ctx.font = `600 ${CHIP_PX}px ${HEADER_SANS}`;
-  const chipRows = packChipRows(model.chips, measure, m.textW);
+  // 票 79：先只截被标记的那枚 chip，再走原有打包（超宽跳过 / 两行截尾全部不动）
+  const chips = fitChipTexts(model.chips, measure, m.textW - CHIP_PAD_X * 2);
+  const chipRows = packChipRows(chips, measure, m.textW);
   const stack = layoutInfoStack(model, chipRows);
 
   if (model.title && stack.titleY !== null) {
@@ -468,7 +492,7 @@ function drawInfo(ctx: CanvasRenderingContext2D, model: SheetHeaderModel, m: She
 
   if (stack.chipsBottom !== null) {
     ctx.font = `600 ${CHIP_PX}px ${HEADER_SANS}`;
-    for (const box of layoutChips(model.chips, measure, m.textX, m.textW, stack.chipsBottom)) {
+    for (const box of layoutChips(chips, measure, m.textX, m.textW, stack.chipsBottom)) {
       ctx.beginPath();
       ctx.roundRect(box.x, box.y, box.w, box.h, box.h / 2);
       ctx.fillStyle = CHIP_BG;

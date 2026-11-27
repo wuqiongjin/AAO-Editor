@@ -28,7 +28,7 @@ describe('issue 230 · 两处页面的四键接线', () => {
   }
 
   it('预览页 PLAY_ONLY = play + 四个新 id，其余绑定仍放行原生', () => {
-    expect(preview).toMatch(/const PLAY_ONLY:\s*readonly FunctionId\[\]\s*=\s*\['play',\s*\.\.\.PLAYBACK_SHORTCUT_IDS\]/);
+    expect(preview).toMatch(/const PLAY_ONLY:\s*readonly FunctionId\[\]\s*=\s*\['play',\s*\.\.\.PLAYBACK_SHORTCUT_IDS,\s*\.\.\.SEEK_SHORTCUT_IDS\]/);
   });
 
   it('工作台音量快捷键走 setAudioVolume 那条统一入口（票 60 单点）', () => {
@@ -41,7 +41,7 @@ describe('issue 230 · 分发 hook 与载入去重', () => {
   it('useShortcutDispatch 有 noRepeat 选项，且只过滤名单内的功能', () => {
     expect(hook).toMatch(/noRepeat\?:\s*readonly FunctionId\[\]/);
     expect(hook).toMatch(/e\.repeat\s*&&\s*noRepeat\?\.includes\(fn\)/);
-    expect(hook).toMatch(/\[active,\s*shortcutConfig,\s*runFunction,\s*onEscape,\s*only,\s*noRepeat\]/);
+    expect(hook).toMatch(/\[active,\s*shortcutConfig,\s*runFunction,\s*onEscape,\s*only,\s*noRepeat,\s*holdRepeat\]/);
   });
 
   it('loadConfig 以快照 key 集合分流，去重不再按表序', () => {
@@ -82,6 +82,44 @@ describe('issue 230 · i18n 与文档', () => {
       for (const key of ['`,`', '`.`', '`;`', "`'"]) {
         expect(text, `${rel} ${key}`).toContain(key);
       }
+    }
+  });
+});
+
+describe('issue 251 · seek 接线与文档', () => {
+  it('工作台 / 动态预览 runFunction 接上 seekBack / seekForward，holdRepeat 走 SEEK_SHORTCUT_IDS', () => {
+    for (const [label, src] of [['工作台', workspace], ['动态预览', preview]] as const) {
+      expect(src, `${label} seekBack`).toMatch(/case\s+'seekBack':/);
+      expect(src, `${label} seekForward`).toMatch(/case\s+'seekForward':/);
+      expect(src, `${label} holdRepeat`).toMatch(/holdRepeat:\s*SEEK_SHORTCUT_IDS/);
+      expect(src, `${label} noRepeat 仍只有四键`).toMatch(/noRepeat:\s*PLAYBACK_SHORTCUT_IDS/);
+    }
+  });
+
+  it('PLAYBACK_SHORTCUT_IDS 字面量不含 seek；SEEK_SHORTCUT_IDS 单独列出', () => {
+    const playback = readStripped('src/playback/playbackShortcuts.ts');
+    expect(playback).toMatch(/export const PLAYBACK_SHORTCUT_IDS: readonly FunctionId\[\] = \[\s*'rateDown',\s*'rateUp',\s*'volumeDown',\s*'volumeUp',\s*\]/);
+    expect(playback).toMatch(/export const SEEK_SHORTCUT_IDS: readonly FunctionId\[\] = \['seekBack',\s*'seekForward'\]/);
+  });
+
+  it('zh-CN / en 有功能名 + 齿轮 / 弹窗文案；ADR / 键位表写了 ← / →', () => {
+    const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+    const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+    for (const key of [
+      'shortcut.fn.seekBack', 'shortcut.fn.seekForward',
+      'shortcuts.seekStep.configAria', 'shortcuts.seekStep.modal.back', 'shortcuts.seekStep.modal.forward',
+    ]) {
+      expect(zh[key], key).toBeTruthy();
+      expect(en[key], key).toBeTruthy();
+    }
+    const adr = readSource('docs/adr/0002-快捷键系统与自定义配置.md');
+    expect(adr).toMatch(/2026-11-24 修订（issue 251/);
+    expect(adr).toContain('seekBack');
+    expect(adr).toContain('holdRepeat');
+    for (const rel of [
+      'docs-site/guide/features.md', 'docs-site/en/guide/features.md', 'README.md', 'README.en.md',
+    ]) {
+      expect(readSource(rel), rel).toMatch(/←/);
     }
   });
 });

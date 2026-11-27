@@ -23,9 +23,14 @@ import { defaultSettings, loadSettings, updateSettings } from '@/src/settings/Ap
 import { settingsStorageOf } from '@/tests/support/storage';
 
 describe('chart-preview 41 · 仿真场素材包设置', () => {
-  it('默认两个包都是 skin00（ADR-0018 §1）', () => {
-    expect(defaultSettings().preview.bgPackId).toBe('skin00');
+  it('默认：轨道 skin00、背景是应用自带包 aao-stage（票 84 · ADR-0018 §7）', () => {
+    expect(defaultSettings().preview.bgPackId).toBe('aao-stage');
     expect(defaultSettings().preview.fieldPackId).toBe('skin00');
+  });
+
+  it('**老设置不迁移**：存的 skin00 读回来还是 skin00（默认值只管"没存过"）', () => {
+    const settings = loadSettings(settingsStorageOf({ preview: { bgPackId: 'skin00' } }));
+    expect(settings.preview.bgPackId).toBe('skin00');
   });
 
   it('合法包 ID 原样读回（两个选择器各自独立）', () => {
@@ -36,25 +41,25 @@ describe('chart-preview 41 · 仿真场素材包设置', () => {
     expect(settings.preview.fieldPackId).toBe('skin_miku');
   });
 
-  it('清单里没有的包 ID → 静默回落 skin00（列表即真相，不弹错）', () => {
+  it('清单里没有的包 ID → 静默回落各自默认（轨道 skin00 / 背景 aao-stage，列表即真相，不弹错）', () => {
     const settings = loadSettings(settingsStorageOf({
       preview: { bgPackId: 'skin_satan', fieldPackId: 'skin01' }, // skin01 只有轨道包、背景清单里没有
     }));
-    expect(settings.preview.bgPackId).toBe('skin00');
+    expect(settings.preview.bgPackId).toBe('aao-stage');
     expect(settings.preview.fieldPackId).toBe('skin00');
   });
 
-  it('脏值（非字符串）→ 回落 skin00', () => {
+  it('脏值（非字符串）→ 回落各自默认（背景 aao-stage）', () => {
     const settings = loadSettings(settingsStorageOf({
       preview: { bgPackId: 7, fieldPackId: null },
     }));
-    expect(settings.preview.bgPackId).toBe('skin00');
+    expect(settings.preview.bgPackId).toBe('aao-stage');
     expect(settings.preview.fieldPackId).toBe('skin00');
   });
 
-  it('additive：老设置没有这两个字段 → 默认 skin00，schemaVersion 不动', () => {
+  it('additive：老设置没有这两个字段 → 背景落到自带包，schemaVersion 不动', () => {
     const settings = loadSettings(settingsStorageOf({ preview: { mirror: true } }));
-    expect(settings.preview.bgPackId).toBe('skin00');
+    expect(settings.preview.bgPackId).toBe('aao-stage');
     expect(settings.preview.fieldPackId).toBe('skin00');
     expect(settings.schemaVersion).toBe(1);
   });

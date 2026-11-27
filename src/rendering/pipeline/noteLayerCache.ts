@@ -20,7 +20,7 @@
 //
 // 候选 3（缓存有主）：本缓存是**实例**（`createNoteLayerCache`），不再是模块级可变单例 ——
 // 工作台画布与离屏导出 / 未来预览各持一份，互不顶掉（见 `../RenderTarget`）。
-import { renderNoteBands, renderNotes, renderSelectionOverlay } from '../render';
+import { renderNoteBands, renderNotes, renderNotesSteps, renderSelectionOverlay } from '../render';
 import { makeCoords } from '../coords';
 import { bufferSizeFor } from '../rasterScale';
 import type { RenderCtx } from '../types';
@@ -134,6 +134,8 @@ export class RefreshRateEstimator {
 /** 瓦片总内存预算（字节，按 RGBA 4B/px 估算），超出按插入序淘汰。
  *  issue 36：96MB → 64MB（密集谱下瓦片缓存是常驻内存增量的主体；配合瓦片 dpr 上限下调） */
 const BYTES_BUDGET = 64 * 1024 * 1024;
+/** 交互滚动/拖拽进入冷区后的异步精细补建静置等待（ms） */
+const PAUSED_PREFETCH_SETTLE_MS = 80;
 /** 瓦片数量上限（兜底，正常情况下字节预算先生效） */
 const MAX_TILES = 64;
 /** 瓦片位图 dpr 上限（issue 212）：开放 2.0x 整数倍光栅化，对齐 Retina 2.0x 标准屏与 Windows 各常用 DPI（1.0/1.25/1.5/1.75/2.0），
@@ -170,7 +172,7 @@ export interface TileBlitSmoothingParams {
 
 /**
  * issue 222（抗畸变根治）：瓦片 blit 自适应平滑策略
- * - 浮点 DPR（Windows 125%/150%/175% 等）或缩放拉伸态（手势期 es !== refScale）下，强制开启高阶滤波平滑，消除亚像素锯齿与黑斑；
+ * - 浮点 DPR（Windows 125%/150%/175% 等）或缩放拉伸态（手势期 es !== refScale）下，开启平滑，消除亚像素锯齿与黑斑；
  * - 仅当物理像素严格 1:1 整数对齐（如标准 1.0x 或 Retina 2.0x 且无缩放拉伸）时，才关闭平滑以最大化填充性能。
  */
 export function shouldEnableTileBlitSmoothing(p: TileBlitSmoothingParams): boolean {
@@ -454,16 +456,22 @@ function createTileCanvasDefault() {
  * 创建一个音符瓦片缓存实例（候选 3）：瓦片表 / 失效依据 / 播放瓦片队列与计时器 / 统计全在实例内，
  * 不与其它渲染目标共享 —— 见 `../RenderTarget`。
  */
-export function createNoteLayerCache(options: { rasterizeBands?: typeof rasterizeBandsCooperatively } = {}): NoteLayerCache {
+export function createNoteLayerCache(options: {
+  rasterizeBands?: typeof rasterizeBandsCooperatively;
+  onScrollTileReady?: () => void;
+} = {}): NoteLayerCache {
   const rasterizeBands = options.rasterizeBands ?? rasterizeBandsCooperatively;
   /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
   let createTileCanvas: () => any = createTileCanvasDefault;
   const tiles = new Map<number, Tile>();
+  let prefetchAfter = 0;
+  const deferredScrollTiles = new Set<number>();
 
-  /** 播放帧 miss / 预取下一格：paint 后再建，避免同步光栅打进 present。 */
+  /** 播放帧 miss / 拖拽未命中 / 预取下一格：paint 后再建，避免同步光栅打进 present。 */
   const playTileQueue: number[] = [];
   let playTileSnap: { rc: RenderCtx; es: number } | null = null;
   let playTileTimer: ReturnType<typeof setTimeout> | null = null;
+  let playTileRaf: number | null = null;
   let tileBuild: { id: number; cancelled: boolean } | null = null;
 
   function cancelTileBuild() {
@@ -525,6 +533,10 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
     return !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
   }
 
+  function notifyScrollTileReady(id: number) {
+    if (!playTileSnap?.rc.playing && deferredScrollTiles.has(id)) options.onScrollTileReady?.();
+  }
+
   function drainOnePlayingTile(synchronous = false) {
     if (tileBuild) return;
     const snap = playTileSnap;
@@ -543,35 +555,75 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
       prepared.draw();
       commitTile(id, prepared.tile);
       tileBuild = null;
+      notifyScrollTileReady(id);
       return;
     }
+    const budgetMs = Math.min(2, frameInterval * 0.25);
     void rasterizeBands(inputs, {
-      budgetMs: Math.min(2, frameInterval * 0.25),
+      budgetMs,
       isCancelled: () => job.cancelled,
-    }).then(rasters => {
+    }).then(async rasters => {
       if (job.cancelled || !rasters) return;
       let next = 0;
-      prepared.draw(() => rasters[next++] ?? null);
+      const drawJob = prepared.drawSteps(() => rasters[next++] ?? null);
+      let deadline = performance.now() + budgetMs;
+      for (;;) {
+        if (job.cancelled) return;
+        const step = drawJob.next();
+        if (step.done) break;
+        if (performance.now() >= deadline) {
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+          deadline = performance.now() + budgetMs;
+        }
+      }
+      if (job.cancelled) return;
       commitTile(id, prepared.tile);
     }).catch(error => {
       console.error('Failed to prepare chart tile', error);
     }).finally(() => {
+      const committed = tiles.get(id) === prepared.tile;
       if (tileBuild !== job) return;
       tileBuild = null;
+      if (committed) notifyScrollTileReady(id);
       schedulePlayTileDrain();
     });
   }
 
+  function cancelPlayTileSchedule() {
+    if (playTileTimer !== null) {
+      clearTimeout(playTileTimer);
+      playTileTimer = null;
+    }
+    if (playTileRaf !== null) {
+      cancelAnimationFrame(playTileRaf);
+      playTileRaf = null;
+    }
+  }
+
   function schedulePlayTileDrain() {
-    if (playTileTimer !== null || tileBuild || playTileQueue.length === 0) return;
+    if (playTileTimer !== null || playTileRaf !== null || tileBuild || playTileQueue.length === 0) return;
     const isPlaying = playTileSnap?.rc.playing === true;
     // issue 167 / issue 213：播放期根据屏幕帧率自适应排水延迟（120Hz 下为 4ms 消除饥饿，60Hz 下保持 16ms 保护既有不变量）；
-    // 静止期 delay 恒为 0，以最快速度在空闲期排空预热队列。
-    const delay = computeDrainDelay(frameInterval, isPlaying);
-    playTileTimer = setTimeout(() => {
+    // 静止期空闲预取 delay 为 0；暂停拖拽期间延迟到停稳并经过两次 rAF 后补建（避开合成阻塞空档）。
+    const delay = Math.max(computeDrainDelay(frameInterval, isPlaying), isPlaying ? 0 : prefetchAfter - performance.now());
+    const drain = () => {
       playTileTimer = null;
       drainOnePlayingTile();
       schedulePlayTileDrain();
+    };
+    playTileTimer = setTimeout(() => {
+      if (isPlaying || prefetchAfter === 0 || typeof requestAnimationFrame !== 'function') {
+        drain();
+        return;
+      }
+      playTileTimer = null;
+      playTileRaf = requestAnimationFrame(() => {
+        playTileRaf = requestAnimationFrame(() => {
+          playTileRaf = null;
+          prefetchAfter = 0;
+          playTileTimer = setTimeout(drain, 0);
+        });
+      });
     }, delay);
   }
 
@@ -581,7 +633,16 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
     tiles.set(id, t);
   }
 
-  function enqueuePlayingTiles(ids: number[], rc: RenderCtx, es: number) {
+  function enqueuePlayingTiles(ids: number[], rc: RenderCtx, es: number, delayPrefetch: boolean) {
+    if (delayPrefetch || (rc.playing && prefetchAfter > 0)) {
+      prefetchAfter = delayPrefetch ? performance.now() + PAUSED_PREFETCH_SETTLE_MS : 0;
+      cancelPlayTileSchedule();
+    }
+    if (!rc.playing) {
+      playTileQueue.length = 0;
+      if (tileBuild && (delayPrefetch || !ids.includes(tileBuild.id) ||
+        (!deferredScrollTiles.has(tileBuild.id) && deferredScrollTiles.size > 0))) cancelTileBuild();
+    }
     playTileSnap = { rc, es };
     for (const id of ids) {
       if (id < 0) continue;
@@ -600,17 +661,22 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
 
   function reset() {
     cancelTileBuild();
+    for (const t of tiles.values()) {
+      if (t.canvas && typeof t.canvas === 'object' && 'width' in t.canvas && 'height' in t.canvas) {
+        t.canvas.width = 1;
+        t.canvas.height = 1;
+      }
+    }
     tiles.clear();
+    prefetchAfter = 0;
+    deferredScrollTiles.clear();
     basis = null;
     rebuildCursor = null;
     protectedTiles = new Set();
     lastNoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0, backlog: 0 };
     playTileQueue.length = 0;
     playTileSnap = null;
-    if (playTileTimer !== null) {
-      clearTimeout(playTileTimer);
-      playTileTimer = null;
-    }
+    cancelPlayTileSchedule();
   }
 
   /**
@@ -626,7 +692,8 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
     // issue 104 修法 4：拍区间 → 布局坐标区间走时间轴的**正向分段线性极值**
     // （`positionRangeOfBeats`：折返的峰值也在区间内），不再端到端相减——倒流区里 pos 非单调，
     // 两端相减会漏掉折返段覆盖到的瓦片（复现 issue 36 那个"陈旧瓦片"的 bug 形态）。
-    const { min, max } = rc.geometry.timeline.positionRangeOfBeats(Math.max(0, minBeat), Math.max(0, maxBeat));
+    // issue 63：不再按拍位 clamp（既不是 0 也不是 startBeat）——首条 BPM 为负时可见区就在它之前。
+    const { min, max } = rc.geometry.timeline.positionRangeOfBeats(minBeat, maxBeat);
     const margin = (VIEWPORT_PADDING + 48) / es;
     const { lo, hi } = tileIndexRange(min - margin, max + margin);
     // issue 146：**打脏而不是 `tiles.delete`**。播放帧的瓦片 miss 偏偏不做同步光栅
@@ -687,6 +754,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
     tile: Tile;
     collect: () => BandRasterInput[];
     draw: (rasterizeBand?: RenderCtx['rasterizeBand']) => void;
+    drawSteps: (rasterizeBand?: RenderCtx['rasterizeBand']) => Generator<void, void>;
   } {
     const p0 = tileId * TILE_PX, p1 = p0 + TILE_PX;
     const cssH = TILE_PX * es;
@@ -698,7 +766,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
     const vis = rc.geometry.visibleNotes(rc.notes, vp, rc.beatDisplay, bounds);
     if (vis.length === 0) {
       const empty: Tile = { canvas: null, refScale: es, surfaceW: rc.surface.w, bytes: 0, empty: true };
-      return { tile: empty, collect: () => [], draw: () => {} };
+      return { tile: empty, collect: () => [], draw: () => {}, drawSteps: function* () {} };
     }
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
@@ -738,6 +806,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
         return inputs;
       },
       draw(rasterizeBand) { renderNotes(tctx, c, { ...fakeRc, rasterizeBand }, vis); },
+      drawSteps(rasterizeBand) { return renderNotesSteps(tctx, c, { ...fakeRc, rasterizeBand }, vis); },
     };
   }
 
@@ -836,6 +905,25 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
       if (tileIntersectsViewport(id, es, anchorY, rc.surface.h)) viewIds.push(id);
     }
     protectedTiles = new Set(viewIds);
+    const sameScale = previous?.viewport.scale === es;
+    const movedWhilePaused = sameScale && !previous.playing && !rc.playing &&
+      previous.viewport.scrollY !== rc.viewport.scrollY;
+    const manualScroll = movedWhilePaused && rc.manualScroll === true && !!options.onScrollTileReady;
+    // 用户滚动/拖拽才创建冷区预览。进入播放后，仍用预览覆盖未就绪的块，直到正式瓦片接替。
+    if (!sameScale || fullInvalidated || rc.zoomGesture ||
+        (!rc.playing && previous?.notes !== rc.notes) || (movedWhilePaused && !manualScroll)) {
+      deferredScrollTiles.clear();
+      if (movedWhilePaused && !manualScroll) prefetchAfter = 0;
+    } else if (manualScroll || deferredScrollTiles.size > 0) {
+      for (const id of deferredScrollTiles) {
+        if (!viewIds.includes(id)) deferredScrollTiles.delete(id);
+      }
+      for (const id of viewIds) {
+        const tile = tiles.get(id);
+        if (tile && (tile.dirty || !isTileStale(tile, es))) deferredScrollTiles.delete(id);
+        else if (manualScroll) deferredScrollTiles.add(id);
+      }
+    }
 
     let rebuilt = 0, blitted = 0, staleBlit = false, blitCssPx = 0;
     const prevSmooth = ctx.imageSmoothingEnabled;
@@ -847,6 +935,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
       // 播放期不同步光栅：miss 交给队列（本帧无像素，见 issue 101 起始口）；
       // 打脏的让位给队列（`enqueuePlayingTiles` 已把它排进去），本帧 blit 旧位图过渡、不留下空白帧。
       for (let id = lo; id <= hi; id++) {
+        if (deferredScrollTiles.has(id)) continue;
         const t = tiles.get(id);
         const onScreen = viewIds.includes(id);
         const dirty = t?.dirty === true;
@@ -902,7 +991,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
       if (!clipped) continue;
-      // issue 222：瓦片 blit 自适应平滑（浮点 DPI / 缩放拉伸开启 high，仅整数 1:1 关闭）
+      // issue 222：浮点 DPI / 子像素偏移仍保留平滑，仅整数 1:1 关闭。
       const smooth = shouldEnableTileBlitSmoothing({
         dpr: rc.dpr,
         tileDpr: getEffectiveDpr(rc.dpr),
@@ -920,13 +1009,48 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
         sh: clipped.sh,
       });
       ctx.imageSmoothingEnabled = smooth;
-      if (smooth) ctx.imageSmoothingQuality = 'high';
+      if (smooth) {
+        // issue 238：同密度、同缩放的瓦片只需亚像素插值；部分 GPU 在首次滚动使用 high 时会
+        // 触发额外的 GPU 着色器链接（实测约 65ms）。实际拉伸 / 密度转换仍用 high。
+        // surface 改宽时 tileBlitRect 只把旧瓦片居中平移，不改变其采样密度。
+        const sameResolution = Math.abs(es - t.refScale) < 1e-5
+          && Math.abs(rc.dpr - getEffectiveDpr(rc.dpr)) < 1e-5;
+        ctx.imageSmoothingQuality = sameResolution ? 'medium' : 'high';
+      }
       ctx.drawImage(t.canvas, clipped.sx, clipped.sy, clipped.sw, clipped.sh, clipped.dx, clipped.dy, clipped.dw, clipped.dh);
       blitted++;
       blitCssPx += clipped.dw * clipped.dh;
     }
     ctx.imageSmoothingEnabled = prevSmooth;
     ctx.imageSmoothingQuality = prevQuality;
+    let frameCoords: ReturnType<typeof makeCoords> | null = null;
+    const getFrameCoords = () => (frameCoords ??= makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true));
+    if (deferredScrollTiles.size > 0) {
+      const { w, h } = rc.surface;
+      // 相邻冷瓦片合并为单个矩形；覆盖整个视口时跳过 ctx.clip()，避免多矩形路径触发 Skia 着色器链接停顿。
+      const ranges: { top: number; bottom: number }[] = [];
+      for (const id of viewIds) {
+        if (!deferredScrollTiles.has(id) || tiles.has(id)) continue;
+        const rect = tileBlitRect(id, es, es, anchorY, w);
+        const top = Math.max(0, rect.y);
+        const bottom = Math.min(h, anchorY - id * TILE_PX * es);
+        const previousRange = ranges.at(-1);
+        if (previousRange && bottom >= previousRange.top) previousRange.top = top;
+        else ranges.push({ top, bottom });
+      }
+      if (ranges.length > 0) {
+        const clip = ranges.length !== 1 || ranges[0].top > 0 || ranges[0].bottom < h;
+        ctx.save();
+        if (clip) {
+          ctx.beginPath();
+          for (const { top, bottom } of ranges) ctx.rect(0, top, w, bottom - top);
+          ctx.clip();
+        }
+        const c = getFrameCoords();
+        renderNotes(ctx, c, { ...rc, previewSlideBands: true }, c.getVisibleNotes());
+        ctx.restore();
+      }
+    }
     // 预取统一走预算规划（issue 195）：
     // - issue 165/167/179/188：保留向上 hi+1/hi+2 前瞻与首音符 `[firstTile, firstTile+4]` 窗口；
     // - 但高倍下瓦片字节随 es 增长（240% ≈16.3MiB/块，64MiB 只容 3 块），先保证视口覆盖块，
@@ -938,12 +1062,12 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
       firstTile: rc.playing ? null : firstNonEmptyTileIdOf(rc),
       surfaceW: rc.surface.w, surfaceH: rc.surface.h,
       es, dpr: rc.dpr, anchorY,
-    }), rc, es);
+    }), rc, es, manualScroll);
     // F1：选中/hover 叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
     // issue 67：`|| rc.selectionBox` —— 框选手势期间 selectedItems 还是空的（选区要等 mouseup）、
     // hoverItem 也常为 null，漏了这一项会让"框选实时预览"整个不画（首版就栽在这里）。
     if (rc.selectedItems.length > 0 || rc.hoverItem || rc.selectionBox) {
-      const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
+      const c = getFrameCoords();
       renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
     }
     lastNoteLayerStats = { layerMode: 'tiles', rebuilt, blitted, lo, hi, blitCssPx, backlog: pending.length - rebuilt };
@@ -953,10 +1077,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
   function __flushPlayingTileQueueForTests() {
     if (tileBuild) playTileQueue.unshift(tileBuild.id);
     cancelTileBuild();
-    if (playTileTimer !== null) {
-      clearTimeout(playTileTimer);
-      playTileTimer = null;
-    }
+    cancelPlayTileSchedule();
     while (playTileQueue.length > 0) drainOnePlayingTile(true);
   }
 

@@ -19,11 +19,11 @@ export type FunctionId =
   // 光标在段=重应用 / 空白=挂锚点续段（按光标分发，对齐 execSlide 双语义先例）。
   // 默认键不用 Ctrl+W——浏览器保留键（关标签、preventDefault 拦不住）。
   | 'switchCurve' | 'execCurve'
-  // ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——连续复制无意义、连续剪切有误删风险，
-  // 二者必须有选区，只保留 execCopy / execCut 作用于选区。故无 switchCopy / switchCut。
-  | 'execCopy'
+  // issue 256 / ADR-0008 §2.1：复制/剪切进持工具态。切换键 C / X 只 arm；
+  // Ctrl+C / Ctrl+X 仍是作用于当前选区的执行键（不改 armedTool）。
+  | 'switchCopy' | 'execCopy'
   | 'switchPaste' | 'execPaste'
-  | 'execCut'
+  | 'switchCut' | 'execCut'
   | 'switchDelete' | 'execDelete'
   | 'switchMirror' | 'execMirror'
   // issue 59 §2：音符代码 = 持工具态（点谁看谁）；Ctrl+B = 打开光标处音符的代码（不切工具的快捷版）
@@ -36,8 +36,13 @@ export type FunctionId =
   | 'undo' | 'redo' | 'play' | 'jumpToMarker'
   // issue 230：倍速 / 音量快捷键（作用于播放态、可逆、结果即时可见；对齐 Bestdori 键位）
   | 'rateDown' | 'rateUp' | 'volumeDown' | 'volumeUp'
+  // issue 251：键盘 seek（按秒步进，出厂 ← / →；连发自管，不进 230 的 noRepeat）
+  | 'seekBack' | 'seekForward'
   // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环），出厂未绑定（binding: null）
   | 'beatSnapNext' | 'beatSnapPrev' | 'beatSnapCycle'
+  // issue 239：设为 1/N（Bestdori 八档，出厂数字键）
+  | 'beatSnapSet1' | 'beatSnapSet2' | 'beatSnapSet3' | 'beatSnapSet4'
+  | 'beatSnapSet6' | 'beatSnapSet8' | 'beatSnapSet12' | 'beatSnapSet16'
   // 切页（issue 177，2026-10-28 用户定案）：应用级功能进同一注册表，
   // 改键 / 冲突检测 / 屏蔽 / 导入导出全部复用同一套。
   | 'pageProjects' | 'pageWorkspace' | 'pageAudio' | 'pagePreview'
@@ -80,9 +85,11 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'execSlide',          label: 'shortcut.fn.execSlide',          category: 'slide', binding: 'ctrl+e' },
   { id: 'switchCurve',        label: 'shortcut.fn.switchCurve',        category: 'curve', binding: 'w' },
   { id: 'execCurve',          label: 'shortcut.fn.execCurve',          category: 'curve', binding: 'shift+w' },
+  { id: 'switchCopy',         label: 'shortcut.fn.switchCopy',         category: 'copy', binding: 'c' },
   { id: 'execCopy',           label: 'shortcut.fn.execCopy',           category: 'copy', binding: 'ctrl+c' },
   { id: 'switchPaste',        label: 'shortcut.fn.switchPaste',        category: 'paste', binding: 'v' },
   { id: 'execPaste',          label: 'shortcut.fn.execPaste',          category: 'paste', binding: 'ctrl+v' },
+  { id: 'switchCut',          label: 'shortcut.fn.switchCut',          category: 'cut', binding: 'x' },
   { id: 'execCut',            label: 'shortcut.fn.execCut',            category: 'cut', binding: 'ctrl+x' },
   { id: 'switchDelete',       label: 'shortcut.fn.switchDelete',       category: 'delete', binding: 't' },
   { id: 'execDelete',         label: 'shortcut.fn.execDelete',         category: 'delete', binding: 'ctrl+t' },
@@ -103,10 +110,22 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'rateUp',             label: 'shortcut.fn.rateUp',             category: 'play', binding: '.' },
   { id: 'volumeDown',         label: 'shortcut.fn.volumeDown',         category: 'play', binding: ';' },
   { id: 'volumeUp',           label: 'shortcut.fn.volumeUp',           category: 'play', binding: "'" },
+  // 键盘 seek（issue 251）：出厂方向键；`,` / `.` 仍给倍速。连发不走本表。
+  { id: 'seekBack',           label: 'shortcut.fn.seekBack',           category: 'play', binding: 'arrowleft' },
+  { id: 'seekForward',        label: 'shortcut.fn.seekForward',        category: 'play', binding: 'arrowright' },
   // 节拍吸附（issue 216，双轨制 Q1=A）：出厂默认 null（零冲突），偏好用户在设置页自行绑定
   { id: 'beatSnapNext',       label: 'shortcut.fn.beatSnapNext',       category: 'snap', binding: null },
   { id: 'beatSnapPrev',       label: 'shortcut.fn.beatSnapPrev',       category: 'snap', binding: null },
   { id: 'beatSnapCycle',      label: 'shortcut.fn.beatSnapCycle',      category: 'snap', binding: null },
+  // 设为 1/N（issue 239）：出厂抄 Bestdori 数字键；9→1/12、0→1/16；5/7 不占
+  { id: 'beatSnapSet1',       label: 'shortcut.fn.beatSnapSet1',       category: 'snap', binding: '1' },
+  { id: 'beatSnapSet2',       label: 'shortcut.fn.beatSnapSet2',       category: 'snap', binding: '2' },
+  { id: 'beatSnapSet3',       label: 'shortcut.fn.beatSnapSet3',       category: 'snap', binding: '3' },
+  { id: 'beatSnapSet4',       label: 'shortcut.fn.beatSnapSet4',       category: 'snap', binding: '4' },
+  { id: 'beatSnapSet6',       label: 'shortcut.fn.beatSnapSet6',       category: 'snap', binding: '6' },
+  { id: 'beatSnapSet8',       label: 'shortcut.fn.beatSnapSet8',       category: 'snap', binding: '8' },
+  { id: 'beatSnapSet12',      label: 'shortcut.fn.beatSnapSet12',      category: 'snap', binding: '9' },
+  { id: 'beatSnapSet16',      label: 'shortcut.fn.beatSnapSet16',      category: 'snap', binding: '0' },
   // 切页默认键 Alt+1..7（1 起、与侧栏位次一一对应）。**不要改回 ⇧⌘0..6**：
   // macOS 的 ⇧⌘3/4/5 是系统截图/录屏、⇧⌘6 是 Touch Bar 截图，事件先被系统吃掉，应用收不到。
   // 表尾只是历史排布：载入时去重不再看表序，改按「用户快照里出现过的功能优先」（issue 230）。
@@ -135,21 +154,56 @@ export const functionMode = (id: FunctionId): 'switch' | 'exec' | null => {
   return id.startsWith('switch') ? 'switch' : 'exec';
 };
 
-/** 键位展示格式（大写）：ctrl+f → Ctrl+F，空格 → Space，ctrl+shift+q → Ctrl+Shift+Q；null(屏蔽) → — */
-export const formatKey = (key: string | null): string => {
+/**
+ * issue 257：内部绑定串里的 `ctrl` 在 Mac 上代表 ⌘（物理 Control 也是同义词），展示层才分流。
+ * 渲染进程（本函数的实际调用方）先读 `navigator`，Node / 主进程侧回落 `process.platform`；
+ * 测试显式传参锁分支，也可在 jsdom 里桩 `navigator.platform`。
+ */
+export type ShortcutPlatform = 'darwin' | 'win32' | 'linux' | 'other';
+
+export function shortcutPlatform(): ShortcutPlatform {
+  const nav = typeof navigator === 'undefined'
+    ? undefined
+    : (navigator as Navigator & { userAgentData?: { platform?: string } });
+  const name = (nav?.userAgentData?.platform ?? nav?.platform ?? '').toLowerCase();
+  // 渲染进程只要拿得到平台串就以它为准：jsdom 默认 platform 为空串，
+  // 若再回落 process.platform，macOS 宿主会把测试里桩好的 Win32 又判回 darwin。
+  if (name) return name.includes('mac') ? 'darwin' : 'other';
+  // 仅 Node / 主进程（无 navigator 平台串）才回落 process.platform。
+  // 渲染进程 tsconfig 不带 Node 类型，用 globalThis 可选读取，避免给浏览器代码引入 @types/node。
+  const proc = (globalThis as typeof globalThis & { process?: { platform?: string } }).process;
+  if (typeof proc?.platform === 'string') {
+    return proc.platform === 'darwin' ? 'darwin' : 'other';
+  }
+  return 'other';
+}
+
+/** 键位展示格式（大写）：ctrl+f → Ctrl+F；Mac 上 ctrl → ⌘（保留键 ctrl+q → ⌃Q）；null(屏蔽) → — */
+export const formatKey = (key: string | null, platform: ShortcutPlatform = shortcutPlatform()): string => {
   if (!key) return '—';
   if (key === ' ') return 'Space';
-  return key.split('+').map(p => {
-    if (p === 'ctrl') return 'Ctrl';
-    if (p === 'shift') return 'Shift';
-    if (p === 'alt') return 'Alt';
+  const mac = platform === 'darwin';
+  // ⌘Q 是系统退出键，唯一保留串；物理 Control+Q 仍执行镜像，故 Mac 上写 ⌃Q（issue 257）
+  if (mac && key === 'ctrl+q') return '⌃Q';
+  const parts = key.split('+').map(p => {
+    if (p === 'ctrl') return mac ? '⌘' : 'Ctrl';
+    if (p === 'shift') return mac ? '⇧' : 'Shift';
+    if (p === 'alt') return mac ? '⌥' : 'Alt';
     if (p === ' ') return 'Space'; // 组合键中的空格（如 ctrl+ 空格）也应显示为 Space
+    if (p === 'arrowleft') return '←';
+    if (p === 'arrowright') return '→';
     return p.toUpperCase();
-  }).join('+');
+  });
+  // Mac 按 Apple 惯例把修饰键字形直接连写（⌘F / ⌘⇧Q），Win/Linux 保留既有 Ctrl+Shift+Q
+  return parts.join(mac ? '' : '+');
 };
 
-/** 某类别下用于 tooltip 展示的 切换/执行 键位行（按当前配置） */
-export const categoryShortcuts = (cfg: ShortcutConfig, cat: string): { mode: string; key: string }[] =>
+/** 某类别下用于 tooltip 展示的 切换/执行 键位行（按当前配置；与快捷键页同源走 formatKey） */
+export const categoryShortcuts = (
+  cfg: ShortcutConfig,
+  cat: string,
+  platform: ShortcutPlatform = shortcutPlatform(),
+): { mode: string; key: string }[] =>
   functionsByCategory(cat)
     .map(f => {
       const b = cfg[f.id];
@@ -158,7 +212,7 @@ export const categoryShortcuts = (cfg: ShortcutConfig, cat: string): { mode: str
       if (!mode) return null; // 应用级功能没有「切换/执行」之分，不进 tooltip 合并行
       return {
         mode: mode === 'switch' ? t('shortcut.mode.switch') : t('shortcut.mode.exec'),
-        key: formatKey(b),
+        key: formatKey(b, platform),
       };
     })
     .filter((x): x is { mode: string; key: string } => x !== null);
@@ -296,8 +350,23 @@ export function buildBindingIndex(cfg: ShortcutConfig, scope?: FunctionScope): M
   return map;
 }
 
+/**
+ * issue 257：darwin 上的 ⌘Q（metaKey 且无物理 ctrlKey，主键 q）是系统退出键，
+ * **不进产品分发**——不命中 resolveAction，分发层就不会 preventDefault / execMirror。
+ * 物理 Control+Q 仍是镜像；Win/Linux 出厂串 `ctrl+q` 不动。
+ */
+export function isReservedSystemQuit(e: KeyboardEvent, platform: ShortcutPlatform = shortcutPlatform()): boolean {
+  return platform === 'darwin' && e.metaKey && !e.ctrlKey && mainKeyOf(e) === 'q';
+}
+
 /** 由按键事件解析出命中的具体功能 id；scope 不传 = 全表（含切页键） */
-export function resolveAction(e: KeyboardEvent, cfg: ShortcutConfig, scope?: FunctionScope): FunctionId | null {
+export function resolveAction(
+  e: KeyboardEvent,
+  cfg: ShortcutConfig,
+  scope?: FunctionScope,
+  platform: ShortcutPlatform = shortcutPlatform(),
+): FunctionId | null {
+  if (isReservedSystemQuit(e, platform)) return null;
   return buildBindingIndex(cfg, scope).get(normalizeKeyEvent(e)) ?? null;
 }
 

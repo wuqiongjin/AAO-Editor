@@ -5,7 +5,7 @@ import { createNoteLayerCache, clipTileDrawRect, type NoteLayerCache } from '@/s
 import type { RenderCtx } from '@/src/rendering/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type { ChartNote } from '@/src/chart/types';
-import { makeNoopCtx } from '@/tests/support/canvas';
+import { makeNoopCtx, makeRecordingCtx } from '@/tests/support/canvas';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const SURFACE = { w: 750, h: 900 };
@@ -54,6 +54,48 @@ describe('issue 140 · 高倍仍走瓦片', () => {
       canvases++;
       return { width: 0, height: 0, getContext: () => makeNoopCtx() };
     });
+  });
+
+  it.each([1, 1.25, 2])('issue 238：%sx DPR 的 1:1 瓦片保留亚像素平滑，避免高阶采样管线并恢复调用方状态', dpr => {
+    const g = new ChartGeometry(bpm120, { endBeat: 40 }, SURFACE);
+    const y = g.beatToVirtualY(8, ES) - SURFACE.h / (2 * ES) + 0.125;
+    const samples: { smooth: boolean; quality: ImageSmoothingQuality }[] = [];
+    const { proxy: ctx } = makeRecordingCtx({
+      drawImage: () => samples.push({ smooth: ctx.imageSmoothingEnabled, quality: ctx.imageSmoothingQuality }),
+    });
+    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingQuality = 'low';
+    cache.draw(ctx, makeRc(g, y, false, { dpr }));
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples.every(s => s.smooth && s.quality === 'medium')).toBe(true);
+    expect(ctx.imageSmoothingEnabled).toBe(false);
+    expect(ctx.imageSmoothingQuality).toBe('low');
+  });
+
+  it('issue 238：容器改宽后旧瓦片仅居中平移，继续保留 1:1 平滑采样', () => {
+    const g = new ChartGeometry(bpm120, { endBeat: 40 }, SURFACE);
+    const y = g.beatToVirtualY(8, ES) - SURFACE.h / (2 * ES) + 0.125;
+    const rc = makeRc(g, y, false, { dpr: 1.25 });
+    cache.draw(makeNoopCtx(), rc);
+    const samples: ImageSmoothingQuality[] = [];
+    const { proxy: ctx } = makeRecordingCtx({ drawImage: () => samples.push(ctx.imageSmoothingQuality) });
+    cache.draw(ctx, { ...rc, surface: { w: SURFACE.w + 10, h: SURFACE.h } });
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples.every(quality => quality === 'medium')).toBe(true);
+  });
+
+  it.each(['zoom', 'density'] as const)('issue 238：%s 导致的实际重采样仍使用高质量滤波', change => {
+    const g = new ChartGeometry(bpm120, { endBeat: 40 }, SURFACE);
+    const y = g.beatToVirtualY(8, ES) - SURFACE.h / (2 * ES) + 0.125;
+    const rc = makeRc(g, y, false, { dpr: change === 'density' ? 3 : 1.25 });
+    cache.draw(makeNoopCtx(), rc);
+    const samples: ImageSmoothingQuality[] = [];
+    const { proxy: ctx } = makeRecordingCtx({ drawImage: () => samples.push(ctx.imageSmoothingQuality) });
+    const next = { ...rc };
+    if (change === 'zoom') next.viewport = { ...rc.viewport, scale: ES * 0.995 };
+    cache.draw(ctx, next);
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples.every(quality => quality === 'high')).toBe(true);
   });
 
   it('es=3 播放：当帧不建瓦片，flush 后热身；随后滚动帧不再新建位图', () => {

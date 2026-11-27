@@ -11,7 +11,17 @@ import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../sim/prepareSimNoteSprites';
 import { saveBinaryAs } from '../../static/saveBinary';
 import { yieldToMainThread } from '../../static/exportPanels';
-import { buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio, type SimScene } from '../sim';
+import {
+  approachSeconds,
+  buildSimChart,
+  isAppBackgroundPack,
+  loadSimAssets,
+  loadSimBackgroundImage,
+  normalizeSimAssetPackId,
+  type SimFrameInput,
+  type SimPlaybackAudio,
+  type SimScene,
+} from '../sim';
 import {
   OPENING_SECONDS,
   openingItemOrder,
@@ -19,7 +29,17 @@ import {
   type OpeningFrameInput,
   type OpeningItemId,
 } from '../opening';
+import {
+  ENDING_SECONDS,
+  ENDING_STAGE_BG_PACK,
+  EMPTY_ENDING_ASSETS,
+  loadEndingAssets,
+  type EndingContentInput,
+  type EndingCounts,
+  type EndingStamp,
+} from '../ending';
 import { loadCoverImage } from '../../static';
+import { endingSfxCues, openingSfxCues, type SfxCue } from '../sfx';
 import { driveExportFrames } from './frameDriver';
 import {
   CONTAINER_SPECS,
@@ -28,7 +48,7 @@ import {
   probeContainer,
   type ContainerSupport,
 } from './muxer';
-import { AUDIO_TRACK_CANCELLED, decodeBgmBytes, raceCancellation, renderAudioTrack } from './renderAudioTrack';
+import { AUDIO_TRACK_CANCELLED, decodeBgmBytes, raceCancellation, renderAudioTrack, type AudioTrack } from './renderAudioTrack';
 import { logger } from '../../../diagnostics/logger';
 import {
   AAC_AUDIO_CODECS,
@@ -36,6 +56,8 @@ import {
   EXPORT_FPS,
   buildExportTimeline,
   candidateOrder,
+  endingTailSeconds,
+  leadInSeconds,
   resolveExportGeometry,
   tierOf,
   videoExportBasename,
@@ -69,6 +91,11 @@ export interface VideoExportRequest {
   audio: SimPlaybackAudio | null;
   /** 谱面长度（秒，ADR-0005 第一性） */
   durationSeconds: number;
+  /**
+   * 作用域工程的封面（chart-preview 84 · ADR-0018 §7）：背景是「AAO 舞台」那格时，
+   * 它会填进图正中的相框。`null` = 工程没有封面 → 相框留空（不画占位块）。
+   */
+  cover?: Blob | null;
   keySetId: string;
   seVolume: number;
   volume: number;
@@ -81,12 +108,43 @@ export interface VideoExportRequest {
   /** 文件名基础名（不含扩展名；扩展名按当选容器补） */
   suggestedBaseName: string;
   /**
-   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
-   * 非 null = 导出物最前面多一段 `OPENING_SECONDS`（5.0s）的纯前置开场，音轨整体后移。
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面 + 末击尾段
+   * （结尾段另加 7.5s））。非 null = 导出物最前面多一段 `OPENING_SECONDS`（6.75s）的纯前置开场；
+   * 票 74 起开场之后还接一段前导补偿（lead-in，静音），谱面 0 秒与音轨起点都落在 `simStartSeconds`。
    */
   opening?: OpeningInput | null;
+  /**
+   * 结尾画面（chart-preview 52）：`null` = 关掉（末击尾段播完切末帧，总长 = 开场 + 前导 + 谱面 + 尾段）。
+   * 非 null = 其后多一段 **7.5s**（章 3.0 → 黑幕转场 1.5 → 结算 3.0），音轨尾部是静音。
+   */
+  ending?: EndingInput | null;
   onProgress?: (progress: VideoExportProgress) => void;
   isCancelled?: () => boolean;
+}
+
+/**
+ * 结尾画面的**数据面**（照 `OpeningInput` 口径：页面组装、preview 域不 import 工程域）。
+ * 封面仍是 `Blob` —— 一次性出帧没有"下一帧补上"的机会 ⇒ 由编排层解码好再画。
+ */
+export interface EndingInput {
+  /** 中央章形态（AP / FC / 普通 Clear 无章） */
+  stamp: EndingStamp;
+  title: string;
+  /** 难度名（全大写英文，如 `EXPERT`） */
+  difficultyName: string;
+  /** 难度色（页面传 `DIFF_COLORS[diff]`） */
+  difficultyColor: string;
+  /** Lv 数字（null = 写 `–`） */
+  level: number | null;
+  cover: Blob | null;
+  /** 无封面时占位块的色相（页面按工程 id 派生） */
+  coverHue: number;
+  /** 判定五档计数（Auto 永远全 PERFECT） */
+  counts: EndingCounts;
+  /** MAX COMBO（= 音符总数） */
+  maxCombo: number;
+  /** 归一最终分（票 73：0–1,000,000；AUTO 全 PERFECT = 满分） */
+  score: number;
 }
 
 /**
@@ -229,13 +287,28 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   // ---------------- 素材（一次性出帧没有"下一帧补上"的机会，只能等齐） ----------------
   req.onProgress?.({ phase: 'assets', frame: 0, totalFrames: 0 });
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(req.noteSkin));
-  const [assets] = await Promise.all([
+  // 相框封面（票 84）：出图只有一次机会 ⇒ 先解码到位再进素材；只对自带背景包解码（别的包用不上）
+  const coverImage = !req.scene.customLiveBg
+    && isAppBackgroundPack(normalizeSimAssetPackId('background', req.scene.bgPackId))
+    ? await loadCoverImage(req.cover ?? null)
+    : null;
+  const [assets, endingAssets, endingStageBg] = await Promise.all([
     // 背景 / 轨道包（chart-preview 41）随 scene 进来 ⇒ 导出物与实时预览同一份素材（ADR-0018 §5）
     loadSimAssets({
       bandSrc: noteIcons.slideBand.src,
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
+      cover: coverImage,
+      customLiveBg: req.scene.customLiveBg ?? null,
+      liveBgFit: req.scene.customLiveBg ? req.scene.liveBgFit : undefined,
     }),
+    // 结尾段的游戏 UI 素材（票 52）：缺件是常态（素材不在安装包里），逐件兜底、从不抛错
+    req.ending ? loadEndingAssets() : Promise.resolve(EMPTY_ENDING_ASSETS),
+    // 结算舞台的固定背景（票 84 回修 · 定案 B）：固定官方默认包，不跟打歌的背景包；
+    // 取不到 = null ⇒ 结算只剩深色底（不回落用户当前选的包，否则"固定"等于没定）。
+    // 只取这一张图：不为了它把整棵场地素材树再解码一遍（场地图 / 带体 / 精灵 / HUD 全部重复）
+    req.ending ? loadSimBackgroundImage(ENDING_STAGE_BG_PACK) : Promise.resolve(null),
+    // 票 68：开播前预热独立音符切片与 mip，消除播放期首次创建尖峰
     prepareSimNoteSprites(noteIcons).catch(() => undefined),
   ]);
   if (assets.missing) {
@@ -245,9 +318,29 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
 
   // ---------------- 规格 ----------------
   const tier = tierOf(req.tier);
-  // 开场段是**纯前置**（chart-preview 30）：总长 = 开场 + 谱面，音轨整体后移，绝不与前奏重叠
+  // 开场段是**纯前置**（chart-preview 30）：不与前奏重叠。
+  // 票 74：开场之后、谱面 0 秒之前另补一段前导（lead-in）——按 noteSpeed 的接近时长 T 取可见段、
+  // 封顶 2s、按帧对齐；这一段画面按负秒取帧、音轨静音。T 与 `buildSimChart` 同源（approachSeconds）。
+  // 票 75：谱面末尾按「末击 + 特效 / 判定字寿命」补 tail，让最后一击播完再切结算；可能为 0。
+  // 结尾段（52）是**纯后置**：谱面 + 尾段之后再占 7.5s，音轨尾部留静音。
   const openingSeconds = req.opening ? OPENING_SECONDS : 0;
-  const timeline: ExportTimeline = buildExportTimeline(req.durationSeconds + openingSeconds);
+  const endingSeconds = req.ending ? ENDING_SECONDS : 0;
+  const leadIn = leadInSeconds({ approachS: approachSeconds(req.scene.noteSpeed) }, EXPORT_FPS);
+  // 票 75：tail 要读谱面派生表（元素 / 带体端点 / 双押线的绝对秒），派生提前到规格段。
+  // 派生是同步长活 ⇒ 先让出一拍让进度卡画出来、让取消当帧生效（票 67 口径不回退）。
+  await yieldToMainThread();
+  if (cancelled()) return done({ ok: true, cancelled: true });
+  const bpmEvents = getBpmEvents(req.scene.notes);
+  const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
+  const chartTailSeconds = endingTailSeconds(chart, req.durationSeconds, EXPORT_FPS);
+  // 票 90：simStart / endingAt / 总长只在 builder 加一次；帧循环与结尾 SE 读同一 endingAt
+  const timeline: ExportTimeline = buildExportTimeline({
+    openingSeconds,
+    leadIn,
+    chartDurationSeconds: req.durationSeconds,
+    chartTailSeconds,
+    endingSeconds,
+  });
   const geometry = resolveExportGeometry(tier);
   const audioTrackParams = req.muted ? null : DEFAULT_AUDIO_TRACK;
   const target = await resolveTarget(
@@ -262,13 +355,11 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
 
   // ---------------- 离线音轨 ----------------
   req.onProgress?.({ phase: 'audio', frame: 0, totalFrames: timeline.frameCount });
-  // 先让「正在合成声音…」画出来（票 67）：派生谱面是同步长活，不让出的话
-  // 点取消的输入事件要排到它结束才被派发，取消就落到了下一个阶段。
+  // 票 67：报完 audio 先让出一拍，键音事件表是同步活，点取消别等它排完才生效。
+  // （谱面派生表已在规格段提前建好，为票 75 的 tail 提供末击绝对秒；那里同样让出一拍。）
   await yieldToMainThread();
   if (cancelled()) return done({ ok: true, cancelled: true });
   // 票 69：BPM 事件只从谱面提取一次，画面派生与键音事件表共用
-  const bpmEvents = getBpmEvents(req.scene.notes);
-  const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
   const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, bpmEvents);
   if (cancelled()) return done({ ok: true, cancelled: true });
   let bgm: AudioBuffer | null = null;
@@ -284,20 +375,40 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       bgm = null;
     }
   }
+  // 两端的游戏音效（52）：开场人潮从整条轨的 0s 起、收在**开场段末尾**（票 74 起之后是静音前导），
+  // 结尾章两层同起在**结尾段 t=0**（= `timeline.endingAt`，章入场那一拍）
+  const sfx: SfxCue[] = [
+    ...(req.opening ? openingSfxCues(openingSeconds) : []),
+    ...(req.ending ? endingSfxCues(timeline.endingAt, req.ending.stamp) : []),
+  ];
+  // 票 67：进音轨合成前先认一次取消，合成结果也按取消哨兵判定
   if (cancelled()) return done({ ok: true, cancelled: true });
-  const rendered = await renderAudioTrack({
-    durationSeconds: req.durationSeconds,
-    openingSeconds,
-    keyEvents,
-    keySetId: req.keySetId,
-    bgm,
-    volume: req.volume,
-    seVolume: req.seVolume,
-    muted: req.muted,
-    isCancelled: req.isCancelled,
-  });
-  if (rendered === AUDIO_TRACK_CANCELLED || cancelled()) return done({ ok: true, cancelled: true });
-  const track = rendered;
+  // 音轨渲染也走域层的失败口径（票 53）：这里抛错不该越过 `runVideoExport` 冒到页面 hook，
+  // 否则进度卡 / 提示只剩页面那条通用 catch，容器与取消态也一并丢掉。
+  let track: AudioTrack | null;
+  try {
+    const rendered = await renderAudioTrack({
+      durationSeconds: req.durationSeconds,
+      openingSeconds,
+      simStartSeconds: timeline.simStartSeconds,
+      chartTailSeconds,
+      endingSeconds,
+      sfx,
+      keyEvents,
+      keySetId: req.keySetId,
+      bgm,
+      volume: req.volume,
+      seVolume: req.seVolume,
+      muted: req.muted,
+      isCancelled: req.isCancelled,
+    });
+    if (rendered === AUDIO_TRACK_CANCELLED || cancelled()) return done({ ok: true, cancelled: true });
+    track = rendered;
+  } catch (err) {
+    if (cancelled()) return done({ ok: true, cancelled: true });
+    logger.error('[preview]', '导出音轨失败', err);
+    return done({ ok: false, failure: 'unknown', container: target.container });
+  }
 
   // ---------------- 编码 + 逐帧出帧 ----------------
   const sink = await createVideoSink({
@@ -338,12 +449,31 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
           credits: req.opening.credits,
         }
       : null;
+    // 结尾段（52）：封面同样要在开画前解码到位（缺封面走占位）
+    const ending: EndingContentInput | null = req.ending
+      ? {
+          stamp: req.ending.stamp,
+          title: req.ending.title,
+          difficultyName: req.ending.difficultyName,
+          difficultyColor: req.ending.difficultyColor,
+          level: req.ending.level,
+          cover: await loadCoverImage(req.ending.cover),
+          coverHue: req.ending.coverHue,
+          // 结算舞台固定背景（票 84 回修 · 定案 B）：不跟打歌的背景包，也不放相框封面
+          stageBackground: endingStageBg,
+          counts: req.ending.counts,
+          maxCombo: req.ending.maxCombo,
+          score: req.ending.score,
+          assets: endingAssets,
+        }
+      : null;
     const driven = await driveExportFrames({
       frame,
       geometry,
       timeline,
       opening,
       openingSeconds,
+      ending,
       isCancelled: req.isCancelled,
       onProgress: (p) => req.onProgress?.({ phase: 'frames', frame: p.frame, totalFrames: p.total }),
       onFrame: (vf) => sink.addFrame(vf),

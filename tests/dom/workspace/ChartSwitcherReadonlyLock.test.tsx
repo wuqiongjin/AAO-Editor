@@ -14,17 +14,27 @@ import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/p
 
 const AT = 1_700_000_000_000;
 
-function chart(id: string, upload: ProjectChart['upload'], title: string | null): ProjectChart {
+function chart(
+  id: string,
+  upload: ProjectChart['upload'],
+  title: string | null,
+  pendingPublish?: ProjectChart['pendingPublish'],
+): ProjectChart {
   return {
     id, notes: [{ beat: 0, type: 'BPM', bpm: 120 }], title, diff: 3, level: 27,
     completed: false, upload, lastModified: AT, appliedChartCodeText: null, chartCodePristine: false,
+    ...(pendingPublish ? { pendingPublish } : {}),
   };
 }
 
-function project(upload: ProjectChart['upload'], title: string | null = '测试谱面'): ChartProject {
+function project(
+  upload: ProjectChart['upload'],
+  title: string | null = '测试谱面',
+  pendingPublish?: ProjectChart['pendingPublish'],
+): ChartProject {
   return {
     id: 'p1', name: '甲工程', artist: null, source: { type: 'custom' }, durationSeconds: 90, lastOpened: AT,
-    charts: [chart('c-p1', upload, title)], audioName: 'a.mp3', coverName: null,
+    charts: [chart('c-p1', upload, title, pendingPublish)], audioName: 'a.mp3', coverName: null,
   };
 }
 
@@ -40,7 +50,11 @@ function Probe() {
   return null;
 }
 
-async function mount(upload: ProjectChart['upload'], title: string | null = '测试谱面') {
+async function mount(
+  upload: ProjectChart['upload'],
+  title: string | null = '测试谱面',
+  pendingPublish?: ProjectChart['pendingPublish'],
+) {
   const nav: AppNavValue = {
     activePage: 'workspace',
     setActivePage: vi.fn() as unknown as AppNavValue['setActivePage'],
@@ -53,7 +67,7 @@ async function mount(upload: ProjectChart['upload'], title: string | null = '测
       <Probe />
       <ChartSwitcher />
     </AppNavProvider>,
-    { store: new ChartProjectStore(makeMemoryProjectBackend([project(upload, title)])) },
+    { store: new ChartProjectStore(makeMemoryProjectBackend([project(upload, title, pendingPublish)])) },
   );
   await act(async () => { await ctx.current!.open('p1'); });
 }
@@ -77,6 +91,24 @@ describe('issue 175 · 工作台顶栏只读锁', () => {
     const trigger = document.querySelector('.chart-switcher__current') as HTMLElement;
     expect(trigger.querySelector('.chart-switcher__lock')).not.toBeInTheDocument();
     expect(trigger.getAttribute('title')).toBe('测试谱面');
+  });
+
+  it('待确认：当前钮带锁，编辑入口禁用，徽标为发布结果待确认', async () => {
+    await mount(null, '测试谱面', {
+      attemptId: 'attempt-58',
+      at: AT,
+      username: 'author',
+      song: { type: 'bandori', id: 413 },
+      chartDigest: 'digest',
+      tags: [],
+    });
+    const trigger = document.querySelector('.chart-switcher__current') as HTMLElement;
+    expect(trigger.querySelector('.chart-switcher__lock')).toBeInTheDocument();
+    expect(trigger.getAttribute('title')).toBe('测试谱面 · 发布结果待确认');
+    fireEvent.click(trigger);
+    expect(document.querySelector('.pp-badge--pending')).toHaveTextContent('发布结果待确认');
+    expect(screen.getByRole('button', { name: /编辑当前谱面/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /复制当前谱面/ })).toBeEnabled();
   });
 
   it('空谱面名回落工程名，title 不含色块短码', async () => {

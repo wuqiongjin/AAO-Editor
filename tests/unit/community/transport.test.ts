@@ -172,6 +172,8 @@ describe('票 07 · 统一错误域的 retryable 判定表', () => {
     expect(isRetryableKind('unsupported-runtime')).toBe(false);
     expect(isRetryableKind('request-rejected')).toBe(false);
     expect(isRetryableKind('staging-failed')).toBe(false);
+    expect(isRetryableKind('aborted')).toBe(false);
+    expect(isRetryableKind('cache-miss')).toBe(false);
   });
 
   it('CommunityError 带着平台业务码与状态码，便于排查', () => {
@@ -244,5 +246,41 @@ describe('票 05 · 社区失败落盘（出口抛错时）', () => {
       deps: fakeClock().deps,
     }).catch(() => {});
     expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it('票 57 · signal 中断会通过 bridge.cancel 通知主进程，且 aborted / cache-miss 不记 error 日志', async () => {
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const cancelled: string[] = [];
+    let sentRequestId: string | undefined;
+    let resolveWire!: (value: CommunityWireResult) => void;
+    const bridge: CommunityNetBridge = {
+      request: (payload) => {
+        sentRequestId = payload.requestId;
+        return new Promise((resolve) => {
+          resolveWire = resolve;
+        });
+      },
+      cancel: (requestId) => {
+        cancelled.push(requestId);
+      },
+    };
+    const controller = new AbortController();
+    const transport = new ElectronCommunityTransport(bridge);
+
+    const promise = transport.requestJson({ url: 'https://bestdori.com/api/songs/all.5.json', signal: controller.signal });
+    expect(typeof sentRequestId).toBe('string');
+
+    controller.abort();
+    expect(cancelled).toEqual([sentRequestId]);
+
+    resolveWire({ ok: false, error: { kind: 'aborted', message: '请求已取消' } });
+    await expect(promise).rejects.toMatchObject({ kind: 'aborted', retryable: false });
+
+    const missBridge = fakeBridge(failWire('cache-miss')).bridge;
+    await expect(
+      new ElectronCommunityTransport(missBridge).requestJson({ url: 'https://bestdori.com/api/songs/all.5.json', cacheOnly: true }),
+    ).rejects.toMatchObject({ kind: 'cache-miss', retryable: false });
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

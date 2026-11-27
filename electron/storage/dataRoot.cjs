@@ -9,6 +9,10 @@ const ASSETS_DIRNAME = 'assets';
 /** 社区素材缓存（bestdori-integration 14）：<数据根>/cache/community/，跨启动复用，不进任何分发物 */
 const CACHE_DIRNAME = 'cache';
 const COMMUNITY_CACHE_DIRNAME = 'community';
+/** 本地工程派生缓存（chart-projects 44）：<数据根>/cache/projects/{index.json, thumbs/<id>.png}，全量可删可重建 */
+const PROJECTS_CACHE_DIRNAME = 'projects';
+const PROJECTS_CACHE_INDEX = 'index.json';
+const PROJECTS_THUMBS_DIRNAME = 'thumbs';
 /** 07 的「下载暂存」目录名：14 起退役（缓存接手），只用于启动时清旧数据根里的残留 */
 const LEGACY_DOWNLOADS_DIRNAME = 'downloads';
 const BACKGROUND_SKIN_RELATIVE = path.join(ASSETS_DIRNAME, 'background-skin.bin');
@@ -48,6 +52,26 @@ function patternLibraryPath(dataRoot) {
 /** 社区素材缓存目录（<数据根>/cache/community/）—— 社区音频 / 封面 / 索引的落点（票 14） */
 function cacheDir(dataRoot) {
     return path.join(dataRoot, CACHE_DIRNAME, COMMUNITY_CACHE_DIRNAME);
+}
+
+/** 本地工程派生缓存目录（<数据根>/cache/projects/） */
+function projectCacheDir(dataRoot) {
+    return path.join(dataRoot, CACHE_DIRNAME, PROJECTS_CACHE_DIRNAME);
+}
+
+/** 本地工程摘要索引文件（<数据根>/cache/projects/index.json） */
+function projectCacheIndexPath(dataRoot) {
+    return path.join(projectCacheDir(dataRoot), PROJECTS_CACHE_INDEX);
+}
+
+/** 本地工程封面缩略图目录（<数据根>/cache/projects/thumbs/） */
+function projectThumbsDir(dataRoot) {
+    return path.join(projectCacheDir(dataRoot), PROJECTS_THUMBS_DIRNAME);
+}
+
+/** 单个工程封面缩略图路径（<数据根>/cache/projects/thumbs/<id>.png） */
+function projectThumbPath(dataRoot, id) {
+    return path.join(projectThumbsDir(dataRoot), `${safeProjectId(id)}.png`);
 }
 
 /** 旧版下载暂存目录（<数据根>/downloads/）：已退役，只用于启动清残留 */
@@ -306,6 +330,9 @@ module.exports = {
     ASSETS_DIRNAME,
     CACHE_DIRNAME,
     COMMUNITY_CACHE_DIRNAME,
+    PROJECTS_CACHE_DIRNAME,
+    PROJECTS_CACHE_INDEX,
+    PROJECTS_THUMBS_DIRNAME,
     LEGACY_DOWNLOADS_DIRNAME,
     BACKGROUND_SKIN_RELATIVE,
     PATTERNS_DIRNAME,
@@ -315,6 +342,10 @@ module.exports = {
     projectsDir,
     assetsDir,
     cacheDir,
+    projectCacheDir,
+    projectCacheIndexPath,
+    projectThumbsDir,
+    projectThumbPath,
     patternsDir,
     legacyDownloadsDir,
     removeLegacyDownloads,

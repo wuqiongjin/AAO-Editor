@@ -27,6 +27,45 @@ export interface TileSource {
 
 const tileCache = new Map<string, CanvasImageSource>();
 const circleCache = new Map<string, CanvasImageSource>();
+const circleSourceCache = new Map<string, TileSource>();
+const circleOfSourceCache = new Map<string, TileSource>();
+const particleTileSourceCache = new WeakMap<CanvasImageSource, Map<string | null, Array<TileSource | undefined>>>();
+let packedCirclesAtlas: ImageBitmap | null = null;
+const packedParticleAtlases = new WeakMap<CanvasImageSource, ImageBitmap>();
+
+function canPackOffscreenBitmap(): boolean {
+  return typeof OffscreenCanvas !== 'undefined'
+    && typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function';
+}
+
+function getCachedParticleSource(
+  particles: CanvasImageSource,
+  col: number,
+  row: number,
+  color: string | null,
+): TileSource | undefined {
+  return particleTileSourceCache.get(particles)?.get(color)?.[row * 4 + col];
+}
+
+function setCachedParticleSource(
+  particles: CanvasImageSource,
+  col: number,
+  row: number,
+  color: string | null,
+  source: TileSource,
+): void {
+  let byColor = particleTileSourceCache.get(particles);
+  if (!byColor) {
+    byColor = new Map();
+    particleTileSourceCache.set(particles, byColor);
+  }
+  let slots = byColor.get(color);
+  if (!slots) {
+    slots = new Array<TileSource | undefined>(16);
+    byColor.set(color, slots);
+  }
+  slots[row * 4 + col] = source;
+}
 
 /** 离屏位图 + 2d 上下文（无 DOM / 不可用 → null） */
 export type SimOffscreenFactory = (
@@ -103,14 +142,25 @@ export function particleTile(
   createOffscreen: SimOffscreenFactory = offscreen,
   cache: Map<string, CanvasImageSource> = tileCache,
 ): TileSource {
+  const isDefault = createOffscreen === offscreen && cache === tileCache;
+  const inGrid = (col | 0) === col && (row | 0) === row && col >= 0 && col < 4 && row >= 0 && row < 4;
+  if (isDefault && inGrid) {
+    const hit = getCachedParticleSource(sprites.particles, col, row, color);
+    if (hit) return hit;
+  }
   const key = `${col},${row},${color ?? 'none'}`;
   let tinted = cache.get(key) ?? null;
   if (!tinted) {
     tinted = buildTintedTile(sprites.particles, col, row, color, createOffscreen);
     if (tinted) cache.set(key, tinted);
   }
-  if (tinted) return { source: tinted, sx: 0, sy: 0, sw: SPRITE_TILE, sh: SPRITE_TILE };
-  return { source: sprites.particles, sx: col * SPRITE_TILE, sy: row * SPRITE_TILE, sw: SPRITE_TILE, sh: SPRITE_TILE };
+  const result: TileSource = tinted
+    ? { source: tinted, sx: 0, sy: 0, sw: SPRITE_TILE, sh: SPRITE_TILE }
+    : { source: sprites.particles, sx: col * SPRITE_TILE, sy: row * SPRITE_TILE, sw: SPRITE_TILE, sh: SPRITE_TILE };
+  if (isDefault && inGrid) {
+    setCachedParticleSource(sprites.particles, col, row, color, result);
+  }
+  return result;
 }
 
 /** 径向渐变圆（`inner` 实心 → `outer` 透明），缓存；无 DOM → null（该笔不画） */
@@ -120,13 +170,21 @@ export function radialCircle(
   createOffscreen: SimOffscreenFactory = offscreen,
   cache: Map<string, CanvasImageSource> = circleCache,
 ): TileSource | null {
+  const isDefault = createOffscreen === offscreen && cache === circleCache;
   const key = `${inner}|${outer}`;
+  if (isDefault) {
+    const hit = circleSourceCache.get(key);
+    if (hit) return hit;
+  }
   let canvas = cache.get(key) ?? null;
   if (!canvas) {
     canvas = buildCircle(inner, outer, createOffscreen);
     if (canvas) cache.set(key, canvas);
   }
-  return canvas ? { source: canvas, sx: 0, sy: 0, sw: SPRITE_TILE, sh: SPRITE_TILE } : null;
+  if (!canvas) return null;
+  const result: TileSource = { source: canvas, sx: 0, sy: 0, sw: SPRITE_TILE, sh: SPRITE_TILE };
+  if (isDefault) circleSourceCache.set(key, result);
+  return result;
 }
 
 /** 本色 → 同色全透明（生成圆的外圈；`rgba(r, g, b, 1)` → `rgba(r, g, b, 0)`） */
@@ -143,7 +201,14 @@ export function radialCircleOf(
   createOffscreen: SimOffscreenFactory = offscreen,
   cache: Map<string, CanvasImageSource> = circleCache,
 ): TileSource | null {
-  return radialCircle(color, transparentTint(color), createOffscreen, cache);
+  const isDefault = createOffscreen === offscreen && cache === circleCache;
+  if (isDefault) {
+    const hit = circleOfSourceCache.get(color);
+    if (hit) return hit;
+  }
+  const result = radialCircle(color, transparentTint(color), createOffscreen, cache);
+  if (isDefault && result) circleOfSourceCache.set(color, result);
+  return result;
 }
 
 /** 数字位图矩形（源图像素）：第 `digit` 列 */
@@ -171,6 +236,141 @@ export const SIM_WARMUP_TILE_SPECS: ReadonlyArray<readonly [readonly [number, nu
   [SIM_SPRITE_EFFECT.tile.connectionRing, null],
 ];
 
+function shrinkCanvasMap(map: Map<string, CanvasImageSource>): void {
+  for (const src of map.values()) {
+    const cv = src as { width?: number; height?: number };
+    if (typeof cv.width === 'number' && typeof cv.height === 'number') {
+      cv.width = 1;
+      cv.height = 1;
+    }
+  }
+  map.clear();
+}
+
+function blitExtrudedTile(
+  actx: OffscreenCanvasRenderingContext2D,
+  scratch: OffscreenCanvas,
+  cols: number,
+  cellIndex: number,
+  S: number,
+  E: number,
+  stride: number,
+): { ox: number; oy: number } {
+  const ox = (cellIndex % cols) * stride + E * 2;
+  const oy = ((cellIndex / cols) | 0) * stride + E * 2;
+  actx.drawImage(scratch, 0, 0, S, S, ox, oy, S, S);
+  actx.drawImage(scratch, 0, 0, S, 1, ox, oy - E, S, E);
+  actx.drawImage(scratch, 0, S - 1, S, 1, ox, oy + S, S, E);
+  actx.drawImage(scratch, 0, 0, 1, S, ox - E, oy, E, S);
+  actx.drawImage(scratch, S - 1, 0, 1, S, ox + S, oy, E, S);
+  actx.drawImage(scratch, 0, 0, 1, 1, ox - E, oy - E, E, E);
+  actx.drawImage(scratch, S - 1, 0, 1, 1, ox + S, oy - E, E, E);
+  actx.drawImage(scratch, 0, S - 1, 1, 1, ox - E, oy + S, E, E);
+  actx.drawImage(scratch, S - 1, S - 1, 1, 1, ox + S, oy + S, E, E);
+  return { ox, oy };
+}
+
+/**
+ * 票 89：径向圆（共 6 枚）与具体 `particles.png` 实例无关，进程期打包一次常驻；
+ * 染色粒子块（共 15 枚）按 `sprites.particles` 以 `WeakMap` 隔离持有各自 `ImageBitmap`，
+ * 避免预览挂载期间跑离线导出或换包预热 `.close()` 掉实时舞台仍在引用的图集。
+ */
+function packEffectSpritesAtlas(sprites: SimSprites | null): {
+  circles: ImageBitmap | null;
+  particles: ImageBitmap | null;
+} {
+  if (!canPackOffscreenBitmap()) return { circles: null, particles: null };
+  const S = SPRITE_TILE;
+  const E = 4;
+  const stride = S + E * 4;
+
+  if (!packedCirclesAtlas) {
+    try {
+      const cols = 3;
+      const rows = 2;
+      const scratch = new OffscreenCanvas(S, S);
+      const sctx = scratch.getContext('2d');
+      const atlasCanvas = new OffscreenCanvas(cols * stride, rows * stride);
+      const actx = atlasCanvas.getContext('2d');
+      if (sctx && actx) {
+        actx.imageSmoothingEnabled = false;
+        const placements: Array<{ tint: string; outer: string; ox: number; oy: number }> = [];
+        let cellIndex = 0;
+        const half = S / 2;
+        for (const tint of Object.values(SIM_EFFECT_TINTS)) {
+          const outer = transparentTint(tint);
+          sctx.clearRect(0, 0, S, S);
+          const grad = sctx.createRadialGradient(half, half, 0, half, half, half);
+          grad.addColorStop(0, tint);
+          grad.addColorStop(1, outer);
+          sctx.fillStyle = grad;
+          sctx.fillRect(0, 0, S, S);
+          const { ox, oy } = blitExtrudedTile(actx, scratch, cols, cellIndex++, S, E, stride);
+          placements.push({ tint, outer, ox, oy });
+        }
+        const bitmap = atlasCanvas.transferToImageBitmap();
+        scratch.width = scratch.height = 1;
+        packedCirclesAtlas = bitmap;
+        shrinkCanvasMap(circleCache);
+        circleSourceCache.clear();
+        circleOfSourceCache.clear();
+        for (const { tint, outer, ox, oy } of placements) {
+          const entry: TileSource = { source: bitmap, sx: ox, sy: oy, sw: S, sh: S };
+          circleOfSourceCache.set(tint, entry);
+          circleSourceCache.set(`${tint}|${outer}`, entry);
+        }
+      }
+    } catch {
+      /* 降级走独立画布 */
+    }
+  }
+
+  let particlesAtlas: ImageBitmap | null = sprites
+    ? (packedParticleAtlases.get(sprites.particles) ?? null)
+    : null;
+  if (sprites && !particlesAtlas) {
+    try {
+      const cols = 4;
+      const rows = 4;
+      const scratch = new OffscreenCanvas(S, S);
+      const sctx = scratch.getContext('2d');
+      const atlasCanvas = new OffscreenCanvas(cols * stride, rows * stride);
+      const actx = atlasCanvas.getContext('2d');
+      if (sctx && actx) {
+        actx.imageSmoothingEnabled = false;
+        const placements: Array<{ col: number; row: number; color: string | null; ox: number; oy: number }> = [];
+        let cellIndex = 0;
+        for (const [[col, row], color] of SIM_WARMUP_TILE_SPECS) {
+          sctx.globalCompositeOperation = 'source-over';
+          sctx.clearRect(0, 0, S, S);
+          sctx.drawImage(sprites.particles, col * S, row * S, S, S, 0, 0, S, S);
+          if (color !== null) {
+            sctx.globalCompositeOperation = 'source-atop';
+            sctx.fillStyle = color;
+            sctx.fillRect(0, 0, S, S);
+          }
+          const { ox, oy } = blitExtrudedTile(actx, scratch, cols, cellIndex++, S, E, stride);
+          placements.push({ col, row, color, ox, oy });
+        }
+        const bitmap = atlasCanvas.transferToImageBitmap();
+        scratch.width = scratch.height = 1;
+        packedParticleAtlases.set(sprites.particles, bitmap);
+        particlesAtlas = bitmap;
+        shrinkCanvasMap(tileCache);
+        for (const { col, row, color, ox, oy } of placements) {
+          setCachedParticleSource(sprites.particles, col, row, color, {
+            source: bitmap, sx: ox, sy: oy, sw: S, sh: S,
+          });
+        }
+      }
+    } catch {
+      particlesAtlas = null;
+    }
+  }
+
+  return { circles: packedCirclesAtlas, particles: particlesAtlas };
+}
+
 /**
  * 预热全部打击特效离屏染色图块、径向渐变圆与精灵位图（chart-preview 57）：
  * 在素材加载完成时（开播前）一次性构建 `tileCache` / `circleCache` 并在离屏画布上触发首次 `drawImage`，
@@ -186,17 +386,20 @@ export function warmupSimSprites(
     circles?: Map<string, CanvasImageSource>;
   } = {},
 ): void {
+  const isDefault = !opts.createOffscreen && !opts.tiles && !opts.circles;
   const createOffscreen = opts.createOffscreen ?? offscreen;
   const tiles = opts.tiles ?? tileCache;
   const circles = opts.circles ?? circleCache;
-  const warm = createOffscreen(SPRITE_TILE);
+  const warm = createOffscreen( isDefault ? 1 : SPRITE_TILE );
   if (!warm) return;
 
-  for (const tint of Object.values(SIM_EFFECT_TINTS)) {
-    radialCircleOf(tint, createOffscreen, circles);
+  const packed = isDefault ? packEffectSpritesAtlas(sprites) : { circles: null, particles: null };
+  if (!packed.circles) {
+    for (const tint of Object.values(SIM_EFFECT_TINTS)) {
+      radialCircleOf(tint, createOffscreen, circles);
+    }
   }
-
-  if (sprites) {
+  if (sprites && !packed.particles) {
     for (const [[col, row], color] of SIM_WARMUP_TILE_SPECS) {
       particleTile(sprites, col, row, color, createOffscreen, tiles);
     }
@@ -217,6 +420,60 @@ export function warmupSimSprites(
     touch(sprites.combo);
     touch(sprites.particles);
   }
-  for (const c of circles.values()) touch(c);
-  for (const tile of tiles.values()) touch(tile);
+  if (packed.circles) {
+    touch(packed.circles);
+  } else {
+    for (const c of circles.values()) touch(c);
+  }
+  if (packed.particles) {
+    touch(packed.particles);
+  } else {
+    for (const tile of tiles.values()) touch(tile);
+  }
+  if (isDefault) {
+    const cv = warm.canvas as { width?: number; height?: number };
+    if (typeof cv.width === 'number') cv.width = 1;
+    if (typeof cv.height === 'number') cv.height = 1;
+  }
+}
+
+/** 整张精灵的染色缓存（按图身份 → 颜色） */
+const tintedImageCache = new WeakMap<CanvasImageSource, Map<string, CanvasImageSource | null>>();
+
+/**
+ * 整张精灵染色（chart-preview 51 的 AP combo 变色）：`multiply` 保住原图明暗（白字变彩色、
+ * 灰阶过渡还在），再用 `destination-in` 把颜色裁回字形 alpha —— 否则 `multiply` 会把整块
+ * 矩形填成实色（透明底也会变成不透明）。建好就缓存；无 DOM（node 单测）→ 原图。
+ */
+export function tintedImage(img: CanvasImageSource, color: string): CanvasImageSource {
+  if (typeof document === 'undefined') return img;
+  let map = tintedImageCache.get(img);
+  if (!map) {
+    map = new Map();
+    tintedImageCache.set(img, map);
+  }
+  if (!map.has(color)) map.set(color, buildTintedImage(img, color));
+  return map.get(color) ?? img;
+}
+
+function buildTintedImage(img: CanvasImageSource, color: string): CanvasImageSource | null {
+  const w = Number((img as HTMLImageElement).naturalWidth || (img as HTMLCanvasElement).width || 0);
+  const h = Number((img as HTMLImageElement).naturalHeight || (img as HTMLCanvasElement).height || 0);
+  if (!w || !h) return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(img, 0, 0);
+    return canvas;
+  } catch {
+    return null;
+  }
 }

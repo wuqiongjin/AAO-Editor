@@ -19,7 +19,7 @@
 //      本条用**真 persistence hook** + 照生产旧接线注册的假工作台（树序排在工程页之后、
 //      随 active 翻转重渲染）锁住这条链路：防抖窗口内离开也必须即时更新。
 import '@testing-library/jest-dom/vitest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
@@ -253,5 +253,60 @@ describe('issue 38 · 回工程页时列表不重读（激活 = 先 flush 再 re
 
     expect(await screen.findByText(chartRowMeta(4))).toBeInTheDocument();
     expect(screen.queryByText(chartRowMeta(2))).toBeNull();
+  });
+
+  it('chart-projects 45 · 工程页非激活时 catalogEpoch 递增不触发 list()，重新激活才刷新', async () => {
+    const backend = makeMemoryProjectBackend([makeProject('p1', 2)]);
+    const listSpy = vi.spyOn(backend, 'list');
+    const { view, ctx, tree } = renderPage(backend);
+
+    await enterDetail();
+    listSpy.mockClear();
+
+    await act(async () => { view.rerender(tree(false)); });
+    await act(async () => { ctx.current!.notifyCatalogChanged(); });
+    expect(listSpy).not.toHaveBeenCalled();
+
+    await act(async () => { view.rerender(tree(true)); });
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('chart-projects 45 · 点击非当前工程进入工作台：立即切页不死等 waitForRestore，且 0 次多余 list()/get()', async () => {
+    const p1 = makeProject('p1', 2);
+    const p2 = makeProject('p2', 3);
+    p1.lastOpened = 200;
+    p2.lastOpened = 100;
+    const backend = makeMemoryProjectBackend([p1, p2]);
+    const listSpy = vi.spyOn(backend, 'list');
+    const getSpy = vi.spyOn(backend, 'get');
+    const setActivePage = vi.fn();
+    let ctx!: CurrentProjectContextValue;
+    function Probe() { ctx = useCurrentProject(); return null; }
+
+    renderWithProviders(
+      <ConfigProvider>
+        <AppNavProvider value={{ ...navValue, setActivePage }}>
+          <Probe />
+          <ProjectsPage active />
+        </AppNavProvider>
+      </ConfigProvider>,
+      { store: new ChartProjectStore(backend) },
+    );
+
+    await waitFor(() => expect(document.querySelector('.pb-card[data-project-id="p2"]')).not.toBeNull());
+    // 设为当前工程 p1
+    await act(async () => { await ctx.open('p1', 'c-p1'); });
+    // 注册一个永不自行提前结束的 restoreWaiter（模拟 1500ms 音频解码等待）
+    ctx.registerRestoreWaiter(() => new Promise<void>(() => {}));
+    listSpy.mockClear();
+    getSpy.mockClear();
+
+    const p2Card = document.querySelector('.pb-card[data-project-id="p2"]') as HTMLElement;
+    const playBtn = p2Card.querySelector('.pb-card__play') as HTMLElement;
+    fireEvent.click(playBtn);
+
+    await waitFor(() => expect(setActivePage).toHaveBeenCalledWith('workspace'));
+    expect(listSpy).not.toHaveBeenCalled();
+    expect(getSpy).not.toHaveBeenCalled();
   });
 });

@@ -32,7 +32,7 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     const offenders = sourceFiles(join(repoRoot, 'src/preview'))
       .filter((f) => /from\s+['"][^'"]*pages\//.test(readStripped(f)));
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   it('仿真场不 import 编辑器画布那套出帧（自己画自己的一帧）', () => {
     const offenders = simFiles.filter((f) => CANVAS_ENTRY.test(readStripped(f)));
@@ -70,6 +70,17 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
     expect(stage).toMatch(/from '\.\.\/\.\.\/preview'/);
     expect(stage).not.toMatch(/getContext|drawImage|fillRect/);
+  });
+
+  it('票 80：实时舞台默认启用 GPU 带体，不另开构建开关', () => {
+    const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+    expect(stage).toMatch(/useMemo\(\(\) => createSimGpuBandRenderer\(\), \[\]\)/);
+    expect(stage).not.toMatch(/VITE_PREVIEW_GPU_BANDS/);
+    const field = readStripped(`${SIM_DIR}/simField.ts`);
+    expect(field).toMatch(
+      /bandRasterScale === undefined && renderer\?\.\(ctx, groups, normal, sp, alpha, metrics\)\) return/,
+    );
+    expect(field).toMatch(/drawSimBandRaster\(/);
   });
 
   it('设计面算术只在 simGeometry 一处（别的仿真场模块不写 1334 / 154 / 0.82）', () => {

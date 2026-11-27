@@ -3,7 +3,7 @@
 // 原 WorkspacePage L90-351 的五条手工接线里，属于「视口」的四条搬到这里：
 //   1. 渲染面测量 —— useSurfaceSize + 消费方注入的实时门控（面板过渡 / 拖拽改宽）；
 //   2. 几何生命周期 —— useChartSpace（issue 134：布局轴几何唯一一份，与画布 bind 同一引用）；
-//   3. 滚动模型与它的 DOM 不变量 —— useScrollModel + `.virtual-content` 高度写入 / 首次置底（beat0）/
+//   3. 滚动模型与它的 DOM 不变量 —— useScrollModel + `.virtual-content` 高度写入 / 首次置底（时间原点，issue 63）/
 //      比例位回写 / 按秒重锚 / 滚动条回声识别（issue 75 / 98 / 134）；
 //   4. 播放 RAF —— usePlaybackCoordinator（秒 → 画布 setScrollY + 滚动条 scrollTop 同源写入）。
 //
@@ -70,7 +70,7 @@ export interface ChartViewSession extends UsePlaybackCoordinatorReturn {
   /** 滚动宿主 onScroll 直连（回声识别 → 画布跟随 → seek） */
   onScrollbarScroll: (e: UIEvent<HTMLDivElement>) => void;
   /**
-   * issue 166：「打开 / 恢复谱面 → 视口归零到 beat 0」（ADR-0005 §7）的显式落点。
+   * issue 166：「打开 / 恢复谱面 → 视口归零到时间原点（首条 BPM）」的显式落点。
    * 由消费方在工程恢复（切工程 / 切谱面 / 冷启动首次恢复）后调用。
    * 只置位 + 立即尝试一次，真正的权威写入在几何与虚拟高度落地后的 effect 里再来一遍
    * （调用方触发时新几何还没进 DOM，此刻单独写会写进旧几何 —— 原 bug 里 `seek(0)` 就是这么被重锚冲掉的）。
@@ -101,6 +101,11 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
     geometry, scale, chartEndKey, judgeLineOffsetPx,
   });
 
+  const programmaticScrollTopRef = useRef<ProgrammaticScrollEcho | null>(null);
+  const onProgrammaticScroll = useCallback((top: number) => {
+    programmaticScrollTopRef.current = registerScrollEcho(top);
+  }, []);
+
   // === 流 4：播放协调（RAF + togglePlay/seek/jumpToMarker） ===
   const playback = usePlaybackCoordinator({
     engine,
@@ -111,6 +116,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
     setChartDuration: (sec) => onChartDurationChange?.(sec),
     setCurrentSeconds: onSecondsChange,
     setIsPlaying: onPlayingChange,
+    onProgrammaticScroll,
   });
 
   // === DOM 不变量：virtualHeight 写入 / 首次置底 / 比例位回写 / 按秒重锚 / 滚动条回声 ===
@@ -118,9 +124,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
   // lastCanvasScrollYRef：画布侧最新 scrollY，供 virtualHeight 落地后重写滚动条比例位（见下方 effect）
   const [virtualHeight, setVirtualHeight] = useState(0);
   const lastCanvasScrollYRef = useRef(0);
-  // issue 98：程序化 scrollTop 写入的期望值登记（见 isProgrammaticScrollEcho）。
-  const programmaticScrollTopRef = useRef<ProgrammaticScrollEcho | null>(null);
-  // issue 166：「待归零到 beat 0」标记（见 resetToStart）。
+  // issue 166：「待归零到时间原点（首条 BPM）」标记（见 resetToStart）。
   const pendingResetToStartRef = useRef(false);
 
   const onCanvasScrollChange = useCallback((scrollY: number, height: number) => {
@@ -139,12 +143,12 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
     if (!canvas || !container) return false;
     canvas.setScrollY(target.scrollY);
     container.scrollTop = target.scrollTop;
-    programmaticScrollTopRef.current = registerScrollEcho(target.scrollTop);
+    onProgrammaticScroll(target.scrollTop);
     return true;
-  }, [canvasRef, containerRef]);
+  }, [canvasRef, containerRef, onProgrammaticScroll]);
 
   /**
-   * issue 166：把视口**归零到 beat 0**（判定线落在谱面开头，ADR-0005 §7）。
+   * issue 166：把视口**归零到时间原点**（首条 BPM；判定线落在谱面开头，ADR-0005 §7）。
    * 与「按秒重锚」相反：不保留当前秒，而是把锚点秒归 0 并丢弃待重锚，再按 issue 75 的同源口径
    * 写画布 scrollY + 滚动条 scrollTop，并登记回声（吞掉写入自身派发的 scroll 事件）。
    * @returns 是否真的落了（DOM 尚无滚动范围时返回 false，由调用方保持待归零标记）
@@ -170,7 +174,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
     pendingResetToStartRef.current = true;
   }, []);
 
-  // 设置虚拟内容高度 + 首次置底（初始滚动 = beat0/起点）
+  // 设置虚拟内容高度 + 首次置底（初始滚动 = 时间原点/起点）
   const initialScrollDone = useRef(false);
   useEffect(() => {
     const scrollContainer = containerRef.current;
@@ -185,7 +189,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
       // issue 166 RC-2：置底写入**同样要登记回声**。此前只有比例回写分支登记，于是置底自己
       // 引发的 scroll 事件被当成手滚，用"旧几何下的底部"反算出一个非零秒（冷启动实测 1.498s，
       // 事件派发晚时可以反算出 90s），既写歪画布也写歪秒数、还把锚点从 0 推开。
-      programmaticScrollTopRef.current = registerScrollEcho(scrollContainer.scrollTop);
+      onProgrammaticScroll(scrollContainer.scrollTop);
     } else {
       // 缩放（Ctrl+滚轮/工具栏）/谱长/渲染面变化都会改变 scrollHeight：旧 scrollTop 与新滚动范围
       // 不再对应同一谱面位置——若越界，浏览器会钳制 scrollTop 并触发 scroll 事件，把画布 scrollY
@@ -197,7 +201,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
         scrollContainer.scrollTop = targetScrollTop;
       }
       // 无论是否实际写入都登记期望值：浏览器可能把写入值取整存储，回声事件据此识别并吞掉
-      programmaticScrollTopRef.current = registerScrollEcho(targetScrollTop);
+      onProgrammaticScroll(targetScrollTop);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight]);
@@ -250,7 +254,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
     if (maxScroll <= 0 || !canvasRef.current) return;
     if (playback.isPlaying) return;
     const canvasScrollY = scrollModel.scrollTopToCanvasScrollY(scrollTop, maxScroll);
-    canvasRef.current.setScrollY(canvasScrollY);
+    canvasRef.current.setScrollY(canvasScrollY, 'scrollbar');
     const seconds = scrollModel.secondsForScrollY(canvasScrollY);
     scrollModel.noteScrollObserved(canvasScrollY);
     engine?.seek(seconds);

@@ -16,6 +16,10 @@
  * 渲染侧那份 URL 形态在 `src/community/assetUrls.ts`（改一边，另一边要跟上）。
  */
 const fs = require('fs');
+const path = require('path');
+const { projectDir, projectThumbPath, projectThumbsDir, safeProjectId } = require('../storage/dataRoot.cjs');
+const { PROJECT_THUMB_SIZE, createThumbMaker } = require('./assetThumbnails.cjs');
+const { writeFileAtomic } = require('../foundation/atomicWrite.cjs');
 
 /** 唯一允许的素材主机（与 electron/community/communityNet.cjs 的 ALLOWED_HOSTS 同值） */
 const ALLOWED_HOSTS = ['bestdori.com'];
@@ -24,6 +28,8 @@ const ASSET_SCHEME = 'aao-asset';
 const THUMB_HOST = 'thumb';
 /** 原始字节那一支的 host（票 16：预览大图 / 音频共用） */
 const RAW_HOST = 'raw';
+/** 本地工程封面缩略图那一支的 host（chart-projects 44） */
+const PROJECT_COVER_HOST = 'project-cover';
 
 /**
  * 登记 scheme 特权 —— **必须在 app ready 之前**调（Electron 的硬要求）。
@@ -32,7 +38,7 @@ const RAW_HOST = 'raw';
  */
 function registerAssetSchemePrivileges(protocol) {
     protocol.registerSchemesAsPrivileged([
-        { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true } },
+        { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
     ]);
 }
 
@@ -72,6 +78,27 @@ function parseThumbRequest(rawUrl) {
 /** 原始字节请求（票 16） */
 function parseRawRequest(rawUrl) {
     return parseAssetRequest(rawUrl, RAW_HOST);
+}
+
+/** 本地工程封面请求（chart-projects 44）：校验 projectId 白名单，禁止路径穿越 */
+function parseProjectCoverRequest(rawUrl) {
+    let request;
+    try {
+        request = new URL(String(rawUrl));
+    } catch {
+        return null;
+    }
+    if (request.protocol !== `${ASSET_SCHEME}:`) return null;
+    if (request.hostname !== PROJECT_COVER_HOST) return null;
+    const rawId = request.searchParams.get('id') ?? '';
+    let id;
+    try {
+        id = safeProjectId(rawId);
+    } catch {
+        return null;
+    }
+    const version = request.searchParams.get('v') ?? '';
+    return { id, version };
 }
 
 function notFound() {
@@ -207,15 +234,132 @@ async function serveThumbBytes(assetCache, upstream) {
     });
 }
 
+function sniffImageContentType(bytes) {
+    if (!bytes || bytes.length < 4) return 'application/octet-stream';
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return 'image/gif';
+    if (
+        bytes.length >= 12
+        && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+        && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    ) {
+        return 'image/webp';
+    }
+    const head = Buffer.from(bytes.subarray(0, Math.min(256, bytes.length))).toString('utf8').trimStart();
+    if (head.startsWith('<svg') || head.startsWith('<?xml')) return 'image/svg+xml';
+    return 'application/octet-stream';
+}
+
+function createProjectCoverServer(options) {
+    const getDataRoot = options && typeof options.getDataRoot === 'function' ? options.getDataRoot : null;
+    const makeThumb = options && options.nativeImage
+        ? createThumbMaker(options.nativeImage, PROJECT_THUMB_SIZE)
+        : null;
+    const inFlight = new Map();
+
+    async function buildOrFallback(dataRoot, id, coverPath, thumbPath) {
+        let coverBytes;
+        try {
+            coverBytes = await fs.promises.readFile(coverPath);
+        } catch {
+            return null;
+        }
+        if (!coverBytes || coverBytes.byteLength === 0) return null;
+
+        if (makeThumb) {
+            try {
+                const thumb = makeThumb(coverBytes);
+                if (thumb && thumb.bytes && thumb.bytes.length > 0) {
+                    try {
+                        await fs.promises.mkdir(projectThumbsDir(dataRoot), { recursive: true });
+                        await writeFileAtomic(thumbPath, Buffer.from(thumb.bytes));
+                    } catch {
+                        /* 缓存写盘失败不影响本次响应 */
+                    }
+                    return { bytes: thumb.bytes, contentType: thumb.contentType ?? 'image/png' };
+                }
+            } catch {
+                /* nativeImage 解码失败时按方案回退原图 */
+            }
+        }
+
+        return { bytes: coverBytes, contentType: sniffImageContentType(coverBytes) };
+    }
+
+    return async (parsed) => {
+        if (!getDataRoot) return notFound();
+        let dataRoot;
+        try {
+            dataRoot = getDataRoot();
+        } catch {
+            return notFound();
+        }
+        if (!dataRoot) return notFound();
+
+        let coverPath;
+        let thumbPath;
+        try {
+            coverPath = path.join(projectDir(dataRoot, parsed.id), 'cover.bin');
+            thumbPath = projectThumbPath(dataRoot, parsed.id);
+        } catch {
+            return notFound();
+        }
+
+        let coverStat;
+        try {
+            coverStat = await fs.promises.stat(coverPath);
+        } catch {
+            return notFound();
+        }
+        if (!coverStat || coverStat.size <= 0) return notFound();
+
+        const cacheControl = parsed.version ? 'public, max-age=31536000, immutable' : 'no-store';
+        try {
+            const thumbStat = await fs.promises.stat(thumbPath);
+            if (thumbStat && thumbStat.size > 0 && thumbStat.mtimeMs >= coverStat.mtimeMs) {
+                const thumbBytes = await fs.promises.readFile(thumbPath);
+                if (thumbBytes.byteLength > 0) {
+                    return new Response(thumbBytes, {
+                        status: 200,
+                        headers: { 'content-type': 'image/png', 'cache-control': cacheControl },
+                    });
+                }
+            }
+        } catch {
+            /* 缩略图不存在或不可读时转入生成/回退 */
+        }
+
+        const key = `${path.resolve(dataRoot)}::${parsed.id}::${coverStat.mtimeMs}-${coverStat.size}`;
+        let pending = inFlight.get(key);
+        if (!pending) {
+            pending = buildOrFallback(dataRoot, parsed.id, coverPath, thumbPath).finally(() => {
+                if (inFlight.get(key) === pending) inFlight.delete(key);
+            });
+            inFlight.set(key, pending);
+        }
+
+        const result = await pending;
+        if (!result) return notFound();
+        return new Response(result.bytes, {
+            status: 200,
+            headers: { 'content-type': result.contentType, 'cache-control': cacheControl },
+        });
+    };
+}
+
 /**
- * 协议处理器：`{ url }` → Response。按 host 分发到缩略图 / 原始字节两支；其余一律 404。
- * @param {{ assetCache: any }} options
+ * 协议处理器：`{ url }` → Response。按 host 分发到缩略图 / 原始字节 / 本地工程封面三支；其余一律 404。
+ * @param {{ assetCache?: any, getDataRoot?: () => string, nativeImage?: any }} options
  */
 function createAssetProtocolHandler(options) {
     const assetCache = options && options.assetCache;
+    const serveProjectCover = createProjectCoverServer(options);
     return async (request) => {
-        if (assetCache == null) return notFound();
         const rawUrl = request && request.url;
+        const projectCover = parseProjectCoverRequest(rawUrl);
+        if (projectCover != null) return serveProjectCover(projectCover);
+        if (assetCache == null) return notFound();
         const thumbUpstream = parseThumbRequest(rawUrl);
         if (thumbUpstream != null) return serveThumbBytes(assetCache, thumbUpstream);
         const rawUpstream = parseRawRequest(rawUrl);
@@ -228,9 +372,10 @@ function createAssetProtocolHandler(options) {
  * 接线（app ready 之后）：`protocol.handle('aao-asset', …)`。
  * @param {{ handle: (scheme: string, handler: Function) => void }} protocol
  * @param {any} assetCache
+ * @param {{ getDataRoot?: () => string, nativeImage?: any }} [extra]
  */
-function registerAssetProtocol(protocol, assetCache) {
-    protocol.handle(ASSET_SCHEME, createAssetProtocolHandler({ assetCache }));
+function registerAssetProtocol(protocol, assetCache, extra = {}) {
+    protocol.handle(ASSET_SCHEME, createAssetProtocolHandler({ assetCache, ...extra }));
 }
 
 module.exports = {
@@ -238,9 +383,11 @@ module.exports = {
     ASSET_SCHEME,
     THUMB_HOST,
     RAW_HOST,
+    PROJECT_COVER_HOST,
     registerAssetSchemePrivileges,
     parseThumbRequest,
     parseRawRequest,
+    parseProjectCoverRequest,
     parseRange,
     createAssetProtocolHandler,
     registerAssetProtocol,

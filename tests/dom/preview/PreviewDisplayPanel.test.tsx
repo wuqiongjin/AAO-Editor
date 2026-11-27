@@ -7,7 +7,7 @@
 //      所以这里断言的是"落盘里的那一份"而不是面板内的副本；
 //   3. 浮层交互照站内菜单壳：Esc 关并把焦点还给触发钮、点遮罩关。
 //
-// 按结构取节点一处：`.pp-menu__scrim`（"点面板外"只有遮罩能表达，照 ScopePicker.test.tsx）。
+// 票 87：点面板外走 document pointerdown，不再铺全视口 scrim。
 //
 // 控件文案**复用设置页那套**（节奏图示大小 / 同时点击线 / 色觉辅助 / 图像品质 / 轨道颜色…）：
 // 面板是同一份设置的第二个入口，两处名字必须一样（面板不另起一套词汇）。
@@ -16,12 +16,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
-import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
+import PreviewDisplayPanel, { type LiveBgSlotState } from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
 import { listSimBackgroundPacks, listSimFieldPacks, simPackDisplayName } from '@/src/preview/video/sim/simAssetPacks';
 import { setActiveUiLanguage } from '@/src/i18n';
 import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/settings/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
+import { discoveryKey } from '@/src/pages/preview/previewFeatureDiscovery';
+
+/** 本批提示的键（组件里的 HINT_ID = 'stage-cover'） */
+const DISCOVERY_KEY = discoveryKey('stage-cover');
 
 // issue 49：显示名走取件侧 skinName 契约字段（五服原样 [jp,en,tw,cn,kr]）。本机真快照
 // 尚未带该字段（回落路径由单测覆盖），这里注入两份**带 skinName** 的最小注册表，锁
@@ -91,19 +95,29 @@ function setup(patch: Record<string, unknown> = {}) {
 }
 
 /** 动态（仿真场）形态：那一组才有音符速度档（票 24 的输入形态锁在这里） */
-function setupDynamic(patch: Record<string, unknown> = {}) {
+function setupDynamic(patch: Record<string, unknown> = {}, liveBg?: LiveBgSlotState) {
   seedZhSettings(patch);
+  const liveBgHandlers = {
+    onPickFile: vi.fn(),
+    onSelectCustom: vi.fn(),
+    onSelectPack: vi.fn(),
+    onClear: vi.fn(),
+    onFit: vi.fn(),
+  };
   render(
     <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
-      <ConfigProvider><PreviewDisplayPanel mode="dynamic" /></ConfigProvider>
+      <ConfigProvider>
+        <PreviewDisplayPanel mode="video" liveBg={liveBg} liveBgHandlers={liveBgHandlers} />
+      </ConfigProvider>
     </AppNavProvider>,
   );
   fireEvent.click(trigger());
+  return liveBgHandlers;
 }
 
 const trigger = () => screen.getByRole('button', { name: '设置' });
 const panel = () => screen.getByRole('dialog', { name: '显示设置' });
-const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
+const clickOutside = () => fireEvent.pointerDown(document.body);
 /** 落盘的那份设置（ConfigProvider 每次改动都整份写回同一 key） */
 const stored = (): StoredSettings => JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as StoredSettings;
 const bpmSwitch = () => within(panel()).getByRole('switch', { name: 'BPM 标记' });
@@ -305,9 +319,9 @@ describe('chart-preview 08 · 浮层交互与皮肤入口', () => {
     expect(trigger()).toHaveFocus();
   });
 
-  it('点面板外（遮罩）关闭', () => {
+  it('点面板外关闭', () => {
     setup();
-    fireEvent.click(scrim());
+    clickOutside();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -420,7 +434,8 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     expect(within(panel()).queryByRole('group', { name: '场地皮肤包' })).toBeNull();
     // 行上直接显示当前包（选服后的显示名）；按 title 取——轨道皮肤的官方名可能与
     // 「音符皮肤」那行的名字撞字（都是「按键条皮肤00」）
-    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('skin00'), 'background'))).toBeInTheDocument();
+    // 背景行显示的是**当前选择** = 出厂默认的自带包「AAO 舞台」（票 84 · ADR-0018 §7）
+    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('aao-stage'), 'background'))).toBeInTheDocument();
     expect(within(panel()).getByTitle(simPackDisplayName(fieldPack('skin00'), 'field'))).toBeInTheDocument();
     expect(bgRow()).toBeInTheDocument();
     expect(fieldRow()).toBeInTheDocument();
@@ -438,9 +453,17 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     // 背景 skin00：官方名五服同值日文 → 显示 i18n 中文名，不出原始日文（用户 2026-10-22 反馈）
     expect(within(pickerGrid('表演背景')).getByText('默认背景')).toBeInTheDocument();
     expect(within(pickerGrid('表演背景')).queryByText('デフォルト背景')).toBeNull();
-    // 缩略从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
-    const thumb = bgBtn(bgPacks[0].id).querySelector('img');
-    expect(thumb?.getAttribute('src')).toContain(`/bgskin/jp/${bgPacks[0].id}_rip/`);
+    // 自定义槽位是整网第一格；「AAO 舞台」是内置包第一格 = 整网第二格（票 42 / 票 84）
+    expect(bgPacks[0]!.id).toBe('aao-stage');
+    const bgItems = pickerGrid('表演背景').querySelectorAll('.pdp__pack-item');
+    expect(bgItems[0]).toHaveClass('pdp__pack-item--custom');
+    expect(within(pickerGrid('表演背景')).getByText('AAO 舞台')).toBeInTheDocument();
+    expect(bgItems[1]?.textContent).toContain('AAO 舞台');
+    const appThumb = bgBtn('aao-stage').querySelector('img');
+    expect(appThumb?.getAttribute('src')).toContain('/assets/preview/aao-stage-frame-bg.webp');
+    // 官方包的缩略仍从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
+    const thumb = bgBtn('skin00').querySelector('img');
+    expect(thumb?.getAttribute('src')).toContain('/bgskin/jp/skin00_rip/');
 
     // 点一个**非默认**包：落盘的就是它，另一个选择器没被碰；仍停选择器里（可连着比较）
     fireEvent.click(bgBtn('skin_miku'));
@@ -458,7 +481,7 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
 
     fireEvent.click(fieldBtn('skin_maid'));
     expect(stored().preview.fieldPackId).toBe('skin_maid');
-    expect(stored().preview.bgPackId).toBe('skin00');
+    expect(stored().preview.bgPackId).toBe('aao-stage'); // 两个选择器互不干涉，背景仍是出厂默认（票 84）
   });
 
   it('进选择器焦点落在当前选中格；返回 / Esc 先回设置视图（焦点还给「更换」钮），再 Esc 才关面板', () => {
@@ -482,12 +505,13 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
 
   it('存了清单里没有的旧包 ID：行上显示归一化后的默认名；选择器里默认格高亮', () => {
     setupDynamic({ preview: { bgPackId: 'skin_已消失' } });
-    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('skin00'), 'background'))).toBeInTheDocument();
+    // 背景的归一化落点是出厂默认（票 84 起 = 自带包「AAO 舞台」）
+    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('aao-stage'), 'background'))).toBeInTheDocument();
 
     openPicker('background');
-    expect(bgBtn('skin00')).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
-    fireEvent.click(bgBtn('skin00'));
-    expect(stored().preview.bgPackId).toBe('skin00');
+    expect(bgBtn('aao-stage')).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
+    fireEvent.click(bgBtn('aao-stage'));
+    expect(stored().preview.bgPackId).toBe('aao-stage');
   });
 
   it('hover / focus 一格浮出大预览（名字 = 该包显示名），移开即收', () => {
@@ -510,7 +534,7 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     openPicker('background');
     expect(pickerGrid('表演背景')).toBeInTheDocument();
 
-    fireEvent.click(scrim());
+    clickOutside();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -520,6 +544,91 @@ describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预�
     expect(within(panel()).queryByRole('button', { name: '更换轨道' })).toBeNull();
   });
 });
+
+describe('票 42 · 自定义表演背景槽位', () => {
+  const openBg = () => fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+  const filled: LiveBgSlotState = {
+    available: true,
+    hasImage: true,
+    useCustom: true,
+    fit: 'contain',
+    name: 'stage.png',
+    thumb: null,
+    image: null,
+  };
+
+  it('无工程时第一格不可用', () => {
+    setupDynamic();
+    openBg();
+    const empty = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
+    expect(empty).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('有工程空态点格打开文件选择，accept 只收静图', () => {
+    const handlers = setupDynamic({}, {
+      available: true, hasImage: false, useCustom: false, fit: 'cover', name: null, thumb: null, image: null,
+    });
+    openBg();
+    const cell = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
+    expect(cell).not.toHaveAttribute('aria-disabled', 'true');
+    const input = document.querySelector('input[type="file"][accept*="image/png"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array(8)], 'bg.png', { type: 'image/png' })] } });
+    expect(handlers.onPickFile).toHaveBeenCalledTimes(1);
+    expect(handlers.onPickFile.mock.calls[0][0].name).toBe('bg.png');
+  });
+
+  it('有图后点格切到自定义；悬停坞更换 / 清除；填充方式只在选中自定义时出现', () => {
+    const handlers = setupDynamic({}, filled);
+    expect(within(panel()).queryByRole('radiogroup', { name: '填充方式' })).toBeNull();
+
+    openBg();
+    const cell = liveBgGrid().querySelector('.pdp__pack-item--custom') as HTMLElement;
+    expect(cell).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(cell);
+    expect(handlers.onSelectCustom).toHaveBeenCalled();
+
+    const fit = within(panel()).getByRole('radiogroup', { name: '填充方式' });
+    expect(within(fit).getByRole('radio', { name: '完整显示' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(fit).getByRole('radio', { name: '铺满裁剪' }));
+    expect(handlers.onFit).toHaveBeenCalledWith('cover');
+
+    const replace = within(cell).getByRole('button', { name: '更换图片' });
+    const clear = within(cell).getByRole('button', { name: '从工程删除' });
+    fireEvent.click(replace);
+    expect(handlers.onPickFile).not.toHaveBeenCalled();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array(4)], 'b.jpg', { type: 'image/jpeg' })] } });
+    expect(handlers.onPickFile).toHaveBeenCalledTimes(1);
+    fireEvent.click(clear);
+    expect(handlers.onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('点表演背景内置包停用自定义；点轨道包不碰自定义开关', () => {
+    const handlers = setupDynamic({}, filled);
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    fireEvent.click(within(liveBgGrid()).getByRole('button', { name: '默认背景' }));
+    expect(handlers.onSelectPack).toHaveBeenCalledTimes(1);
+    expect(handlers.onClear).not.toHaveBeenCalled();
+
+    fireEvent.click(within(panel()).getByRole('button', { name: '返回' }));
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换轨道' }));
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Maid' }));
+    expect(handlers.onSelectPack).toHaveBeenCalledTimes(1);
+  });
+
+  it('未选中自定义时设置视图没有填充方式', () => {
+    setupDynamic({ preview: { bgPackId: 'skin00' } }, { ...filled, useCustom: false });
+    expect(within(panel()).queryByRole('radiogroup', { name: '填充方式' })).toBeNull();
+    expect(within(panel()).getByTitle('默认背景')).toBeInTheDocument();
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    expect(within(panel()).queryByRole('radiogroup', { name: '填充方式' })).toBeNull();
+  });
+});
+
+function liveBgGrid() {
+  return within(panel()).getByRole('group', { name: '表演背景' });
+}
 
 describe('chart-preview 43 · 背景亮度', () => {
   const brightnessSlider = () => within(panel()).getByRole('slider', { name: '背景亮度' });
@@ -706,6 +815,90 @@ describe('issue 205 · 画布与预览设置浮层条目重构与三端对齐', 
     fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
     expect(stored().audio?.seVolume).toBe(defaultSettings().audio.seVolume);
     expect(stored().preview.noteSpeed).toBe(defaultSettings().preview.noteSpeed);
+    expect(stored().preview.showGameUi).toBe(defaultSettings().preview.showGameUi);
     expect(stored().preview.beatMarks).toBe(12); // 静态预览项未被冲掉
   });
+
+  it('动态预览：顶栏只留一枚自解释的总开关「分数条与生命条显示」，不挂 ? 提示（票 72 验收）', () => {
+    setupDynamic({ preview: { noteSpeed: 11.0 } });
+    expect(within(panel()).queryByRole('region', { name: 'HUD 组件' })).not.toBeInTheDocument();
+    for (const label of ['分数组件', '生命组件', '暂停钮', 'AUTO LIVE 提示']) {
+      expect(within(panel()).queryByRole('switch', { name: label })).not.toBeInTheDocument();
+    }
+    expect(within(panel()).queryByRole('switch', { name: '显示顶部状态栏' })).not.toBeInTheDocument();
+    expect(within(panel()).queryByRole('button', { name: /同时控制分数框/ })).not.toBeInTheDocument();
+    const sw = within(panel()).getByRole('switch', { name: '分数条与生命条显示' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(stored().preview.showGameUi).toBe(false);
+    expect(stored().preview.hudScore).toBeUndefined();
+    expect(stored().preview.autoMode).toBe(false);
+  });
 });
+
+describe('票 42 / 84 · 新功能落点发现性（点开即收红点 → 行角标 → 二级页角标，一轮结束）', () => {
+  beforeEach(() => { localStorage.removeItem(DISCOVERY_KEY); });
+  afterEach(() => { localStorage.removeItem(DISCOVERY_KEY); });
+
+  /** 动态形态（两处新功能只在动态预览） */
+  function setupDiscover() {
+    seedZhSettings();
+    render(
+      <ConfigProvider>
+        <PreviewDisplayPanel mode="video" />
+      </ConfigProvider>,
+    );
+  }
+
+  it('红点点开设置就消：背景行挂「新」指路，轨道行不动，无整段文字教学', () => {
+    setupDiscover();
+    expect(screen.getByRole('img', { name: '新功能' })).toBeInTheDocument();
+    fireEvent.click(trigger());
+    expect(screen.queryByRole('img', { name: '新功能' })).toBeNull();
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('opened');
+    const bgRowEl = within(panel()).getByRole('button', { name: '更换背景' }).closest('.pdp__row');
+    expect(bgRowEl).toHaveClass('is-new');
+    const fieldRowEl = within(panel()).getByRole('button', { name: '更换轨道' }).closest('.pdp__row');
+    expect(fieldRowEl).not.toHaveClass('is-new');
+    expect(panel().textContent).not.toContain('新增');
+  });
+
+  it('静态形态没有这套发现性：无红点，点开/关闭也不写动态专属的键', () => {
+    setup();
+    expect(screen.queryByRole('img', { name: '新功能' })).toBeNull();
+    fireEvent.click(trigger());
+    fireEvent.click(trigger());
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBeNull();
+  });
+
+  it('背景二级页两格有「新」角标、无说明文字；关面板才收角标并落盘，下次打开不再提示', () => {
+    setupDiscover();
+    fireEvent.click(trigger());
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    const grid = pickerGrid('表演背景');
+    // 两格角标：自定义 + AAO 舞台（装饰性 aria-hidden，不进按钮可及名）
+    expect(grid.querySelectorAll('.pdp__new-badge')).toHaveLength(2);
+    expect(panel().textContent).not.toContain('新增');
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('opened');
+    clickOutside();
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('visited');
+
+    fireEvent.click(trigger());
+    expect(screen.queryByRole('img', { name: '新功能' })).toBeNull();
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    expect(pickerGrid('表演背景').querySelectorAll('.pdp__new-badge')).toHaveLength(0);
+  });
+
+  it('进轨道二级页不算看过：行角标仍在', () => {
+    setupDiscover();
+    fireEvent.click(trigger());
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换轨道' }));
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('opened');
+    fireEvent.click(within(panel()).getByRole('button', { name: '返回' }));
+    expect(within(panel()).getByRole('button', { name: '更换背景' }).closest('.pdp__row')).toHaveClass('is-new');
+  });
+});
+
+function pickerGrid(full: string) {
+  return within(panel()).getByRole('group', { name: full });
+}

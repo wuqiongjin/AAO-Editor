@@ -7,7 +7,7 @@
  * 数值口径照 `scripts/lib/bestdori-http.mjs`（那份脚本 import 了 node:fs / process，只能作参照、不可复用）：
  * 最多 3 次、800ms × 2^(n-1) + 抖动。具体数值由平台模块给（见 bestdori/endpoints.ts）。
  */
-import { isCommunityError } from './transport';
+import { abortedRequest, isCommunityError } from './transport';
 
 export interface RetryPolicy {
   /** 含首次在内的总尝试次数 */
@@ -52,6 +52,32 @@ export interface WithRetryOptions {
   deps?: RetryDeps;
   /** 每次决定重试时回调一次（08/09 拿来出「网络不稳，正在重试」的提示） */
   onRetry?: (notice: RetryNotice) => void;
+  /** 取消信号：立即中断重试循环与退避等待（票 57） */
+  signal?: AbortSignal;
+}
+
+async function sleepWithAbort(
+  delayMs: number,
+  sleep: (ms: number) => Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) {
+    await sleep(delayMs);
+    return;
+  }
+  if (signal.aborted) throw abortedRequest();
+  let onAbort: (() => void) | undefined;
+  try {
+    await Promise.race([
+      sleep(delayMs),
+      new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(abortedRequest());
+        signal.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 /**
@@ -67,15 +93,17 @@ export async function withRetry<T>(run: () => Promise<T>, options: WithRetryOpti
   const deps = options.deps ?? defaultRetryDeps;
   let lastError: unknown;
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
+    if (options.signal?.aborted) throw abortedRequest();
     try {
       return await run();
     } catch (error) {
+      if (options.signal?.aborted) throw abortedRequest();
       lastError = error;
       const retryable = isCommunityError(error) && error.retryable;
       if (!retryable || attempt >= policy.maxAttempts) throw error;
       const delayMs = backoffDelayMs(attempt, policy, deps.random);
       options.onRetry?.({ attempt, delayMs, error });
-      await deps.sleep(delayMs);
+      await sleepWithAbort(delayMs, deps.sleep, options.signal);
     }
   }
   throw lastError;

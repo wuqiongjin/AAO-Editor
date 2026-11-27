@@ -14,11 +14,10 @@ import { useConfig } from './ConfigProvider';
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
 // 工具被激活称"持工具态"，与对象轴（选区，EditingContext.selectedItems）解耦。
 export type KeyToolId = 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional';
-// ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——必须有选区、连续操作无意义/有误删风险，
-// 只保留 Ctrl+C / Ctrl+X 执行键作用于选区。故 ActionToolId 只剩 delete / paste / mirror。
-// issue 59 §2/§3：「音符代码」（tool id `noteCode`）是第七个持工具态——点谁看谁、弹窗关闭后态驻留；
-// 它是唯一不改谱面的工具：不可框选（原则 2 例外）、单击不清选区（原则 6 例外）。
-export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'noteCode';
+// issue 256 / ADR-0008 §2.1：复制 / 剪切与删除 / 镜像同属动作族，占工具轴。
+// issue 59 §2/§3：「音符代码」（tool id `noteCode`）——点谁看谁、弹窗关闭后态驻留；
+// 它是唯一不改谱面的工具：不可框选（原则 2 例外）。
+export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'copy' | 'cut' | 'noteCode';
 // issue 09 S2（ADR-0009 §3）：`curve` = 曲线工具（单击链式缓动段 / 拖动画笔自由段 / 点段重应用）
 export type ArmedTool = KeyToolId | 'bpm' | 'slide' | 'curve' | ActionToolId;
 

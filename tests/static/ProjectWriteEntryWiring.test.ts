@@ -5,13 +5,12 @@
 import { describe, expect, it } from 'vitest';
 import { readSource, readStripped } from '@/tests/support/source';
 
-/** 检查过的整记录读-改-写调用点（06 票落点 3 + CurrentProjectSession.open）。 */
+/** 检查过的整记录读-改-写调用点（06 票落点 3；issue 45 起 CurrentProjectSession.open 改走轻量 touchLastOpened）。 */
 const MUTATION_CALLERS = [
   'src/pages/projects/ProjectsPage.tsx',
   'src/pages/workspace/ChartSwitcher.tsx',
   'src/pages/workspace/WorkspacePage.tsx',
   'src/audio/projectAudio.ts',
-  'src/project/CurrentProjectSession.ts',
 ];
 
 describe('06 · 唯一写入口接线', () => {
@@ -19,6 +18,10 @@ describe('06 · 唯一写入口接线', () => {
     for (const file of MUTATION_CALLERS) {
       expect(readStripped(file), file).toMatch(/mutateProject\(/);
     }
+  });
+
+  it('票 42 · 复制工程把 liveBg sidecar 交给存储层拷（字节不过渲染进程）', () => {
+    expect(readStripped('src/pages/projects/ProjectsPage.tsx')).toMatch(/liveBgCopyFrom:\s*src\.id/);
   });
 
   it('mutateProject 只在记录模块定义（调用点不得自造同名入口）', () => {

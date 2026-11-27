@@ -16,7 +16,7 @@ import type { HitTestDeps } from '../../rendering/hitTest/hitTest';
 import { findBpmLineAt, findItemAt } from '../../rendering/hitTest/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
-import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
+import { hitCoveredByWholeNote, sameSelectionItem, selectionCoversHit, type MatrixTool } from './ToolActionMatrix';
 import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../rendering/gutterLabels';
 import { LANE_WIDTH, type GeometryPoint } from '../geometry/ChartGeometry';
 import { PLAYBACK_MARKER_HIT_TOLERANCE_PX } from '../../rendering/playbackMarker';
@@ -35,7 +35,7 @@ export interface ChartPos {
 type GeometryView = Pick<HitTestDeps, 'geometry' | 'viewport'>;
 
 /**
- * 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1「该位置非法则无事发生」）。
+ * 放置/执行的合法落点：轨道内 ∧ beat ≥ startBeat（时间原点，issue 63）∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1「该位置非法则无事发生」）。
  *
  * @param allowOutsideLane 仅**拖拽**路径传 true（issue 66 §4a）：方向滑键组尾可合法溢出到轨道外，
  *   按在那截上也要能起拖 —— 否则 lane 越界 → null → 建不了拖拽锚点 → 手势退化成框选。
@@ -51,7 +51,10 @@ export function snapChartPos(
 ): ChartPos | null {
     const pos = deps.geometry.laneBeatFromCanvas(cx, cy, deps.viewport, deps.beatDisplay, allowOutsideLane);
     if (!pos) return null;
-    if (isPastChartEnd(pos.preciseBeat, chartEndBeat)) return null;
+    const pastEnd = chartEndBeat === deps.geometry.chartEndBeat
+        ? deps.geometry.isBeyondEnd(pos.preciseBeat)
+        : isPastChartEnd(pos.preciseBeat, chartEndBeat);
+    if (pastEnd) return null;
     return { beat: pos.preciseBeat, lane: pos.lane, rawBeat: pos.rawBeat };
 }
 
@@ -131,11 +134,11 @@ export function hitBpmGutterAt(
     const lineCanvasYOf = (beat: number) =>
         geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, viewport.scale), viewport).y;
     const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
-    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.expandedGroupKey);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.expandedGroupKey, geometry.startBeat);
     let bestLabel: { beat: number; groupKey: number | null; dist: number } | null = null;
     for (const num of layout.numerals) {
         const text = String(num.bpm);
-        const y = bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH);
+        const y = bpmLabelAnchorY(num.beat, num.y, fontPx, geometry.startBeat);
         const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
@@ -151,7 +154,7 @@ export function hitBpmGutterAt(
             const n = notes[i];
             return n && 'beat' in n ? n.beat : Infinity;
         }));
-        const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, input.surfaceH);
+        const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, geometry.startBeat);
         const box = bpmLabelBox(trackStartX, y, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx), scale);
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
@@ -163,7 +166,7 @@ export function hitBpmGutterAt(
         if (expandedNums.length >= 2) {
             const boxes = expandedNums.map((num) => {
                 const text = String(num.bpm);
-                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
+                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, geometry.startBeat), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
             }).filter((b) => b.x1 >= 0 && b.y1 < b.y2);
             if (boxes.length === 0) return null;
             const x1 = Math.min(...boxes.map((b) => b.x1));
@@ -242,7 +245,7 @@ export function resolvePressIntent(input: {
     if (input.armedTool === 'curve' && !input.shiftKey) {
         if (input.onMarker) return marquee;
         const hit = findItemAt(input.cx, input.cy, input.deps);
-        if (hit && input.selectedItems.some(it => sameSelectionItem(it, hit))) return marquee;
+        if (hit && selectionCoversHit(hit, input.selectedItems)) return marquee;
         const start = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy);
         return start ? { kind: 'pen', start } : marquee;
     }
@@ -259,9 +262,7 @@ export function resolvePressIntent(input: {
     // 与框选整条滑条（选区为多条 slideNode+slideRegion）的整体平移表现不一致。
     // 故命中项属于选区里某条整条音符时也按组拖处理，source 取整片选区 → planDragMove 的
     // {kind:'whole'} 刚体平移；拖段因此不进捏形分支，与框选态一致。
-    const coveredByWholeNote = hit.kind !== 'note' && input.selectedItems.some(
-        it => it.kind === 'note' && it.noteIndex === hit.noteIndex,
-    );
+    const coveredByWholeNote = hitCoveredByWholeNote(hit, input.selectedItems);
     const inSelection = input.selectedItems.some(it => sameSelectionItem(it, hit));
     const group = coveredByWholeNote || (inSelection && input.selectedItems.length >= 2);
     const source = group ? input.selectedItems : [hit];
@@ -327,7 +328,8 @@ export function resolveReleaseIntent(input: {
  * BPM / 粘贴不在此列：二者作用于**位置**，与"点中了哪个音符"无关。
  */
 const NEEDS_HIT: ReadonlySet<MatrixTool> = new Set<MatrixTool>([
-  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'curve', 'delete', 'mirror', 'noteCode',
+  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'curve',
+  'delete', 'mirror', 'copy', 'cut', 'noteCode',
 ]);
 
 /** §2 单击矩阵在画布侧的四种去向（语义行仍在 ToolActionMatrix，本表只决定"去问谁"）。 */
@@ -376,16 +378,17 @@ export function resolveClickPlan(input: {
     if (input.armedTool === null) {
         return { kind: 'selectItem', additive: input.shiftKey, ctrl: input.ctrlKey || input.metaKey };
     }
-    // 动作族（删除/镜像）/「音符代码」需要音符命中（空白 = 无效果不清选区）；其余行只吃栅格落点。
-    // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
+    // 动作族（删除/镜像/复制/剪切）/「音符代码」需要音符命中（空白 = 清选区 / 无效果）；其余行只吃栅格落点。
     // **issue 88 扩订**：键型与 Slide 也要判"命中项 ∈ 选区 → 整片执行"，故同样需要命中。
     const tool = input.armedTool;
     const needHit = NEEDS_HIT.has(tool);
     const hit = needHit ? findItemAt(input.cx, input.cy, input.deps) : null;
     // issue 59：BPM 线视觉上横跨轨道、画在音符层之下，而 findItemAt 完全跳过 BPM。
-    // 故对**需要对 BPM 表态的四态**补一条整线命中：音符优先（findItemAt 先判），不进 hover。
-    // 四态缺一都会让 clickOps 里对应的矩阵行变成不可达的死分支（锁表单测也会变假绿）。
-    const needsBpmLine = tool === 'bpm' || tool === 'delete' || tool === 'mirror' || tool === 'noteCode';
+    // 故对**需要对 BPM 表态的工具**补一条整线命中：音符优先（findItemAt 先判），不进 hover。
+    // 缺一都会让 clickOps 里对应的矩阵行变成不可达的死分支（锁表单测也会变假绿）。
+    // issue 256：复制 / 剪切与镜像同档，必须吃 BPM 整线，否则会落到空 op。
+    const needsBpmLine = tool === 'bpm' || tool === 'delete' || tool === 'mirror'
+      || tool === 'copy' || tool === 'cut' || tool === 'noteCode';
     const bpmLineHit = hit === null && needsBpmLine
         ? findBpmLineAt(input.cx, input.cy, input.deps)
         : null;

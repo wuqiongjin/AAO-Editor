@@ -4,14 +4,16 @@
 //   【画布显示】`settings.display`：与设置页那一节**同一份数据**（改了工作台画布同步变，
 //     = Bestdori 行为）；只放对预览有观感意义的项（文字大小 / 线形分层留在设置页），不放行内说明；
 //   【音符皮肤】显示当前整包名 + 跳素材页（不做第二套选择器）。
-// 形态照站内：触发钮 = `IconButton`；浮层壳 = `.pp-menu__scrim` / `.pp-menu__panel.is-portaled`
+// 形态照站内：触发钮 = `IconButton`；浮层壳 = `.pp-menu__panel.is-portaled`（票 87：点外面关，不铺全视口 scrim）
 // （与 ScopePicker / PreviewChartSwitcher 同一套，显式 import 那份 CSS）；控件 = `.slider-control` /
 // `.slider-value` / `.switch` / `.select-control`（设置页同一套词汇，不新造样式），只有行版式是面板自己的。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, SlidersHorizontal } from 'lucide-react';
-import IconButton from '../../ui/IconButton';
+import { useDismissOnOutside } from '../../ui/useDismissOnOutside';
 import { useOptionalAppNav } from '../../layouts/AppNav';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Plus, RotateCcw, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
+import IconButton from '../../ui/IconButton';
+import SegmentedControl from '../../ui/SegmentedControl';
 import { useConfig } from '../../app/ProviderTree';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 import {
@@ -35,6 +37,8 @@ import {
 import { drawFieldLayers } from '../../preview/video/sim/simField';
 import { fieldMetrics } from '../../preview/video/sim/simGeometry';
 import {
+  AAO_STAGE_PACK_ID,
+  isAppBackgroundPack,
   listSimBackgroundPacks,
   listSimFieldPacks,
   normalizeSimAssetPackId,
@@ -46,6 +50,15 @@ import type { PreviewMode } from '../../preview';
 import '../projects/ProjectsPage.css';
 import './PreviewPage.css';
 import { buildGridOptions, buildQualityOptions } from '../displayPanelOptions';
+import {
+  CUSTOM_LIVE_BG_SLOT_ID,
+  LIVE_BG_ACCEPT,
+  type LiveBgFit,
+} from '../../project/liveBgImport';
+import type { LiveBgSlotHandlers, LiveBgSlotState } from './useLiveBg';
+import { markOpened, markVisited, readDiscovery, type DiscoveryPhase } from './previewFeatureDiscovery';
+
+export type { LiveBgSlotHandlers, LiveBgSlotState };
 
 /** 两个素材包选择器的文案（设置行的标签 / 选择器分组的全称，两处共用一份） */
 const PACK_LABEL_KEYS: Record<SimAssetPackKind, { label: MessageKey; full: MessageKey }> = {
@@ -124,7 +137,9 @@ function packPreviewLayout(panel: { top: number; left: number }) {
  * `disabled` = 整行置灰不可点（2026-10-06：头带总开关关掉时信息区字段保留勾选但不可改 ——
  * 保留勾选是为了再开时原样回来，置灰是为了说明"现在改它没用"）。
  */
-function Row({ label, disabled = false, children }: { label: string; disabled?: boolean; children: ReactNode }) {
+function Row({ label, disabled = false, children }: {
+  label: string; disabled?: boolean; children: ReactNode;
+}) {
   return (
     <div className={`pdp__row${disabled ? ' is-disabled' : ''}`}>
       <div className="pdp__row-text">
@@ -133,6 +148,11 @@ function Row({ label, disabled = false, children }: { label: string; disabled?: 
       {children}
     </div>
   );
+}
+
+/** 落点提示的「新」角标：装饰性，不进按钮可及名（避免破坏按名字取格子的测试与读屏） */
+function NewBadge() {
+  return <span className="pdp__new-badge" aria-hidden="true">{t('preview.display.new.badge')}</span>;
 }
 
 function Toggle({
@@ -173,6 +193,31 @@ function Select<T extends string | number>({
     >
       {options.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
     </select>
+  );
+}
+
+/** 自定义表演背景的铺满裁剪 / 完整显示：只出现在背景选择器（选中自定义时）。 */
+function LiveBgFitPicker({
+  fit, onFit,
+}: {
+  fit: LiveBgFit;
+  onFit?: (next: LiveBgFit) => void;
+}) {
+  const label = t('preview.display.liveBg.fit');
+  return (
+    <div className="pdp__picker-fit">
+      <div className="pdp__fit-caption" id="pdp-live-fit-label">{label}</div>
+      <SegmentedControl<LiveBgFit>
+        size="sm"
+        labelledBy="pdp-live-fit-label"
+        value={fit}
+        options={[
+          { value: 'cover', label: t('preview.display.liveBg.fit.cover') },
+          { value: 'contain', label: t('preview.display.liveBg.fit.contain') },
+        ]}
+        onChange={(next) => onFit?.(next)}
+      />
+    </div>
   );
 }
 
@@ -335,8 +380,131 @@ function packDisplayInfo(kind: SimAssetPackKind, value: string) {
  * 设置视图里的一行「当前选择」（票 56 Q6=P1）：缩略 + 显示名 + 「更换」。
  * 格子不在这层画 —— 33 个包塞进设置列表会造成嵌套滚动（滚轮被网格吃掉，见票 56 追加症状）。
  */
+function sourceSize(src: CanvasImageSource): { w: number; h: number } {
+  if (src instanceof HTMLImageElement) {
+    return { w: src.naturalWidth || src.width || 1, h: src.naturalHeight || src.height || 1 };
+  }
+  if ('width' in src && 'height' in src) {
+    return { w: Math.max(1, Number(src.width)), h: Math.max(1, Number(src.height)) };
+  }
+  return { w: 1, h: 1 };
+}
+
+function LiveBgThumb({
+  source, className,
+}: {
+  source: CanvasImageSource | null;
+  className?: string;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const w = 304;
+    const h = 152;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    if (!source) return;
+    const { w: iw, h: ih } = sourceSize(source);
+    const scale = Math.max(w / iw, h / ih);
+    const dw = iw * scale;
+    const dh = ih * scale;
+    ctx.drawImage(source, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }, [source]);
+  return <canvas ref={ref} className={className} aria-hidden="true" />;
+}
+
+function CustomLiveBgCell({
+  liveBg, disabled, isNew = false, onSelect, onUpload, onClear, onHover,
+}: {
+  liveBg: LiveBgSlotState;
+  disabled: boolean;
+  /** 首次发现提示：这格是新增的（角标不进可及名） */
+  isNew?: boolean;
+  onSelect: () => void;
+  onUpload: () => void;
+  onClear: () => void;
+  onHover?: (id: string | null) => void;
+}) {
+  const label = liveBg.hasImage
+    ? (liveBg.name?.trim() || t('preview.display.liveBg.custom'))
+    : t('preview.display.liveBg.custom');
+  const aria = disabled
+    ? t('preview.display.liveBg.unavailable')
+    : liveBg.hasImage
+      ? label
+      : t('preview.display.liveBg.upload');
+
+  const activate = () => {
+    if (disabled) return;
+    if (liveBg.hasImage) onSelect();
+    else onUpload();
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || undefined}
+      aria-pressed={liveBg.useCustom && liveBg.hasImage}
+      aria-label={aria}
+      title={aria}
+      className={[
+        'pdp__pack-item pdp__pack-item--custom',
+        liveBg.useCustom && liveBg.hasImage ? 'is-active' : '',
+        liveBg.hasImage ? 'has-file' : 'is-empty',
+        disabled ? 'is-disabled' : '',
+      ].filter(Boolean).join(' ')}
+      onMouseEnter={() => onHover?.(CUSTOM_LIVE_BG_SLOT_ID)}
+      onFocus={() => onHover?.(CUSTOM_LIVE_BG_SLOT_ID)}
+      onBlur={() => onHover?.(null)}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      }}
+    >
+      {isNew && <NewBadge />}
+      {liveBg.hasImage ? (
+        <>
+          <LiveBgThumb source={liveBg.thumb} />
+          <span className="pdp__live-scrim" aria-hidden="true" />
+          <div className="pdp__live-dock">
+            <button
+              type="button"
+              className="pdp__live-dock-btn"
+              title={t('preview.display.liveBg.replace')}
+              aria-label={t('preview.display.liveBg.replace')}
+              onClick={(e) => { e.stopPropagation(); onUpload(); }}
+            >
+              <Upload size={13} />
+            </button>
+            <button
+              type="button"
+              className="pdp__live-dock-btn is-danger"
+              title={t('preview.display.liveBg.clear')}
+              aria-label={t('preview.display.liveBg.clear')}
+              onClick={(e) => { e.stopPropagation(); onClear(); }}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        </>
+      ) : (
+        <span className="pdp__live-plus" aria-hidden="true"><Plus size={22} /></span>
+      )}
+      <span className="pdp__pack-id">{t('preview.display.liveBg.custom')}</span>
+    </div>
+  );
+}
+
 function SimPackRow({
-  kind, label, value, buttonRef, onOpen,
+  kind, label, value, buttonRef, onOpen, liveBg, showNew = false,
 }: {
   kind: SimAssetPackKind;
   /** 行标签（UI 文案：「背景」/「轨道」） */
@@ -345,19 +513,28 @@ function SimPackRow({
   /** 「更换」钮的 ref（从选择器返回时把焦点还给它） */
   buttonRef?: (el: HTMLButtonElement | null) => void;
   onOpen: () => void;
+  liveBg?: LiveBgSlotState;
+  /** 首次发现：这一行是本次新增的落点 */
+  showNew?: boolean;
 }) {
+  const customOn = kind === 'background' && Boolean(liveBg?.useCustom && liveBg.hasImage);
   const { packs, display, thumb } = packDisplayInfo(kind, value);
+  const shown = customOn ? t('preview.display.liveBg.custom') : display;
   // 读不到图（404 / 快照没摆）→ 那一格降级成只有名字；换包后按新 URL 重新尝试
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   // 清单为空（这类素材一个包都没取到）→ 整行不出现（列表即真相，不占"缺失"位）
   if (packs.length === 0) return null;
-  const showThumb = thumb !== null && thumb !== brokenSrc;
+  const showThumb = !customOn && thumb !== null && thumb !== brokenSrc;
 
   return (
-    <div className="pdp__row pdp__row--stack">
-      <div className="pdp__row-text"><strong>{label}</strong></div>
+    <div className={`pdp__row pdp__row--stack${showNew ? ' is-new' : ''}`}>
+      <div className="pdp__row-text">
+        <div className="pdp__row-label"><strong>{label}</strong>{showNew ? <NewBadge /> : null}</div>
+      </div>
       <div className="pdp__pack-current">
-        {showThumb ? (
+        {customOn ? (
+          <LiveBgThumb source={liveBg?.thumb ?? null} className="pdp__pack-current-thumb" />
+        ) : showThumb ? (
           <img
             className="pdp__pack-current-thumb"
             src={thumb}
@@ -367,7 +544,7 @@ function SimPackRow({
         ) : (
           <span className="pdp__pack-current-thumb is-empty" aria-hidden="true" />
         )}
-        <span className="pdp__pack-current-name" title={display}>{display}</span>
+        <span className="pdp__pack-current-name" title={shown}>{shown}</span>
         <button
           ref={buttonRef}
           type="button"
@@ -390,7 +567,7 @@ function SimPackRow({
  * （回落默认 `skin00`），不弹错、不占"缺失"行。
  */
 function SimPackGrid({
-  kind, full, value, onChange, onHover,
+  kind, full, value, onChange, onHover, liveBg, liveBgHandlers, onUpload, showNew = false,
 }: {
   kind: SimAssetPackKind;
   /** 全称（分组 aria-label 用：表演背景 / 场地皮肤包） */
@@ -399,10 +576,16 @@ function SimPackGrid({
   onChange: (packId: string) => void;
   /** hover / focus 到某一格（大预览用；null = 离开） */
   onHover?: (packId: string | null) => void;
+  liveBg?: LiveBgSlotState;
+  liveBgHandlers?: LiveBgSlotHandlers;
+  onUpload?: () => void;
+  /** 首次发现：给「自定义」与「AAO 舞台」两格挂「新」角标 */
+  showNew?: boolean;
 }) {
   const { packs, activeId } = packDisplayInfo(kind, value);
   const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
-  if (packs.length === 0) return null;
+  if (packs.length === 0 && kind !== 'background') return null;
+  const packActive = kind === 'background' && liveBg?.useCustom ? null : activeId;
 
   return (
     <div
@@ -411,6 +594,19 @@ function SimPackGrid({
       aria-label={full}
       onMouseLeave={() => onHover?.(null)}
     >
+      {kind === 'background' ? (
+        <CustomLiveBgCell
+          liveBg={liveBg ?? {
+            available: false, hasImage: false, useCustom: false, fit: 'cover', name: null, thumb: null, image: null,
+          }}
+          disabled={!liveBg?.available}
+          isNew={showNew}
+          onSelect={() => liveBgHandlers?.onSelectCustom()}
+          onUpload={() => onUpload?.()}
+          onClear={() => liveBgHandlers?.onClear()}
+          onHover={onHover}
+        />
+      ) : null}
       {packs.map((pack) => {
         const thumb = simAssetPackThumbUrl(kind, pack.id, SIM_ASSET_SERVERS[0]);
         const display = simPackDisplayName(pack, kind);
@@ -418,13 +614,16 @@ function SimPackGrid({
           <button
             key={pack.id}
             type="button"
-            className={`pdp__pack-item${pack.id === activeId ? ' is-active' : ''}`}
-            aria-pressed={pack.id === activeId}
+            className={`pdp__pack-item${pack.id === packActive ? ' is-active' : ''}`}
+            aria-pressed={pack.id === packActive}
             title={display}
             onMouseEnter={() => onHover?.(pack.id)}
             onFocus={() => onHover?.(pack.id)}
             onBlur={() => onHover?.(null)}
-            onClick={() => onChange(pack.id)}
+            onClick={() => {
+              onChange(pack.id);
+              if (kind === 'background') liveBgHandlers?.onSelectPack();
+            }}
           >
             {thumb && !broken.has(thumb) ? (
               <img
@@ -434,6 +633,7 @@ function SimPackGrid({
                 onError={() => setBroken((prev) => new Set(prev).add(thumb))}
               />
             ) : null}
+            {showNew && pack.id === AAO_STAGE_PACK_ID ? <NewBadge /> : null}
             <span className="pdp__pack-id">{display}</span>
           </button>
         );
@@ -451,7 +651,8 @@ function SimPackGrid({
  * 亮度（票 43）也照当前设置压，所见即所得。
  */
 function SimPackPreview({
-  kind, packId, name, bgPackId, fieldPackId, brightness, panel,
+  kind, packId, name, bgPackId, fieldPackId, brightness, cover, panel,
+  customLiveBg, liveBgFit,
 }: {
   kind: SimAssetPackKind;
   packId: string;
@@ -460,19 +661,24 @@ function SimPackPreview({
   bgPackId: string;
   fieldPackId: string;
   brightness: number;
+  /** 作用域工程封面（票 84）：hover 到「AAO 舞台」时相框里要有东西，与舞台上一致 */
+  cover: CanvasImageSource | null;
   /** 面板的 fixed 位置（大预览贴它左侧） */
   panel: { top: number; left: number };
+  customLiveBg?: CanvasImageSource | null;
+  liveBgFit?: LiveBgFit;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** 同一批 URL 不重复 new Image（浏览器 HTTP 缓存之外再省一层解码） */
   const imagesRef = useRef(new Map<string, HTMLImageElement>());
   const pos = packPreviewLayout(panel);
+  const custom = packId === CUSTOM_LIVE_BG_SLOT_ID;
   const urls = useMemo(
     () => simAssetUrls(SIM_ASSET_SERVERS[0], {
       field: kind === 'field' ? packId : fieldPackId,
-      background: kind === 'background' ? packId : bgPackId,
+      background: custom ? bgPackId : (kind === 'background' ? packId : bgPackId),
     }),
-    [kind, packId, bgPackId, fieldPackId],
+    [kind, packId, bgPackId, fieldPackId, custom],
   );
 
   useEffect(() => {
@@ -489,7 +695,11 @@ function SimPackPreview({
         .catch(() => null);
     };
 
-    void Promise.all([load(urls.background), load(urls.field), load(urls.playLine)])
+    void Promise.all([
+      custom ? Promise.resolve(null) : load(urls.background),
+      load(urls.field),
+      load(urls.playLine),
+    ])
       .then(([background, field, playLine]) => {
         if (cancelled) return;
         const dpr = 2;
@@ -503,16 +713,24 @@ function SimPackPreview({
         }
         if (!ctx) return;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // 相框只在"预览里的背景是自带包"时存在（背景格子 hover 到的就是背景本身；轨道格子用当前背景）
+        const appOwned = isAppBackgroundPack(kind === 'background' ? packId : bgPackId);
         drawFieldLayers(
           ctx,
           fieldMetrics(PACK_PREVIEW_W, PACK_PREVIEW_H),
-          { background, field, playLine },
+          {
+            background: custom ? (customLiveBg ?? null) : background,
+            field,
+            playLine,
+            stageFrame: custom ? null : (appOwned ? { cover } : null),
+            liveBgFit: custom ? liveBgFit : undefined,
+          },
           brightness,
         );
       });
 
     return () => { cancelled = true; };
-  }, [urls, brightness]);
+  }, [urls, brightness, kind, packId, bgPackId, cover, custom, customLiveBg, liveBgFit]);
 
   return createPortal(
     <div className="pdp__preview" style={{ top: pos.top, left: pos.left }} aria-hidden="true">
@@ -531,11 +749,27 @@ function SimPackPreview({
  */
 export interface PreviewDisplayPanelProps {
   mode?: PreviewMode;
+  /**
+   * 作用域工程封面（票 84）：只给动态形态的 hover 大预览用 ——
+   * 挑背景时要能看见「AAO 舞台」相框里实际会填什么（空相框会让人以为没生效）。
+   */
+  cover?: CanvasImageSource | null;
+  /** 自定义表演背景槽位（票 42）；缺省 = 无工程，第一格不可用 */
+  liveBg?: LiveBgSlotState;
+  liveBgHandlers?: LiveBgSlotHandlers;
 }
 
-export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayPanelProps) {
+export default function PreviewDisplayPanel({
+  mode = 'static', cover = null, liveBg, liveBgHandlers,
+}: PreviewDisplayPanelProps) {
   const { settings, setDisplay, setPreview, setSeVolume } = useConfig();
   const nav = useOptionalAppNav();
+  /** 本批提示（票 42 / 84）：换功能就换 hintId，老用户机器上没有新键 → 天然 unseen */
+  const HINT_ID = 'stage-cover';
+  const [phase, setPhase] = useState<DiscoveryPhase>(() => readDiscovery(HINT_ID));
+  /** 红点只在动态形态 / 未点过设置时；角标在关过一次面板前一直指路 */
+  const showDot = phase === 'unseen' && mode === 'video';
+  const showBadge = phase !== 'visited';
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -551,13 +785,19 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
   const pendingRowFocus = useRef<SimAssetPackKind | null>(null);
   /** 刚进选择器：挂载后把焦点送进网格（原「更换」钮已卸载） */
   const pendingPickerFocus = useRef(false);
+  const liveBgFileRef = useRef<HTMLInputElement>(null);
 
   const close = useCallback(() => {
     setOpen(false);
     setPicker(null);
     setHovered(null);
     setConfirmingReset(false);
-  }, []);
+    if (mode === 'video' && phase !== 'unseen') {
+      // 动态形态关一次面板就收干净；静态预览不消费动态专属的提示
+      markVisited(HINT_ID);
+      setPhase('visited');
+    }
+  }, [mode, phase]);
 
   const handleReset = () => {
     const d = defaultSettings();
@@ -574,6 +814,9 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
       setPreview({
         noteSpeed: d.preview.noteSpeed,
         mirror: d.preview.mirror,
+        apCombo: d.preview.apCombo,
+        autoMode: d.preview.autoMode,
+        showGameUi: d.preview.showGameUi,
         bgBrightness: d.preview.bgBrightness,
         bgPackId: d.preview.bgPackId,
         fieldPackId: d.preview.fieldPackId,
@@ -598,10 +841,16 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
       return;
     }
     computePos();   // 先量再开：首帧就到位，不出现"先落在旧处再跳一下"
+    // 一打开就把红点收掉（用户已经知道「设置里有新东西」）；角标留给真正指路的那行。
+    // 静态形态没有这两处新功能，点开不算看过，也不写动态专属的键。
+    if (mode === 'video' && phase === 'unseen') {
+      markOpened(HINT_ID);
+      setPhase('opened');
+    }
     setPicker(null);
     setHovered(null);
     setOpen(true);
-  }, [open, computePos, close]);
+  }, [open, mode, phase, computePos, close]);
 
   /** 进二级选择器（从设置视图的一行「更换」） */
   const openPicker = useCallback((kind: SimAssetPackKind) => {
@@ -634,8 +883,8 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
     pendingPickerFocus.current = false;
     const panel = panelRef.current;
     const target =
-      panel?.querySelector<HTMLButtonElement>('.pdp__pack-item.is-active')
-      ?? panel?.querySelector<HTMLButtonElement>('.pdp__back');
+      panel?.querySelector<HTMLElement>('.pdp__pack-item.is-active')
+      ?? panel?.querySelector<HTMLElement>('.pdp__back');
     target?.focus();
   }, [open, picker]);
 
@@ -690,6 +939,8 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, close, picker, backToSettings]);
 
+  useDismissOnOutside(open, close, [btnRef, panelRef]);
+
   const { display, preview } = settings;
   // 显示名按当前界面语言选服（issue 49）→ 依赖里带 lang：运行中切语言当场换名
   const lang = getActiveUiLanguage();
@@ -725,11 +976,13 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
           aria-expanded={open}
           onClick={toggle}
         />
+        {showDot ? (
+          <span className="pdp__new-dot" role="img" aria-label={t('preview.display.new.dot')} />
+        ) : null}
       </span>
 
       {open && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={close} />
           {/* portal 是硬要求：外壳的进场动画会给直系子元素建常驻 stacking context（见 ScopePicker） */}
           <div
             ref={panelRef}
@@ -764,7 +1017,14 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                     picker === 'field' ? { fieldPackId: packId } : { bgPackId: packId },
                   )}
                   onHover={setHovered}
+                  liveBg={liveBg}
+                  liveBgHandlers={liveBgHandlers}
+                  onUpload={() => liveBgFileRef.current?.click()}
+                  showNew={showBadge && picker === 'background'}
                 />
+                {picker === 'background' && liveBg?.useCustom && liveBg.hasImage ? (
+                  <LiveBgFitPicker fit={liveBg.fit} onFit={liveBgHandlers?.onFit} />
+                ) : null}
               </div>
             ) : (
               <>
@@ -877,6 +1137,32 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                           onChange={(mirror) => setPreview({ mirror })}
                         />
                       </Row>
+                      {/* PERFECT 显示状态（51，2026-10-27）：开 = combo 走 AP 态（变色 + 呼吸光晕），
+                          关 = 游戏常态的纯白数字。实时预览与导出视频同一份 scene，不存在两套画面 */}
+                      <Row label={t('preview.display.apCombo')}>
+                        <Toggle
+                          label={t('preview.display.apCombo')}
+                          checked={preview.apCombo}
+                          onChange={(apCombo) => setPreview({ apCombo })}
+                        />
+                      </Row>
+                      {/* AUTO 模式（71；2026-11-08 验收：默认关、不影响 PERFECT 显示状态）：
+                          开 = 判定字 AUTO + AUTO LIVE 提示，关 = PERFECT + 无胶囊 */}
+                      <Row label={t('preview.display.autoMode')}>
+                        <Toggle
+                          label={t('preview.display.autoMode')}
+                          checked={preview.autoMode}
+                          onChange={(autoMode) => setPreview({ autoMode })}
+                        />
+                      </Row>
+                      {/* 顶栏只留一枚总开关：标签自解释，试一下即懂，不再挂 ? 提示；不用 HUD 行话 */}
+                      <Row label={t('preview.display.showGameUi')}>
+                        <Toggle
+                          label={t('preview.display.showGameUi')}
+                          checked={preview.showGameUi}
+                          onChange={(showGameUi) => setPreview({ showGameUi })}
+                        />
+                      </Row>
                       <Row label={t('settings.seVolume')}>
                         <Percent
                           label={t('settings.seVolume')}
@@ -903,6 +1189,8 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                         value={preview.bgPackId}
                         buttonRef={(el) => { rowRefs.current.background = el; }}
                         onOpen={() => openPicker('background')}
+                        liveBg={liveBg}
+                        showNew={showBadge}
                       />
                       <SimPackRow
                         kind="field"
@@ -999,17 +1287,35 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
           </div>
           {/* hover / focus 大预览（票 56 Q1=D）：浮在面板左侧、不占面板版面；
               画面 = 背景 → 轨道 → 判定线（复用 drawFieldLayers），亮度照当前设置 */}
-          {picker && hovered ? (
+          {picker && hovered && !(hovered === CUSTOM_LIVE_BG_SLOT_ID && !liveBg?.hasImage) ? (
             <SimPackPreview
               kind={picker}
               packId={hovered}
-              name={packDisplayInfo(picker, hovered).display}
+              name={hovered === CUSTOM_LIVE_BG_SLOT_ID
+                ? t('preview.display.liveBg.custom')
+                : packDisplayInfo(picker, hovered).display}
               bgPackId={preview.bgPackId}
               fieldPackId={preview.fieldPackId}
               brightness={preview.bgBrightness}
+              cover={cover}
               panel={pos}
+              customLiveBg={liveBg?.image ?? liveBg?.thumb ?? null}
+              liveBgFit={liveBg?.fit}
             />
           ) : null}
+          <input
+            ref={liveBgFileRef}
+            type="file"
+            accept={LIVE_BG_ACCEPT}
+            aria-hidden="true"
+            tabIndex={-1}
+            className="visually-hidden-input"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) liveBgHandlers?.onPickFile(file);
+            }}
+          />
         </>,
         document.body,
       )}

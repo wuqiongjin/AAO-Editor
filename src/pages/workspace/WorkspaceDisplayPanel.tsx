@@ -8,6 +8,7 @@ import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision }
 import type { GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 import HelpHint from '../../ui/HelpHint';
+import { useDismissOnOutside } from '../../ui/useDismissOnOutside';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 import { buildGridOptions, buildQualityOptions } from '../displayPanelOptions';
 import './WorkspaceDisplayPanel.css';
@@ -126,6 +127,7 @@ export default memo(function WorkspaceDisplayPanel() {
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -178,6 +180,8 @@ export default memo(function WorkspaceDisplayPanel() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, close]);
 
+  useDismissOnOutside(open, close, [btnRef, panelRef]);
+
   const { display } = settings;
   const nav = useOptionalAppNav();
   const lang = getActiveUiLanguage();
@@ -213,8 +217,8 @@ export default memo(function WorkspaceDisplayPanel() {
 
       {open && createPortal(
         <>
-          <span className="pp-menu__scrim" onClick={close} />
           <div
+            ref={panelRef}
             className="pp-menu__panel is-portaled wdp__panel"
             style={{ top: pos.top, left: pos.left }}
             role="dialog"
@@ -372,6 +376,16 @@ export default memo(function WorkspaceDisplayPanel() {
                   value={display.pinchMode}
                   options={pinchModeOptions}
                   onChange={(pinchMode) => setDisplay({ pinchMode })}
+                />
+              </Row>
+              <Row
+                label={t('settings.stretchCurveOnNodeDrag')}
+                hint={<HelpHint text={t('settings.stretchCurveOnNodeDrag.hint')} placement="up" />}
+              >
+                <Toggle
+                  label={t('settings.stretchCurveOnNodeDrag')}
+                  checked={display.stretchCurveOnNodeDrag}
+                  onChange={(stretchCurveOnNodeDrag) => setDisplay({ stretchCurveOnNodeDrag })}
                 />
               </Row>
             </section>

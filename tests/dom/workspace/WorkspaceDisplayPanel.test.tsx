@@ -28,7 +28,7 @@ function setup() {
 
 const trigger = () => screen.getByRole('button', { name: '画布显示设置' });
 const panel = () => screen.getByRole('dialog', { name: '画布显示设置' });
-const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
+const clickOutside = () => fireEvent.pointerDown(document.body);
 const stored = (): StoredSettings => JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as StoredSettings;
 
 const noteSizeSlider = () => within(panel()).getByRole('slider', { name: '节奏图示大小' });
@@ -46,6 +46,8 @@ const seVolumeSlider = () => within(panel()).getByRole('slider', { name: '节奏
 const invertWheelSwitch = () => within(panel()).getByRole('switch', { name: '反转滚轮方向' });
 const pinchModeSelect = () => within(panel()).getByRole('combobox', { name: '滑条拖拽变形风格' });
 const pinchModeHelpBtn = () => within(panel()).getByRole('button', { name: /设置在画布上直接拖拽滑条连接段时的默认形态/ });
+const stretchCurveSwitch = () => within(panel()).getByRole('switch', { name: '拖动滑条结点直接拉伸曲线' });
+const stretchCurveHelpBtn = () => within(panel()).getByRole('button', { name: /开启后，拖动滑条中的可见结点时（含端点）/ });
 const judgeLineOffsetSlider = () => within(panel()).getByRole('slider', { name: '判定线偏移' });
 const resetBtn = () => within(panel()).getByRole('button', { name: '恢复默认' });
 
@@ -94,6 +96,8 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(invertWheelSwitch()).toHaveAttribute('aria-checked', String(defaults.invertWheel));
     expect(pinchModeSelect()).toHaveValue(defaults.pinchMode);
     expect(pinchModeHelpBtn()).toBeInTheDocument();
+    expect(stretchCurveSwitch()).toHaveAttribute('aria-checked', String(defaults.stretchCurveOnNodeDrag));
+    expect(stretchCurveHelpBtn()).toBeInTheDocument();
     expect(resetBtn()).toBeInTheDocument();
   });
 
@@ -277,8 +281,8 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     fireEvent.click(trigger());
     expect(panel()).toBeInTheDocument();
 
-    // 点遮罩关
-    fireEvent.click(scrim());
+    // 点面板外关
+    clickOutside();
     expect(screen.queryByRole('dialog', { name: '画布显示设置' })).not.toBeInTheDocument();
   });
 
@@ -390,5 +394,24 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     fireEvent.click(resetBtn());
     fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
     expect(stored().display.judgeLineOffsetRatio).toBe(0);
+  });
+
+  it('拖动滑条结点直接拉伸曲线开关：默认关闭，切换写盘、帮助气泡及恢复默认生效', () => {
+    setup();
+    const sw = stretchCurveSwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+
+    const helpBtn = stretchCurveHelpBtn();
+    fireEvent.click(helpBtn);
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('不再按缓动函数或形状模板重新生成曲线');
+
+    fireEvent.click(sw);
+    expect(stored().display.stretchCurveOnNodeDrag).toBe(true);
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(resetBtn());
+    fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
+    expect(stored().display.stretchCurveOnNodeDrag).toBe(false);
   });
 });

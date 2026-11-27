@@ -7,6 +7,7 @@ import { projectedSlideSpans } from '../../chart/editing/SlideSegments';
 import { bandPolygonAt } from '../slideBandGeometry';
 import { makeCoords } from '../coords';
 import type { SelectionBox } from '../types';
+import { trueBeat } from '../../chart/editing/ChartEndBounds';
 
 // 命中尺寸常量 —— **与渲染同源**（`../primitives/noteMetrics`，issue 82）：两侧共用一份，
 // 不再各写一份硬编码副本（旧副本正是"命中盒比墨迹大一倍"的温床）。
@@ -110,12 +111,16 @@ function drawOrderKey(notes: readonly ChartNote[], item: SelectionItem, beatDisp
  */
 export function findItemAt(cx: number, cy: number, deps: HitTestDeps): SelectionItem | null {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
+  const geom = deps.geometry;
+  const scale = deps.viewport.scale;
+  const notePos = (beat: number, subBeat?: number) =>
+    geom.timeline.positionOfBeat(trueBeat(beat, subBeat, deps.beatDisplay));
   const ns = deps.noteSize ?? 1;
   // issue 82：命中盒 = 墨迹矩形 + 2px 余量（见 HIT_PADDING 注释），取代旧的圆形半径判定
-  const slideNodeHit = hitHalfSize(SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE, ns, deps.viewport.scale);
-  const noteHit = hitHalfSize(NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE, ns, deps.viewport.scale);
+  const slideNodeHit = hitHalfSize(SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE, ns, scale);
+  const noteHit = hitHalfSize(NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE, ns, scale);
   // 连接带区域与渲染同步 × noteSize（renderSpanBands 的带宽已含 ns）
-  const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale * ns) / 2;
+  const halfLaneWidth = (LANE_WIDTH * scale * ns) / 2;
 
   /** 单个音符的命中结果（滑条内部仍是**结点优先于段**，issue 56/77 定案不变） */
   const hitOne = (i: number): SelectionItem | null => {
@@ -129,8 +134,11 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       for (let ci = 0; ci < connections.length; ci++) {
         const conn = connections[ci];
         // issue 56 A6/C1：hidden 结点不可命中（不可选中、不可 hover、无描边反馈）
-        if (conn.hidden || conn.beat < 0) continue;
-        const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+        // issue 63：时间 < 0（首条 BPM 之前）的结点同理；按单次时间查询同时拿 pos 与 virtualY
+        if (conn.hidden) continue;
+        const p = notePos(conn.beat, conn.subBeat);
+        if (p < 0) continue;
+        const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), geom.virtualYOfPos(p, scale));
         if (inHitBox(cx, cy, pos.x, pos.y, slideNodeHit.hw, slideNodeHit.hh)) {
           return { kind: 'slideNode', noteIndex: i, connIndex: ci };
         }
@@ -141,23 +149,31 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       // 横截面口径 = `slideBandGeometry` 车道横向（与带体实绘、选中/hover 描边同源，issue 09 验收反馈六轮）。
       const proj = projectedSlideSpans(connections);
       for (const sp of proj.regions) {
+        const first = proj.conns[sp.start]!;
+        let pos1 = notePos(first.beat, first.subBeat);
         for (let ci = sp.start; ci < sp.end; ci++) {
           const c1 = proj.conns[ci]!, c2 = proj.conns[ci + 1]!;
-          const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
-          const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-          if (pointInQuad(cx, cy, bandPolygonAt([p1, p2], halfLaneWidth))) {
-            return { kind: 'slideRegion', noteIndex: i, connIndex: sp.connIndex };
+          const pos2 = notePos(c2.beat, c2.subBeat);
+          // issue 63：两端均在时间原点之前（pos < 0）的子段不渲染也不可命中
+          if (pos1 >= 0 || pos2 >= 0) {
+            const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), geom.virtualYOfPos(pos1, scale));
+            const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), geom.virtualYOfPos(pos2, scale));
+            if (pointInQuad(cx, cy, bandPolygonAt([p1, p2], halfLaneWidth))) {
+              return { kind: 'slideRegion', noteIndex: i, connIndex: sp.connIndex };
+            }
           }
+          pos1 = pos2;
         }
       }
     } else if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-      if (note.beat < 0) return null;
+      const p = notePos(note.beat, note.subBeat);
+      if (p < 0) return null;
       // issue 62：方向键整组都可命中（框到哪儿都能点中/拖起），与 issue 56 A4 的
       // "选中描边 = 整组一个矩形"同口径；半径沿用单键口径（箭头挂件那几 px 不算命中区）。
       const lanes = note.type === 'Single'
         ? [note.lane]
         : directionalLanes(note.lane, note.type, note.length);
-      const cy0 = c.getNoteVirtualY(note.beat, note.subBeat || 0);
+      const cy0 = geom.virtualYOfPos(p, scale);
       for (const lane of lanes) {
         const pos = c.virtualToCanvas(c.getNoteVirtualX(lane), cy0);
         if (inHitBox(cx, cy, pos.x, pos.y, noteHit.hw, noteHit.hh)) {
@@ -255,6 +271,10 @@ export function computeBpmLinesInBox(box: SelectionBox, deps: HitTestDeps): Sele
  */
 export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): SelectionItem[] {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
+  const geom = deps.geometry;
+  const scale = deps.viewport.scale;
+  const notePos = (beat: number, subBeat?: number) =>
+    geom.timeline.positionOfBeat(trueBeat(beat, subBeat, deps.beatDisplay));
   const minX = Math.min(box.x1, box.x2);
   const maxX = Math.max(box.x1, box.x2);
   const minY = Math.min(box.y1, box.y2);
@@ -272,8 +292,10 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
       const conns = (note as SlideNote).connections;
       conns.forEach((conn, ci) => {
         if (conn.hidden) return; // issue 56 A6：hidden 结点不入选区
+        const pos = notePos(conn.beat, conn.subBeat);
+        if (pos < 0) return; // issue 63：时间原点之前的结点不可选中
         const x = c.getNoteVirtualX(conn.lane);
-        const y = c.getNoteVirtualY(conn.beat, conn.subBeat || 0);
+        const y = geom.virtualYOfPos(pos, scale);
         if (x >= vminX && x <= vmaxX && y >= vminY && y <= vmaxY) {
           result.push({ kind: 'slideNode', noteIndex: index, connIndex: ci });
         }
@@ -284,20 +306,28 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
       const proj = projectedSlideSpans(conns);
       for (const sp of proj.regions) {
         let allIn = true;
+        let anyAtOrAfterOrigin = false;
         for (let ci = sp.start; ci <= sp.end; ci++) {
           const cc = proj.conns[ci]!;
+          const pos = notePos(cc.beat, cc.subBeat);
+          if (pos >= 0) anyAtOrAfterOrigin = true;
           const x = c.getNoteVirtualX(cc.lane);
-          const y = c.getNoteVirtualY(cc.beat, cc.subBeat || 0);
+          const y = geom.virtualYOfPos(pos, scale);
           if (!(x >= vminX && x <= vmaxX && y >= vminY && y <= vmaxY)) { allIn = false; break; }
         }
-        if (allIn) result.push({ kind: 'slideRegion', noteIndex: index, connIndex: sp.connIndex });
+        // issue 63：整段都在时间原点之前（无任何结点 ≥ 0）不可选中
+        if (allIn && anyAtOrAfterOrigin) result.push({ kind: 'slideRegion', noteIndex: index, connIndex: sp.connIndex });
       }
     } else if (note.type === "BPM") {
       // issue 71：BPM 线**不入框选选区**（它不是音符，选中无意义）。
       // 需要它的只有删除路径 —— 走 `computeBpmLinesInBox`（判据同源：整条覆盖）。
       return;
     } else {
-      const pts = deps.geometry.noteVirtualPoints(note, deps.viewport.scale, deps.beatDisplay);
+      if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional")
+          && notePos(note.beat, note.subBeat) < 0) {
+        return;
+      }
+      const pts = geom.noteVirtualPoints(note, scale, deps.beatDisplay);
       if (pts.some(p => p.x >= vminX && p.x <= vmaxX && p.y >= vminY && p.y <= vmaxY)) {
         result.push({ kind: 'note', noteIndex: index });
       }

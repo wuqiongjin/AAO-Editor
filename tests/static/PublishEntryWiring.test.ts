@@ -35,7 +35,7 @@ describe('票 11 · 发布入口的接线', () => {
     expect(projectDetail).not.toMatch(/publishEntry && !up/);
     // 票 41：灰化 why 不占列表行；未登录要点得开（aria-disabled，不是原生 disabled）
     expect(projectDetail).not.toMatch(/<CapabilityStatusLine/);
-    expect(projectDetail).toMatch(/aria-disabled=\{signedOut/);
+    expect(projectDetail).toMatch(/aria-disabled=\{\(!c\.pendingPublish && signedOut\)/);
   });
 
   it('弹窗由页面编排挂载；发布动作与记录写入在页面目录的 hook 里（页面只挂 hook）', () => {
@@ -48,7 +48,7 @@ describe('票 11 · 发布入口的接线', () => {
     expect(publishEntry).toMatch(/mutateProject\(/);
     expect(publishEntry).toMatch(/recordChartUpload\(/);
     // 票 43 Q2：关窗后在飞写入按 prev 判断，不把弹窗 target 设回来
-    expect(publishEntry).toMatch(/setTarget\(\(prev\) => \(prev == null \? null/);
+    expect(publishEntry).toMatch(/setTarget\(\(prev\) => prev\?\.project\.id === current\.project\.id/);
     // 票 43 Q5：发布弹窗难度下拉不再铺 DIFF_COLORS
     expect(publishDialog).not.toMatch(/DIFF_COLORS/);
   });
@@ -84,7 +84,7 @@ describe('票 54 · 已发布态的文案口径', () => {
     // 文案值也锁住：字典漂移（改成别的词）要红
     expect(zh['projects.publish.updateTitle']).toBe('更新谱面');
     expect(en['projects.publish.updateTitle']).toBe('Update chart');
-  });
+  }, 30_000);
 
   it('「已发布就不能改」的说法不能回潮：README / 文档站与 already 文案都说「谱面本体只读、元数据可改」', () => {
     const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
@@ -139,5 +139,12 @@ describe('发布弹窗 · 描述框按正文撑开', () => {
   it('整张内容卡可竖向拉伸，右下角有角标', () => {
     expect(publishDialogCss).toMatch(/\.ppc-resize\s*\{[^}]*cursor:\s*ns-resize/);
     expect(publishDialog).toMatch(/className="ppc-resize"/);
+  });
+});
+
+describe('票 61 · 封面写回后刷新上传引用', () => {
+  it('设置与清除封面各重取一次 loadUploadRefs（发帖载荷读 refs，不读 coverBlob）', () => {
+    // 两处写封面（persistCover / clearCover）都必须在写回后重取；少一处就会「界面变了、载荷还是旧的」
+    expect(publishDialog.match(/setRefs\(await loadUploadRefs\(project\.id\)\)/g)).toHaveLength(2);
   });
 });

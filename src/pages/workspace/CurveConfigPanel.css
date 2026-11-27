@@ -1,36 +1,364 @@
-/* 曲线配置四行表单（票 182） */
+/* 曲线工具图形化选型面板（issue 235） */
 
 .ccp {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.ccp__row {
+.ccp-svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* 迷你曲线的墨色随界面主题走（issue 242 亮色补齐）：浅砖上用深墨、深砖上沿用荧光墨。
+   形状绿 / 缓动蓝各自一套；端点环宽也分开——暗色缓动端点原本只填色不描边，
+   亮色两端都加白环才从带状填充里脱出来。变量的明暗两套见 `CurveOptionsCapsule.css` 的 `.coc`。 */
+.ccp-svg--shape {
+  --curve-ink: var(--curve-ink-shape);
+  --curve-band: var(--curve-band-shape);
+  --curve-dot: var(--curve-dot-shape);
+  --curve-dot-ring: var(--curve-dot-ring-shape);
+  --curve-dot-ring-w: 1px;
+}
+
+.ccp-svg--easing {
+  --curve-ink: var(--curve-ink-easing);
+  --curve-band: var(--curve-band-easing);
+  --curve-chord: var(--curve-chord-easing);
+  --curve-dot: var(--curve-dot-easing);
+  --curve-dot-ring: var(--curve-dot-ring-easing);
+  --curve-dot-ring-w: 1px;
+}
+
+[data-theme="dark"] .ccp-svg--easing {
+  --curve-dot-ring-w: 0;
+}
+
+.ccp-svg__chord {
+  stroke: var(--curve-chord);
+}
+
+.ccp-svg__band {
+  fill: var(--curve-band);
+}
+
+.ccp-svg__line {
+  stroke: var(--curve-ink);
+}
+
+.ccp-svg__dot {
+  fill: var(--curve-dot);
+  stroke: var(--curve-dot-ring);
+  stroke-width: var(--curve-dot-ring-w);
+}
+
+.ccp__seg {
   display: grid;
-  grid-template-columns: minmax(44px, max-content) 1fr;
+  grid-template-columns: 1fr 1.25fr;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+}
+
+.ccp__seg-btn {
+  height: 25px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ccp .ccp__seg-btn.is-active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.ccp__tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 1px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.ccp__tab {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 26px;
+  padding: 0 2px 5px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ccp .ccp__tab.is-active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* 英文分类名比中文长得多：「Gluten / Chain」在 12.5px 下要 84.7px，等宽格只有 73px，
+   会被省略成「Gluten / C…」。英文界面改成按内容分配宽度——中文四个词长度相近，等宽更好看，
+   没必要为最长的那种语言牺牲另一种的排布；`min-width: 0` 仍在，窄到极限时照旧可缩。 */
+[lang='en'] .ccp__tab {
+  flex: 1 1 auto;
+}
+
+.ccp__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  max-height: 228px;
+  overflow-y: auto;
+  /* 网格滚到端点后，接续滚动由面板（`.coc__body`）自己接 —— 别让浏览器把它链给画布 */
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+
+/* 形状模板卡与缓动族卡共用一套骨架：两张卡只差强调色、间距与激活底色，留成变量，
+   调圆角 / 过渡 / hover 时不用改两遍（改一处漏一处就是两套观感）。
+   砖底与墨色走主题变量：亮色浅砖 + 深墨，暗色沿用 242 的深砖 + 荧光墨。 */
+.ccp__card,
+.ccp__easing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 3px;
+  padding: 6px 4px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--curve-stage-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+  /* RGB 通道分开存：边框与激活环是同一强调色的不同透明度 */
+  --ccp-card-accent: 21 128 61;
+  --ccp-card-active-bg: var(--curve-active-shape);
+}
+
+.ccp__card:hover,
+.ccp__easing-card:hover {
+  border-color: rgb(var(--ccp-card-accent) / 0.55);
+  background: var(--curve-stage-hover);
+}
+
+.ccp__card.is-active,
+.ccp__easing-card.is-active {
+  border-color: rgb(var(--ccp-card-accent));
+  background: var(--ccp-card-active-bg);
+  box-shadow: 0 0 0 1px rgb(var(--ccp-card-accent) / 0.45);
+}
+
+/* 亮色那档深绿 / 深蓝是压浅砖对比度用的；暗色仍用荧光强调色，贴合谱面恒深的观感 */
+[data-theme="dark"] .ccp__card {
+  --ccp-card-accent: 74 222 128;
+}
+
+/* 卡名与族卡副名共用截断口径（五列下必有一两档长词） */
+.ccp__card-name,
+.ccp__card-sub {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ccp__card-name {
+  font-size: 11.5px;
+  line-height: 1.15;
+}
+
+.ccp__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* 本行有两套控件：档位模式是 23px 胶囊按钮，自由模式是滑块 + 数值框。两套盒高必须一致、
+   且不低于行高——否则自由行比档位行矮 1px，切换模式时每行都往上收一点、逐行累积成可见错位
+   （实测 4 行累计 2.5px，标签横向不动，所以只在纵向看出来）。滑块仍 18px：改它会动到原生
+   轨道 / 滑块头的画法，由行高 + 居中在行内对齐即可。 */
+.ccp__ctrl-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  align-items: center;
+  gap: 6px;
+  min-height: 23px;
+}
+
+.ccp__ctrl-label {
   font-size: 11.5px;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
-.ccp__select {
-  height: 26px;
+.ccp__ctrl-label--reset {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ccp__free-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  padding: 0 6px;
-  border: 1px solid var(--border);
+}
+
+.ccp__slider {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ccp__num-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ccp__num-input {
+  width: 48px;
+  height: 23px;
+  padding: 0 5px;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
   background: var(--bg-inset);
   color: var(--text);
   font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ccp__unit {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  min-width: 11px;
+}
+
+.ccp__pills {
+  display: flex;
+  gap: 4px;
+}
+
+.ccp__pill-btn {
+  flex: 1;
+  height: 23px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ccp .ccp__pill-btn.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.ccp__pill-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- 控件字号 ----
+   `.app-shell button, .app-shell input { font: inherit }` 是 (0,1,1)，比单类选择器高一级：
+   写在单类上的 font-size / font-weight 会被它整条顶掉、退回父级 14px（3 个字的胶囊、1/16
+   这类数值都会撑到贴边）。字号在这里是**尺寸契约**不是排版偏好，所以用「祖先类 + 控件类」
+   (0,2,0) 来写；上面 `.is-active` 的加粗也带 `.ccp ` 前缀（0,3,0），免得被这里的 500 盖掉。
+
+   两档：分段与分类 Tab 是这一层的导航，12.5；胶囊与数值框承载具体取值，12（工作台里
+   其余面板的正文也多在 12）。**上限由 Tab 决定**：面板固定 348px、四格各 77px，去掉内边距
+   可用 73px；12.5px 下最长的「节奏/震动」实测 56.2px，余量 16.8px——再往上到 14px 一线
+   就只剩 10px 左右，英文分类名也会更早走省略号。 */
+.ccp .ccp__seg-btn {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.ccp .ccp__tab {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.ccp .ccp__pill-btn {
   font-size: 12px;
 }
 
-.ccp__select:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -1px;
+.ccp .ccp__num-input {
+  font-size: 12px;
 }
 
-.ccp__select:disabled {
-  opacity: 0.45;
+/* 缓动函数页（issue 242）：与形状模板页同构——上排缓动型胶囊、中部族卡网格、底部精度。
+   型 / 族各自做成一组直选按钮：选曲线看的是形状不是文字，改一次值只该点一次。 */
+.ccp__easing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 5 列 × 10 族 = 恰好两行、无尾行空位；不设 max-height / overflow —— 两行本就不用滚，
+   设了反而会在短窗下多出一条与面板滚动打架的内层滚动条。 */
+.ccp__easing-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  padding: 2px;
+}
+
+/* 缓动族卡：比模板卡窄一档（五列），强调色用缓动曲线的蓝，让「同一个型的十种族」读成一族 */
+.ccp__easing-card {
+  gap: 2px;
+  padding: 5px 2px 4px;
+  --ccp-card-accent: 3 105 161;
+  --ccp-card-active-bg: var(--curve-active-easing);
+}
+
+[data-theme="dark"] .ccp__easing-card {
+  --ccp-card-accent: 56 189 248;
+}
+
+/* 中文界面族卡的副行（中文释名）；英文界面没有这一行 */
+.ccp__card-sub {
+  font-size: 10.5px;
+  line-height: 1.1;
+  color: var(--text-muted);
+}
+
+.ccp__pill-btn:focus-visible,
+.ccp__card:focus-visible,
+.ccp__easing-card:focus-visible,
+.ccp__tab:focus-visible,
+.ccp__seg-btn:focus-visible,
+.ccp__num-input:focus-visible,
+.ccp__slider:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
 }

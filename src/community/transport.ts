@@ -34,7 +34,11 @@ export type CommunityErrorKind =
   /** 网关发起请求之前就拒了：越界主机、非法方法、renderer 自带凭据头 */
   | 'request-rejected'
   /** 本机素材缓存写不进去（磁盘满 / 权限），社区平台侧没问题（07 起的码名沿用，14 起指缓存） */
-  | 'staging-failed';
+  | 'staging-failed'
+  /** 调用方通过 AbortSignal / cancel 主动取消了请求（票 57） */
+  | 'aborted'
+  /** cacheOnly 请求在本地磁盘缓存未命中（票 57） */
+  | 'cache-miss';
 
 /**
  * 每类错误的性质，**一处定义**（重试判定在 rateLimit、离线判定在 availability，都来查这张表）：
@@ -51,6 +55,8 @@ const KIND_TRAITS: Record<CommunityErrorKind, { retryable: 'always' | 'server' |
   'unsupported-runtime': { retryable: 'never', offline: false },
   'request-rejected': { retryable: 'never', offline: false },
   'staging-failed': { retryable: 'never', offline: false },
+  aborted: { retryable: 'never', offline: false },
+  'cache-miss': { retryable: 'never', offline: false },
 };
 
 export function isRetryableKind(kind: CommunityErrorKind, httpStatus?: number): boolean {
@@ -114,6 +120,8 @@ export interface CommunityRequest {
   timeoutMs?: number;
   /** binary：进素材缓存的文件名建议（网关只取 basename 并短哈希前缀） */
   suggestedName?: string;
+  /** binary：媒体类型验真（image 拒绝坏图进缓存，audio 拒绝空字节，票 56） */
+  mediaKind?: 'image' | 'audio';
   /**
    * 让网关缓存这次响应（**读型 POST** 才需要；GET 的 json / text 本来就缓存）。
    * 07/14 的默认口径是「POST 不缓存」（发帖 / 登录都是写），所以这里必须**显式**声明；
@@ -142,6 +150,12 @@ export interface CommunityRequest {
    * 命中时不作为非预期错误写入 errors 日志，交由调用方自行分支处理（票 55）。
    */
   silentPlatformCodes?: string[];
+  /** 仅读磁盘缓存，不发网络也不后台补拉（票 57） */
+  cacheOnly?: boolean;
+  /** 取消信号：中断退避重试并通知主进程取消在途/排队请求（票 57，不上 IPC） */
+  signal?: AbortSignal;
+  /** 内部/IPC 请求取消标识（由 transport 从 signal 自动派生） */
+  requestId?: string;
 }
 
 /** multipart 上传描述（`file` 字段；平台侧字段名固定，见 publish.ts） */
@@ -208,4 +222,9 @@ export function isOfflineError(value: unknown): boolean {
 /** 能力层把「响应不是预期形态」翻成统一错误域的共用工厂（票 38 #1：songs / posts 各一份同形私有函数上收） */
 export function invalidResponse(message: string): CommunityError {
   return new CommunityError(message, { kind: 'invalid-response', message });
+}
+
+/** 取消信号触发时的统一错误工厂（票 57：rateLimit / electronTransport / catalog / posts 共用） */
+export function abortedRequest(message = '请求已取消'): CommunityError {
+  return new CommunityError(message, { kind: 'aborted', message });
 }

@@ -232,6 +232,11 @@ export interface PostCandidate {
   title: string;
   /** 谱师展示名（nickname 优先，退 username）；两者都缺为空串 */
   charter: string;
+  /**
+   * 谱师的站点**账号名**（`author.username`）：`post/list` 的 `username` 过滤只认它
+   * （票 59；`REQUEST_INVALID` 连前缀都不支持）。取不到为空串 —— 界面据此决定谱师名可不可点。
+   */
+  charterUsername: string;
   /** 帖子自报的歌曲 artists（自填文本，与曲库歌手无关） */
   artists: string;
   /** 谱面难度 0..4（与工程难度同值） */
@@ -249,6 +254,25 @@ function toCharter(raw: unknown): string {
   if (nickname !== '') return nickname;
   const username = typeof raw.username === 'string' ? raw.username.trim() : '';
   return username;
+}
+
+function toCharterUsername(raw: unknown): string {
+  if (!isPlainObject(raw)) return '';
+  return typeof raw.username === 'string' ? raw.username.trim() : '';
+}
+
+/**
+ * 列表 / 预览要显示的歌手（票 60 Q3=A）。
+ *
+ * bandori 帖的 `post.artists` 是谱师**自填**文本（实测有 `ras` / `91` / `ykn` 这类缩写），
+ * 而导入后工程的 artist 用的是曲库官方乐队名（`communityImport.projectMeta`）——
+ * 展示若照抄自填，就会出现「列表写 ykn、建出来是 Roselia」。所以官方候选到位时以它为准，
+ * 候选还没到（曲库在拉 / 拉失败 / 帖子的曲目已下架）才退自填；custom 帖没有官方来源，一律自填。
+ */
+export function postArtist(post: PostCandidate, official?: SongCandidate | null): string {
+  if (post.song.kind !== 'bandori') return post.artists;
+  const name = official?.artist.trim() ?? '';
+  return name !== '' ? name : post.artists;
 }
 
 function toPostSong(raw: unknown): PostSongRef | null {
@@ -286,6 +310,7 @@ export function toPostCandidate(raw: unknown, fallbackId?: number): PostCandidat
     postId,
     title: typeof raw.title === 'string' ? raw.title : '',
     charter: toCharter(raw.author),
+    charterUsername: toCharterUsername(raw.author),
     artists: typeof raw.artists === 'string' ? raw.artists : '',
     diff: Math.trunc(diff),
     level,
@@ -315,13 +340,31 @@ export function toPostPage(raw: unknown): { total: number; rawCount: number; pos
  * 帖子详情 → 候选 + 谱面代码原文（`chart` 数组是完整谱面，交给 Apply 闸门，票 09）。
  * 平台事实（票 27 实测）：`post/details` 的 `post` 对象不包含 `id`，必须由调用方传入 `fallbackId`（即请求 URL 中的 postId）。
  */
-export function toPostDetail(raw: unknown, fallbackId?: number): { post: PostCandidate; chartCodeText: string } | null {
+export interface PostDetail {
+  post: PostCandidate;
+  chartCodeText: string;
+  authorUsername: string | null;
+  tags: { type: 'text'; data: string }[];
+}
+
+export function toPostDetail(raw: unknown, fallbackId?: number): PostDetail | null {
   if (!isPlainObject(raw) || raw.result !== true) return null;
   if (!isPlainObject(raw.post)) return null;
   if (!Array.isArray(raw.post.chart)) return null;
   const post = toPostCandidate(raw.post, fallbackId);
   if (!post) return null;
-  return { post, chartCodeText: JSON.stringify(raw.post.chart) };
+  const author = raw.post.author;
+  const authorUsername = isPlainObject(author) && typeof author.username === 'string'
+    ? author.username : null;
+  const tags: PostDetail['tags'] = [];
+  if (Array.isArray(raw.post.tags)) {
+    for (const tag of raw.post.tags) {
+      if (isPlainObject(tag) && tag.type === 'text' && typeof tag.data === 'string') {
+        tags.push({ type: 'text', data: tag.data });
+      }
+    }
+  }
+  return { post, chartCodeText: JSON.stringify(raw.post.chart), authorUsername, tags };
 }
 
 /* ---------------- 账号（票 10 能力 10） ---------------- */
