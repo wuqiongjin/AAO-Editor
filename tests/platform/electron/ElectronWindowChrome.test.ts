@@ -3,9 +3,11 @@ import { describe, it, expect } from 'vitest';
 import {
   DARK_BG,
   LIGHT_BG,
+  applyNativeThemeSource,
   chromeBackgroundFor,
   normalizeAppTheme,
   resolvedAppearance,
+  syncAllWindowsChrome,
 } from '@/electron/window/windowChrome.cjs';
 import { stripComments, readSource, readSources } from '@/tests/support/source';
 
@@ -29,6 +31,51 @@ describe('issue 126 · windowChrome 纯函数', () => {
     expect(resolvedAppearance('dark', false)).toBe('dark');
     expect(resolvedAppearance('system', true)).toBe('dark');
     expect(resolvedAppearance('system', false)).toBe('light');
+  });
+});
+
+describe('issue 257 · nativeTheme 源同值不重复赋值（退出通道 / 能耗）', () => {
+  it('同值跳过、不同值才写：updated → sync 不会自激成永动循环', () => {
+    let writes = 0;
+    let value = 'system';
+    const nativeTheme = {
+      get themeSource() { return value; },
+      set themeSource(next: string) { writes += 1; value = next; },
+    };
+
+    applyNativeThemeSource('system', nativeTheme);
+    expect(writes).toBe(0);
+    expect(value).toBe('system');
+
+    applyNativeThemeSource('dark', nativeTheme);
+    expect(writes).toBe(1);
+    applyNativeThemeSource('dark', nativeTheme);
+    expect(writes).toBe(1);
+
+    applyNativeThemeSource('bogus', nativeTheme);
+    expect(writes).toBe(2);
+    expect(value).toBe('system');
+  });
+
+  it('system 主题下 OS 深浅切换仍更新窗体背景（同值跳过不冻结 chrome）', () => {
+    let dark = false;
+    let writes = 0;
+    let themeSource = 'system';
+    const colors: string[] = [];
+    const nativeTheme = {
+      get themeSource() { return themeSource; },
+      set themeSource(next: string) { writes += 1; themeSource = next; },
+      get shouldUseDarkColors() { return dark; },
+    };
+    const win = { setBackgroundColor: (color: string) => colors.push(color) };
+    const deps = { nativeTheme, BrowserWindow: { getAllWindows: () => [win] } };
+
+    syncAllWindowsChrome(deps);
+    dark = true;
+    syncAllWindowsChrome(deps);
+
+    expect(colors).toEqual([LIGHT_BG, DARK_BG]);
+    expect(writes).toBe(0);
   });
 });
 
