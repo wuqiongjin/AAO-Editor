@@ -69,7 +69,7 @@ minimal_quit_probe() {
 minimal_quit_probe
 
 echo "启动源码模式 Electron（pid 待记录）"
-AAO_SMOKE_DIAG=1 AAO_SMOKE_DIAG_FILE="$DIAG_FILE" "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
+AAO_SMOKE_DIAG=1 AAO_SMOKE_PROFILE=1 AAO_SMOKE_DIAG_FILE="$DIAG_FILE" "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
 APP_PID=$!
 echo "APP_PID=${APP_PID}"
 slog "launch electron pid=${APP_PID}"
@@ -177,6 +177,13 @@ if [[ "$EXITED" != "1" ]]; then
   echo "注入后 frontmost=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1 || true)"
   ps -p "$APP_PID" -o pid,stat,%cpu,etime,comm || true
   ps -axo pid,comm | grep -Ei 'securityagent|loginwindow|electron' || true
+  # 诊断：quit 后仍活着，抓主进程各线程 CPU、打开的 fd、附件（判断卡在哪个线程/资源）
+  echo "::group::线程（诊断用）"
+  ps -M "$APP_PID" 2>/dev/null | head -80 || true
+  echo "::endgroup::"
+  echo "::group::打开的 fd（诊断用）"
+  lsof -p "$APP_PID" 2>/dev/null | head -80 || true
+  echo "::endgroup::"
   # 仅诊断：读应用菜单里 Quit 的快捷键，再点一次菜单 Quit；区分「⌘Q 没送到」与「应用 quit 被卡住」
   MENU_DUMP="$(osascript -e "
 with timeout of 10 seconds
@@ -218,13 +225,36 @@ end timeout" 2>&1 || true)"
   if process_alive; then
     sample "$APP_PID" 2 -file "$RUN_TMP/aao-smoke-sample.txt" >/dev/null 2>&1 || true
     if [[ -f "$RUN_TMP/aao-smoke-sample.txt" ]]; then
-      echo "::group::sample（诊断用，前 80 行）"
-      sed -n '1,80p' "$RUN_TMP/aao-smoke-sample.txt" || true
+      echo "::group::sample 线程汇总（诊断用）"
+      grep -E '^ *[0-9]+ Thread_' "$RUN_TMP/aao-smoke-sample.txt" | head -40 || true
+      echo "::endgroup::"
+      echo "::group::sample（诊断用，前 200 行）"
+      sed -n '1,200p' "$RUN_TMP/aao-smoke-sample.txt" || true
       echo "::endgroup::"
     fi
   fi
   dump_log "主进程诊断时间线" "$DIAG_FILE"
   dump_log "Electron 运行日志" "$LOG_FILE"
+  # 对照：同一台 runner 上刚打出的分发包按 ⌘Q 会不会退出（区分源码模式与产品包）
+  PACKAGED_BIN="release/mac-arm64/AAO Editor.app/Contents/MacOS/AAO Editor"
+  if [[ -x "$PACKAGED_BIN" ]]; then
+    echo "诊断：启动分发包对照 ${PACKAGED_BIN}"
+    "$PACKAGED_BIN" >"$RUN_TMP/packaged.log" 2>&1 &
+    PKG_PID=$!
+    sleep 8
+    osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${PKG_PID} to true" >>"$OSA_LOG" 2>&1 || true
+    sleep 1
+    osascript -e 'tell application "System Events" to key code 12 using command down' >>"$OSA_LOG" 2>&1 || true
+    for i in $(seq 1 10); do kill -0 "$PKG_PID" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$PKG_PID" 2>/dev/null; then
+      echo "诊断：分发包 ⌘Q 后进程仍活着"
+      kill -9 "$PKG_PID" 2>/dev/null || true
+    else
+      echo "诊断：分发包 ⌘Q 后正常退出"
+    fi
+  else
+    echo "诊断：未找到分发包二进制，跳过分发包对照"
+  fi
   fail "系统级 ⌘Q 后进程仍在（pid=${APP_PID}）"
 fi
 

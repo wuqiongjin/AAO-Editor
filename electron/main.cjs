@@ -257,6 +257,36 @@ if (process.env.AAO_SMOKE_DIAG === '1') {
             }
         }, 3000);
     });
+    // quit 后进程仍活着时抓主进程 JS 在跑什么（诊断用，AAO_SMOKE_PROFILE=1 才启用）
+    if (process.env.AAO_SMOKE_PROFILE === '1') {
+        try {
+            const inspector = require('inspector');
+            const session = new inspector.Session();
+            session.connect();
+            session.post('Profiler.enable');
+            session.post('Profiler.start');
+            log('cpu profiler started');
+            app.on('quit', () => {
+                setTimeout(() => {
+                    session.post('Profiler.stop', (err, result) => {
+                        try {
+                            if (err) {
+                                log('cpu profiler stop failed', String(err));
+                                return;
+                            }
+                            const file = `${diagFile}.cpuprofile`;
+                            fs.writeFileSync(file, JSON.stringify(result.profile));
+                            log('cpu profile written', file, 'nodes=', (result.profile.nodes || []).length);
+                        } catch (e) {
+                            log('cpu profile write failed', String(e));
+                        }
+                    });
+                }, 4000);
+            });
+        } catch (err) {
+            log('cpu profiler start failed', String(err));
+        }
+    }
     app.on('render-process-gone', (_e, _wc, details) => log('render-process-gone', JSON.stringify(details)));
     app.on('child-process-gone', (_e, details) => log('child-process-gone', JSON.stringify(details)));
     app.on('browser-window-created', (_e, win) => {

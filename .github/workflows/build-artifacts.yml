@@ -57,6 +57,14 @@ jobs:
       # 失败会让本 job 红并阻断 artifact 上传（issue 257 开工确认）
       - name: 无界面冒烟：电源锁 + 系统级 ⌘Q 退出（issue 257）
         run: bash scripts/ci/macos-smoke.sh
+      - name: 冒烟诊断产物（失败时，issue 257 排查用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-smoke-diag
+          path: ${{ runner.temp }}/aao-*
+          if-no-files-found: warn
+          retention-days: 7
       - name: 上传 macOS 安装包 (Artifact)
         uses: actions/upload-artifact@v4
         with:
