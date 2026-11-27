@@ -1,7 +1,7 @@
 # 257 · macOS 修饰键展示、⌘Q 退出通道与能耗门禁
 
 - **Type**: grilling
-- **Status**: claimed（定案于 2026-11-26；代码已实现并锁测，**CI 冒烟待 GitHub `macos-latest` 首跑验收**）
+- **Status**: resolved（定案于 2026-11-26；2026-11-27 GitHub `macos-latest` 冒烟绿）
 - **关联**: [ADR-0002](../../../docs/adr/0002-快捷键系统与自定义配置.md) · 前置 [210](./210-macOS能耗异常与音频硬件及应用壳保活优化.md) · [211](./211-macOS应用生命周期与关闭退出处理.md)
 - **相关（本票不改）**: [19](../../release-pipeline/issues/19-macOS未签名与Apple-Silicon提示已损坏.md)（签名 / Gatekeeper，已 resolved）
 
@@ -108,3 +108,9 @@
   - **补 2 个 DOM 锁测**（评审指出原锁测只测纯函数）：`tests/dom/settings/ReservedQuitDispatch.test.tsx` 锁住 darwin ⌘Q 不派发 / 不 `preventDefault`、Control+Q 仍派发 `execMirror`；`tests/dom/pages/ShortcutsPageReservedQuit.test.tsx` 锁住录制弹窗按 ⌘Q 后不关窗、草稿不写入、Control+Q 可继续录制。两者桩 `navigator.platform='MacIntel'` 锁 darwin 分支。
   - **未改 2 项及理由**：跨文件文档同步（ADR / CONTEXT / 文档站 / i18n）是本票实现落点明确要求，不是 Shotgun Surgery；Mac 连写与 `⇧`/`⌥` 字形是 `formatKey('ctrl+f') → ⌘F` 锁测 + Apple HIG 的自然延伸，已写进本票实现记录，不回退成 `⌘+Shift+Q`。
   - **复验**：`npm test` 全量 **476 文件 / 5411 用例通过**（新增 3 条 DOM、删去 2 条越界 static）；改动文件 `eslint` 无报错；`bash -n` 通过。CI 冒烟仍待真 Mac 首跑，状态维持 `claimed`。
+- **2026-11-27 CI 冒烟定位并修掉 quit 不退出的根因**：
+  - **现场**：`build-macos` 连续红在「系统级 ⌘Q 后进程仍在」。真机时间线显示 `before-quit → window close → wc destroyed → will-quit → quit` 全部 200ms 内跑完，但进程一直活着；菜单 Quit 同样不退；同机最小 Electron 应用 ⌘Q 正常退出。电源锁侧本应用不持有 `PreventUserIdleSystemSleep`。
+  - **根因（V8 CPU profile 坐实）**：54s profile 里 **10,271/12,311 个 JS 采样落在 `syncAllWindowsChrome → applyNativeThemeSource`**。`nativeTheme.on('updated')` 回调在 `system` 主题下无条件 `syncAllWindowsChrome`，而 `applyNativeThemeSource` 无条件写 `nativeTheme.themeSource = 'system'`；Electron 对 **同值赋值也会再发 `updated`**，于是形成 `updated → sync → themeSource=system → updated` 永动循环。主消息循环因此永不 idle，`app.quit()` 的 `QuitWhenIdleClosure` 永远等不到 → 进程退不掉；同一循环也是主进程持续耗 CPU 的来源（能耗症状）。
+  - **修法**：`applyNativeThemeSource` 同值跳过（`nativeTheme.themeSource !== source` 才写），切断自激；OS 深浅变化时仍由 `applyBrowserWindowChrome` 读新的 `shouldUseDarkColors` 更新窗体背景，issue 126 语义不变。锁测 `tests/platform/electron/ElectronWindowChrome.test.ts`「同值跳过、不同值才写」。
+  - **清理**：删除冒烟排查用的主进程 `AAO_SMOKE_DIAG` 临时诊断（心跳 / 句柄探针 / CPU profiler）与冒烟脚本里的最小 Electron 对照、AX 菜单、截图、sample、分发包对照；冒烟回到「空闲 40s → `pmset` → 系统级 ⌘Q → 进程消失」。
+  - **验证**：本地 `npm test` 全量 **476 文件 / 5434 用例通过**，改动文件 `eslint` 无报错；GitHub `build-artifacts` run #16 的 `build-macos` 绿：`pmset` 无本应用 `PreventUserIdleSystemSleep`，⌘Q 注入后约 2s 内进程消失，artifact 正常上传。方向键/修饰键展示与 ⌘Q 保留逻辑均未回退。
