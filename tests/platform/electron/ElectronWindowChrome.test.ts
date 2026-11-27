@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DARK_BG,
   LIGHT_BG,
+  applyNativeThemeSource,
   chromeBackgroundFor,
   normalizeAppTheme,
   resolvedAppearance,
@@ -29,6 +30,30 @@ describe('issue 126 · windowChrome 纯函数', () => {
     expect(resolvedAppearance('dark', false)).toBe('dark');
     expect(resolvedAppearance('system', true)).toBe('dark');
     expect(resolvedAppearance('system', false)).toBe('light');
+  });
+});
+
+describe('issue 257 · nativeTheme 源同值不重复赋值（退出通道 / 能耗）', () => {
+  it('同值跳过、不同值才写：updated → sync 不会自激成永动循环', () => {
+    let writes = 0;
+    let value = 'system';
+    const nativeTheme = {
+      get themeSource() { return value; },
+      set themeSource(next: string) { writes += 1; value = next; },
+    };
+
+    applyNativeThemeSource('system', nativeTheme);
+    expect(writes).toBe(0);
+    expect(value).toBe('system');
+
+    applyNativeThemeSource('dark', nativeTheme);
+    expect(writes).toBe(1);
+    applyNativeThemeSource('dark', nativeTheme);
+    expect(writes).toBe(1);
+
+    applyNativeThemeSource('bogus', nativeTheme);
+    expect(writes).toBe(2);
+    expect(value).toBe('system');
   });
 });
 

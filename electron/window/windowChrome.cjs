@@ -43,7 +43,13 @@ function chromeBackgroundFor(appearance) {
  * @param {{ themeSource: string }} nativeTheme
  */
 function applyNativeThemeSource(appTheme, nativeTheme) {
-    nativeTheme.themeSource = normalizeAppTheme(appTheme);
+    const source = normalizeAppTheme(appTheme);
+    // issue 257：同值赋值也会触发 nativeTheme 'updated'。主进程的 updated 回调会再 sync，
+    // 若无条件回写 themeSource 就形成 updated → sync → updated 的永动循环：主消息循环永不 idle，
+    // app.quit() 的 QuitWhenIdle 永远等不到（进程退不掉），同时持续烧 CPU。同值跳过即可。
+    if (nativeTheme.themeSource !== source) {
+        nativeTheme.themeSource = source;
+    }
 }
 
 /** @type {WeakMap< object, string >} 记录窗口已应用的背景色，避免同色重复调用 setBackgroundColor 触发根表面全量失效（issue 215） */

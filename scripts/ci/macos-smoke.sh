@@ -10,7 +10,6 @@ ELECTRON_BIN="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 RUN_TMP="${RUNNER_TEMP:-/tmp}"
 LOG_FILE="$RUN_TMP/aao-macos-smoke.log"
 OSA_LOG="$RUN_TMP/aao-macos-smoke-osa.log"
-DIAG_FILE="$RUN_TMP/aao-smoke-diag.log"
 
 fail() { echo "::error::$1"; exit 1; }
 dump_log() {
@@ -18,8 +17,6 @@ dump_log() {
   cat "$2" || true
   echo "::endgroup::"
 }
-# 与主进程诊断共用一条时间线（诊断用，非验收证据）
-slog() { printf '%s [smoke] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$DIAG_FILE"; }
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "此冒烟只能在 macOS runner 上运行"
 [[ -x "$ELECTRON_BIN" ]] || fail "找不到 Electron 二进制：${ELECTRON_BIN}（先执行 npm ci）"
@@ -31,48 +28,10 @@ if [[ "$AX_STATE" != "true" ]]; then
   fail "runner 未授予 System Events 辅助功能权限（UI elements enabled=${AX_STATE}），无法注入系统级 ⌘Q；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
 fi
 
-# 对照实验：同一台 runner 上的最小 Electron 应用按 ⌘Q 会不会退出。
-# 用来区分「环境 / Electron 版本问题」与「本应用的退出被卡住」。
-minimal_quit_probe() {
-  local dir="$RUN_TMP/minimal-electron-app"
-  mkdir -p "$dir"
-  printf '%s\n' '{"name":"minimal-quit-probe","main":"main.js"}' >"$dir/package.json"
-  printf '%s\n' \
-    "const { app, BrowserWindow } = require('electron');" \
-    "app.whenReady().then(() => {" \
-    "  const win = new BrowserWindow({ width: 480, height: 320, show: true });" \
-    "  win.loadURL('data:text/html,<h1>minimal probe</h1>');" \
-    "});" >"$dir/main.js"
-  "$ELECTRON_BIN" "$dir" >"$RUN_TMP/minimal-electron.log" 2>&1 &
-  local pid=$!
-  sleep 5
-  if ! kill -0 "$pid" 2>/dev/null; then
-    echo "诊断：最小 Electron 启动失败"; dump_log "minimal Electron 日志" "$RUN_TMP/minimal-electron.log"; return 0
-  fi
-  osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${pid} to true" >>"$OSA_LOG" 2>&1 || true
-  sleep 1
-  osascript -e 'tell application "System Events" to key code 12 using command down' >>"$OSA_LOG" 2>&1 || true
-  local i
-  for i in $(seq 1 10); do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      echo "诊断：最小 Electron 收到 ⌘Q 后已退出（环境支持系统级 ⌘Q）"
-      slog "minimal electron exited after cmd+q"
-      return 0
-    fi
-    sleep 1
-  done
-  echo "诊断：最小 Electron 收到 ⌘Q 后仍未退出（环境 / Electron 层面问题）"
-  slog "minimal electron still alive after cmd+q"
-  kill "$pid" 2>/dev/null || true
-  return 0
-}
-minimal_quit_probe
-
 echo "启动源码模式 Electron（pid 待记录）"
-AAO_SMOKE_DIAG=1 AAO_SMOKE_PROFILE=1 AAO_SMOKE_DIAG_FILE="$DIAG_FILE" "$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
+"$ELECTRON_BIN" . >"$LOG_FILE" 2>&1 &
 APP_PID=$!
 echo "APP_PID=${APP_PID}"
-slog "launch electron pid=${APP_PID}"
 # 保留原始退出码：trap 内的 kill 成功不能把脚本失败洗成 0（假绿）
 trap 'SMOKE_RC=$?; kill "$APP_PID" 2>/dev/null || true; exit "$SMOKE_RC"' EXIT
 
@@ -89,13 +48,6 @@ dump_log "Electron 启动日志" "$LOG_FILE"
 
 echo "空闲 ${IDLE_SECONDS}s（≥ 30s IDLE_SUSPEND_DELAY_MS）后读 pmset"
 sleep "$IDLE_SECONDS"
-echo "::group::空闲期 CPU（诊断用）"
-ps -axo pid,%cpu,stat,comm | grep -Ei 'electron|aao' || true
-sample "$APP_PID" 1 -file "$RUN_TMP/aao-idle-sample.txt" >/dev/null 2>&1 || true
-if [[ -f "$RUN_TMP/aao-idle-sample.txt" ]]; then
-  sed -n '/Call graph:/,/Binary Images:/p' "$RUN_TMP/aao-idle-sample.txt" | head -50 || true
-fi
-echo "::endgroup::"
 ASSERTIONS="$(pmset -g assertions 2>&1)"
 echo "::group::pmset -g assertions"
 printf '%s\n' "$ASSERTIONS"
@@ -117,18 +69,6 @@ echo "系统汇总 PreventUserIdleSystemSleep=${LOCK_VALUE:-<无>}；本应用�
 echo "::endgroup::"
 if [[ -n "$LOCK_PROBLEM" ]]; then echo "::warning::$LOCK_PROBLEM"; fi
 
-# 诊断：记录注入前后的 frontmost / 窗口 / 菜单栏，判断系统级键事件落到了哪、应用是否真起来了
-probe_app() {
-  osascript -e "
-with timeout of 10 seconds
-  tell application \"System Events\"
-    set fm to name of first process whose frontmost is true
-    set p to (first process whose unix id is ${APP_PID})
-    return \"frontmost=\" & fm & \"; windows=\" & ((count of windows of p) as text) & \" \" & ((name of every window of p) as text) & \"; menubar=\" & ((name of every menu bar item of menu bar 1 of p) as text)
-  end tell
-end timeout" 2>&1 || true
-}
-
 wait_exit() {
   local seconds="$1"
   local i
@@ -140,26 +80,21 @@ wait_exit() {
 }
 
 echo "注入系统级 ⌘Q（不使用 AppleScript quit / app.quit()）"
-echo "注入前 probe=$(probe_app)"
 # 冒烟对象是源码模式 electron .，bundle 是 Electron.app（不是 release/ 里刚打好的 AAO Editor.app）。
 # 先按名激活正在运行的 Electron 实例；失败再按 pid 置前。两者都只记录，不改变验收口径。
 ACTIVATE_LOG="$(osascript -e 'tell application "Electron" to activate' 2>&1 || true)"
 echo "activate Electron=${ACTIVATE_LOG:-ok}"
-sleep 1
-echo "activate 后 probe=$(probe_app)"
 if [[ -n "$ACTIVATE_LOG" ]]; then
   SETFRONT_LOG="$(osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${APP_PID} to true" 2>&1 || true)"
   echo "按 pid 置前=${SETFRONT_LOG:-ok}"
-  sleep 1
-  echo "按 pid 置前后 probe=$(probe_app)"
 fi
+sleep 1
 if ! osascript \
   -e 'tell application "System Events" to key code 12 using command down' \
   >"$OSA_LOG" 2>&1; then
   dump_log "osascript 注入错误" "$OSA_LOG"
   fail "系统级 ⌘Q 注入失败（常见原因：runner 未授予辅助功能权限）；实测结论需回报用户后再定，禁止改用 AppleScript quit 冒充"
 fi
-slog "injected key code 12 (cmd+q)"
 
 EXITED=0
 if wait_exit 15; then
@@ -167,94 +102,12 @@ if wait_exit 15; then
 else
   # 同一条 ⌘Q 的另一种注入写法：某些键盘布局下 key code 与 keystroke 行为不同，两种都算系统级 ⌘Q
   echo "诊断：key code 12 后进程仍在，改试 keystroke \"q\""
-  slog "retry injection keystroke q"
   osascript -e 'tell application "System Events" to keystroke "q" using command down' >>"$OSA_LOG" 2>&1 || true
   if wait_exit 10; then EXITED=1; fi
 fi
 if [[ "$EXITED" != "1" ]]; then
-  slog "still alive after injections"
-  echo "注入后 probe=$(probe_app)"
-  echo "注入后 frontmost=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1 || true)"
   ps -p "$APP_PID" -o pid,stat,%cpu,etime,comm || true
-  ps -axo pid,comm | grep -Ei 'securityagent|loginwindow|electron' || true
-  # 诊断：quit 后仍活着，抓主进程各线程 CPU、打开的 fd、附件（判断卡在哪个线程/资源）
-  echo "::group::线程（诊断用）"
-  ps -M "$APP_PID" 2>/dev/null | head -80 || true
-  echo "::endgroup::"
-  echo "::group::打开的 fd（诊断用）"
-  lsof -p "$APP_PID" 2>/dev/null | head -80 || true
-  echo "::endgroup::"
-  # 仅诊断：读应用菜单里 Quit 的快捷键，再点一次菜单 Quit；区分「⌘Q 没送到」与「应用 quit 被卡住」
-  MENU_DUMP="$(osascript -e "
-with timeout of 10 seconds
-  tell application \"System Events\"
-    tell (first process whose unix id is ${APP_PID})
-      set out to {}
-      repeat with mi in menu items of menu 1 of menu bar item 2 of menu bar 1
-        set cmdChar to \"\"
-        try
-          set cmdChar to value of attribute \"AXMenuItemCmdChar\" of mi
-        end try
-        set end of out to ((name of mi) & \"[\" & cmdChar & \"]\")
-      end repeat
-      return out as text
-    end tell
-  end tell
-end timeout" 2>&1 || true)"
-  echo "诊断：应用菜单项=${MENU_DUMP}"
-  if screencapture -x "$RUN_TMP/aao-smoke-shot.png" 2>&1; then
-    sips -Z 1000 -s format jpeg "$RUN_TMP/aao-smoke-shot.png" --out "$RUN_TMP/aao-smoke-shot.jpg" >/dev/null 2>&1 || true
-    echo "::group::失败截图 base64（诊断用，非验收证据）"
-    base64 -i "$RUN_TMP/aao-smoke-shot.jpg" 2>/dev/null || true
-    echo "::endgroup::"
-  else
-    echo "screencapture 失败（可能未授予屏幕录制权限）"
-  fi
-  slog "click menu Quit"
-  QUIT_CLICK="$(osascript -e "
-with timeout of 10 seconds
-  tell application \"System Events\"
-    tell (first process whose unix id is ${APP_PID})
-      click (first menu item of menu 1 of menu bar item 2 of menu bar 1 whose name starts with \"Quit\")
-    end tell
-  end tell
-end timeout" 2>&1 || true)"
-  echo "诊断：点击菜单 Quit=${QUIT_CLICK:-ok}"
-  if wait_exit 10; then echo "诊断：菜单 Quit 能退出（⌘Q 键未送达或未生效）"; else echo "诊断：菜单 Quit 后进程仍在（quit 路径本身被卡住）"; fi
-  # 主线程卡住时 sample 能给出卡点（诊断用）
-  if process_alive; then
-    sample "$APP_PID" 2 -file "$RUN_TMP/aao-smoke-sample.txt" >/dev/null 2>&1 || true
-    if [[ -f "$RUN_TMP/aao-smoke-sample.txt" ]]; then
-      echo "::group::sample 线程汇总（诊断用）"
-      grep -E '^ *[0-9]+ Thread_' "$RUN_TMP/aao-smoke-sample.txt" | head -40 || true
-      echo "::endgroup::"
-      echo "::group::sample（诊断用，前 200 行）"
-      sed -n '1,200p' "$RUN_TMP/aao-smoke-sample.txt" || true
-      echo "::endgroup::"
-    fi
-  fi
-  dump_log "主进程诊断时间线" "$DIAG_FILE"
   dump_log "Electron 运行日志" "$LOG_FILE"
-  # 对照：同一台 runner 上刚打出的分发包按 ⌘Q 会不会退出（区分源码模式与产品包）
-  PACKAGED_BIN="release/mac-arm64/AAO Editor.app/Contents/MacOS/AAO Editor"
-  if [[ -x "$PACKAGED_BIN" ]]; then
-    echo "诊断：启动分发包对照 ${PACKAGED_BIN}"
-    "$PACKAGED_BIN" >"$RUN_TMP/packaged.log" 2>&1 &
-    PKG_PID=$!
-    sleep 8
-    osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${PKG_PID} to true" >>"$OSA_LOG" 2>&1 || true
-    sleep 1
-    osascript -e 'tell application "System Events" to key code 12 using command down' >>"$OSA_LOG" 2>&1 || true
-    for i in $(seq 1 10); do kill -0 "$PKG_PID" 2>/dev/null || break; sleep 1; done
-    if kill -0 "$PKG_PID" 2>/dev/null; then
-      echo "诊断：分发包 ⌘Q 后进程仍活着"
-      kill -9 "$PKG_PID" 2>/dev/null || true
-    else
-      echo "诊断：分发包 ⌘Q 后正常退出"
-    fi
-  else
-    echo "诊断：未找到分发包二进制，跳过分发包对照"
-  fi
   fail "系统级 ⌘Q 后进程仍在（pid=${APP_PID}）"
 fi
 
