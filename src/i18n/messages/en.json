@@ -586,6 +586,8 @@
   "preview.static.zoomHint": "Ctrl/⌘ + wheel does the same",
   "preview.display.open": "Settings",
   "preview.display.title": "Display settings",
+  "preview.display.new.dot": "New feature",
+  "preview.display.new.badge": "New",
   "preview.display.group.marks": "Markers",
   "preview.display.group.sim": "Simulation",
   "preview.display.group.stage": "Stage & simulation",

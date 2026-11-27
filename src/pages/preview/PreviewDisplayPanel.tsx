@@ -10,10 +10,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismissOnOutside } from '../../ui/useDismissOnOutside';
+import { useOptionalAppNav } from '../../layouts/AppNav';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Plus, RotateCcw, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import SegmentedControl from '../../ui/SegmentedControl';
-import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 import {
@@ -37,6 +37,7 @@ import {
 import { drawFieldLayers } from '../../preview/video/sim/simField';
 import { fieldMetrics } from '../../preview/video/sim/simGeometry';
 import {
+  AAO_STAGE_PACK_ID,
   isAppBackgroundPack,
   listSimBackgroundPacks,
   listSimFieldPacks,
@@ -55,6 +56,7 @@ import {
   type LiveBgFit,
 } from '../../project/liveBgImport';
 import type { LiveBgSlotHandlers, LiveBgSlotState } from './useLiveBg';
+import { markOpened, markVisited, readDiscovery, type DiscoveryPhase } from './previewFeatureDiscovery';
 
 export type { LiveBgSlotHandlers, LiveBgSlotState };
 
@@ -146,6 +148,11 @@ function Row({ label, disabled = false, children }: {
       {children}
     </div>
   );
+}
+
+/** 落点提示的「新」角标：装饰性，不进按钮可及名（避免破坏按名字取格子的测试与读屏） */
+function NewBadge() {
+  return <span className="pdp__new-badge" aria-hidden="true">{t('preview.display.new.badge')}</span>;
 }
 
 function Toggle({
@@ -411,10 +418,12 @@ function LiveBgThumb({
 }
 
 function CustomLiveBgCell({
-  liveBg, disabled, onSelect, onUpload, onClear, onHover,
+  liveBg, disabled, isNew = false, onSelect, onUpload, onClear, onHover,
 }: {
   liveBg: LiveBgSlotState;
   disabled: boolean;
+  /** 首次发现提示：这格是新增的（角标不进可及名） */
+  isNew?: boolean;
   onSelect: () => void;
   onUpload: () => void;
   onClear: () => void;
@@ -460,6 +469,7 @@ function CustomLiveBgCell({
         }
       }}
     >
+      {isNew && <NewBadge />}
       {liveBg.hasImage ? (
         <>
           <LiveBgThumb source={liveBg.thumb} />
@@ -494,7 +504,7 @@ function CustomLiveBgCell({
 }
 
 function SimPackRow({
-  kind, label, value, buttonRef, onOpen, liveBg,
+  kind, label, value, buttonRef, onOpen, liveBg, showNew = false,
 }: {
   kind: SimAssetPackKind;
   /** 行标签（UI 文案：「背景」/「轨道」） */
@@ -504,6 +514,8 @@ function SimPackRow({
   buttonRef?: (el: HTMLButtonElement | null) => void;
   onOpen: () => void;
   liveBg?: LiveBgSlotState;
+  /** 首次发现：这一行是本次新增的落点 */
+  showNew?: boolean;
 }) {
   const customOn = kind === 'background' && Boolean(liveBg?.useCustom && liveBg.hasImage);
   const { packs, display, thumb } = packDisplayInfo(kind, value);
@@ -515,8 +527,10 @@ function SimPackRow({
   const showThumb = !customOn && thumb !== null && thumb !== brokenSrc;
 
   return (
-    <div className="pdp__row pdp__row--stack">
-      <div className="pdp__row-text"><strong>{label}</strong></div>
+    <div className={`pdp__row pdp__row--stack${showNew ? ' is-new' : ''}`}>
+      <div className="pdp__row-text">
+        <div className="pdp__row-label"><strong>{label}</strong>{showNew ? <NewBadge /> : null}</div>
+      </div>
       <div className="pdp__pack-current">
         {customOn ? (
           <LiveBgThumb source={liveBg?.thumb ?? null} className="pdp__pack-current-thumb" />
@@ -553,7 +567,7 @@ function SimPackRow({
  * （回落默认 `skin00`），不弹错、不占"缺失"行。
  */
 function SimPackGrid({
-  kind, full, value, onChange, onHover, liveBg, liveBgHandlers, onUpload,
+  kind, full, value, onChange, onHover, liveBg, liveBgHandlers, onUpload, showNew = false,
 }: {
   kind: SimAssetPackKind;
   /** 全称（分组 aria-label 用：表演背景 / 场地皮肤包） */
@@ -565,6 +579,8 @@ function SimPackGrid({
   liveBg?: LiveBgSlotState;
   liveBgHandlers?: LiveBgSlotHandlers;
   onUpload?: () => void;
+  /** 首次发现：给「自定义」与「AAO 舞台」两格挂「新」角标 */
+  showNew?: boolean;
 }) {
   const { packs, activeId } = packDisplayInfo(kind, value);
   const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
@@ -584,6 +600,7 @@ function SimPackGrid({
             available: false, hasImage: false, useCustom: false, fit: 'cover', name: null, thumb: null, image: null,
           }}
           disabled={!liveBg?.available}
+          isNew={showNew}
           onSelect={() => liveBgHandlers?.onSelectCustom()}
           onUpload={() => onUpload?.()}
           onClear={() => liveBgHandlers?.onClear()}
@@ -616,6 +633,7 @@ function SimPackGrid({
                 onError={() => setBroken((prev) => new Set(prev).add(thumb))}
               />
             ) : null}
+            {showNew && pack.id === AAO_STAGE_PACK_ID ? <NewBadge /> : null}
             <span className="pdp__pack-id">{display}</span>
           </button>
         );
@@ -746,6 +764,12 @@ export default function PreviewDisplayPanel({
 }: PreviewDisplayPanelProps) {
   const { settings, setDisplay, setPreview, setSeVolume } = useConfig();
   const nav = useOptionalAppNav();
+  /** 本批提示（票 42 / 84）：换功能就换 hintId，老用户机器上没有新键 → 天然 unseen */
+  const HINT_ID = 'stage-cover';
+  const [phase, setPhase] = useState<DiscoveryPhase>(() => readDiscovery(HINT_ID));
+  /** 红点只在动态形态 / 未点过设置时；角标在关过一次面板前一直指路 */
+  const showDot = phase === 'unseen' && mode === 'video';
+  const showBadge = phase !== 'visited';
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -768,7 +792,12 @@ export default function PreviewDisplayPanel({
     setPicker(null);
     setHovered(null);
     setConfirmingReset(false);
-  }, []);
+    if (mode === 'video' && phase !== 'unseen') {
+      // 动态形态关一次面板就收干净；静态预览不消费动态专属的提示
+      markVisited(HINT_ID);
+      setPhase('visited');
+    }
+  }, [mode, phase]);
 
   const handleReset = () => {
     const d = defaultSettings();
@@ -812,10 +841,16 @@ export default function PreviewDisplayPanel({
       return;
     }
     computePos();   // 先量再开：首帧就到位，不出现"先落在旧处再跳一下"
+    // 一打开就把红点收掉（用户已经知道「设置里有新东西」）；角标留给真正指路的那行。
+    // 静态形态没有这两处新功能，点开不算看过，也不写动态专属的键。
+    if (mode === 'video' && phase === 'unseen') {
+      markOpened(HINT_ID);
+      setPhase('opened');
+    }
     setPicker(null);
     setHovered(null);
     setOpen(true);
-  }, [open, computePos, close]);
+  }, [open, mode, phase, computePos, close]);
 
   /** 进二级选择器（从设置视图的一行「更换」） */
   const openPicker = useCallback((kind: SimAssetPackKind) => {
@@ -941,6 +976,9 @@ export default function PreviewDisplayPanel({
           aria-expanded={open}
           onClick={toggle}
         />
+        {showDot ? (
+          <span className="pdp__new-dot" role="img" aria-label={t('preview.display.new.dot')} />
+        ) : null}
       </span>
 
       {open && createPortal(
@@ -982,6 +1020,7 @@ export default function PreviewDisplayPanel({
                   liveBg={liveBg}
                   liveBgHandlers={liveBgHandlers}
                   onUpload={() => liveBgFileRef.current?.click()}
+                  showNew={showBadge && picker === 'background'}
                 />
                 {picker === 'background' && liveBg?.useCustom && liveBg.hasImage ? (
                   <LiveBgFitPicker fit={liveBg.fit} onFit={liveBgHandlers?.onFit} />
@@ -1151,6 +1190,7 @@ export default function PreviewDisplayPanel({
                         buttonRef={(el) => { rowRefs.current.background = el; }}
                         onOpen={() => openPicker('background')}
                         liveBg={liveBg}
+                        showNew={showBadge}
                       />
                       <SimPackRow
                         kind="field"

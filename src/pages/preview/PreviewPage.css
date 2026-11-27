@@ -293,6 +293,33 @@
 
 .pdp__trigger {
   display: inline-flex;
+  position: relative;
+}
+
+/* 首次发现红点（票 42 / 84）：贴触发钮右上角，不撑开工具栏行高 */
+.pdp__new-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger-btn);
+  box-shadow: 0 0 0 2px var(--bg-elevated);
+  pointer-events: none;
+}
+
+/* 「新」角标：跟着标签走的一枚小标记，不做实底红块（面板里一排设置，红块太吵） */
+.pdp__new-badge {
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: calc(9px * var(--ui-type-scale));
+  font-weight: 700;
+  line-height: 14px;
+  pointer-events: none;
 }
 
 .pdp__panel {
@@ -371,10 +398,12 @@
   font-weight: 600;
 }
 
-.pdp__row-text span {
-  color: var(--text-muted);
-  font-size: var(--text-2xs);
-  line-height: 1.45;
+.pdp__row-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding-left: 2px;
 }
 
 /* 面板里的滑杆比设置页窄一档（设置页那套 min-width 220px 会把 320px 的浮层撑破） */
@@ -585,6 +614,7 @@
 }
 
 .pdp__pack-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -597,6 +627,15 @@
   color: var(--text-muted);
   cursor: pointer;
   font-family: inherit;
+}
+
+/* 网格格子里的角标：贴格左上角（标签在格底，跟随布局会撑坏缩略图比例） */
+.pdp__pack-item > .pdp__new-badge {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 2;
+  margin-left: 0;
 }
 
 .pdp__pack-item:hover {

@@ -584,6 +584,8 @@
   "preview.static.zoomHint": "Ctrl/⌘ + 滚轮同款",
   "preview.display.open": "设置",
   "preview.display.title": "显示设置",
+  "preview.display.new.dot": "新功能",
+  "preview.display.new.badge": "新",
   "preview.display.group.marks": "标记",
   "preview.display.group.sim": "仿真场",
   "preview.display.group.stage": "舞台与仿真",

@@ -22,6 +22,10 @@ import { listSimBackgroundPacks, listSimFieldPacks, simPackDisplayName } from '@
 import { setActiveUiLanguage } from '@/src/i18n';
 import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/settings/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
+import { discoveryKey } from '@/src/pages/preview/previewFeatureDiscovery';
+
+/** 本批提示的键（组件里的 HINT_ID = 'stage-cover'） */
+const DISCOVERY_KEY = discoveryKey('stage-cover');
 
 // issue 49：显示名走取件侧 skinName 契约字段（五服原样 [jp,en,tw,cn,kr]）。本机真快照
 // 尚未带该字段（回落路径由单测覆盖），这里注入两份**带 skinName** 的最小注册表，锁
@@ -831,3 +835,70 @@ describe('issue 205 · 画布与预览设置浮层条目重构与三端对齐', 
     expect(stored().preview.autoMode).toBe(false);
   });
 });
+
+describe('票 42 / 84 · 新功能落点发现性（点开即收红点 → 行角标 → 二级页角标，一轮结束）', () => {
+  beforeEach(() => { localStorage.removeItem(DISCOVERY_KEY); });
+  afterEach(() => { localStorage.removeItem(DISCOVERY_KEY); });
+
+  /** 动态形态（两处新功能只在动态预览） */
+  function setupDiscover() {
+    seedZhSettings();
+    render(
+      <ConfigProvider>
+        <PreviewDisplayPanel mode="video" />
+      </ConfigProvider>,
+    );
+  }
+
+  it('红点点开设置就消：背景行挂「新」指路，轨道行不动，无整段文字教学', () => {
+    setupDiscover();
+    expect(screen.getByRole('img', { name: '新功能' })).toBeInTheDocument();
+    fireEvent.click(trigger());
+    expect(screen.queryByRole('img', { name: '新功能' })).toBeNull();
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('opened');
+    const bgRowEl = within(panel()).getByRole('button', { name: '更换背景' }).closest('.pdp__row');
+    expect(bgRowEl).toHaveClass('is-new');
+    const fieldRowEl = within(panel()).getByRole('button', { name: '更换轨道' }).closest('.pdp__row');
+    expect(fieldRowEl).not.toHaveClass('is-new');
+    expect(panel().textContent).not.toContain('新增');
+  });
+
+  it('静态形态没有这套发现性：无红点，点开/关闭也不写动态专属的键', () => {
+    setup();
+    expect(screen.queryByRole('img', { name: '新功能' })).toBeNull();
+    fireEvent.click(trigger());
+    fireEvent.click(trigger());
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBeNull();
+  });
+
+  it('背景二级页两格有「新」角标、无说明文字；关面板才收角标并落盘，下次打开不再提示', () => {
+    setupDiscover();
+    fireEvent.click(trigger());
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    const grid = pickerGrid('表演背景');
+    // 两格角标：自定义 + AAO 舞台（装饰性 aria-hidden，不进按钮可及名）
+    expect(grid.querySelectorAll('.pdp__new-badge')).toHaveLength(2);
+    expect(panel().textContent).not.toContain('新增');
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('opened');
+    clickOutside();
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('visited');
+
+    fireEvent.click(trigger());
+    expect(screen.queryByRole('img', { name: '新功能' })).toBeNull();
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换背景' }));
+    expect(pickerGrid('表演背景').querySelectorAll('.pdp__new-badge')).toHaveLength(0);
+  });
+
+  it('进轨道二级页不算看过：行角标仍在', () => {
+    setupDiscover();
+    fireEvent.click(trigger());
+    fireEvent.click(within(panel()).getByRole('button', { name: '更换轨道' }));
+    expect(localStorage.getItem(DISCOVERY_KEY)).toBe('opened');
+    fireEvent.click(within(panel()).getByRole('button', { name: '返回' }));
+    expect(within(panel()).getByRole('button', { name: '更换背景' }).closest('.pdp__row')).toHaveClass('is-new');
+  });
+});
+
+function pickerGrid(full: string) {
+  return within(panel()).getByRole('group', { name: full });
+}

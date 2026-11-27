@@ -185,6 +185,7 @@
 - [88 动态预览播放卡顿与掉帧收口](./issues/88-动态预览播放卡顿与掉帧收口.md) — **resolved 实现（2026-11-25 落地，待用户真机主观复验）**：《月葬-Test1》+《Retribution》双谱实测坐实 5 项根因，完成四阶段整改（`scoreFill` 全屏放大预热、退全屏两帧回缩、WebGL `bufferSubData` 与空带体短路、`PlayBar`/`AppShell` `contain`、`CanvasSpriteIcon` 采样质量隔离、`drawLaneFlash` 公式归并、双押线二分、`+inc` 贴片缓存、失活画布后备释放、新增 `electron:preview` 并修正 `electron:dev --dev`），`/code-review` 回修后双谱高密区零 `>25ms` 掉帧、待用户主观实测结票。
 - [89 合并后动态预览播放卡顿回退](./issues/89-合并后动态预览播放卡顿回退.md) — **resolved（2026-11-26 用户验收通过）**：**改成什么** = 后台冷启动预热限 `projects` 页、失活画布/页面跳过重绘与动画，并将音符多级 mip / 特效粒子 / AP 连击合批进 `ImageBitmap` 图集（释放临时离屏画布）、预烘焙顶栏静态夹层与 `+inc` 贴片、64K WebGL VBO 预分配及 `renderSim` 零分配热路径。
 - [90 视频导出时间线锚点不统一](./issues/90-视频导出时间线锚点不统一.md) — **resolved**：扩现有 `ExportTimeline` 一次加出 `endingAt` / `simStartSeconds`；切点与 SE 读同一字段，删倒推。不新建 module。验收看 `ExportTimeline.test.ts` 评审例 `1480/60`，不要 1× 肉眼。
+- [91 新功能落点发现性](./issues/91-新功能落点发现性.md) — **resolved（2026-11-27 用户「效果我觉得OK了」）**：**改成什么** = 动态预览设置钮红点点开即消、背景行与二级两格只留「新」角标、关一次面板收干净；本地 `aao.previewDiscovery.<hintId>.v1` 按批次三段记账（本次 `stage-cover`），零说明文字；新提示换 id 即新键，老用户天然 unseen，旧键退役无人读。通用化**本轮不抽公共层**，第二个模块出现同类需求时另开 research / grilling 再定结构。
 
 
 
