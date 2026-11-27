@@ -342,7 +342,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }
     // 无论是切工程还是切谱面，播放进度必须归零、停止播放并清除临时回跳标记
     seek(0);
-    // issue 166：视口也要显式归零到 beat 0（ADR-0005 §7）。`seek(0)` 只按**旧几何**写了一帧，
+    // issue 166：视口也要显式归零到时间原点（首条 BPM，issue 63；ADR-0005 §7）。`seek(0)` 只按**旧几何**写了一帧，
     // 随后到达的新几何会走「按秒重锚」（语义 = 保留当前秒）把视图留在非开头位置；
     // `resetToStart` 在几何/高度落地后再落一次权威值（冷启动首次恢复就是这条路径）。
     resetToStart();
@@ -372,7 +372,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     project: import('../../project/ChartProject').ChartProject,
   ) => {
     seek(0);
-    resetToStart(); // issue 166：同上，音频换掉后时长会变，视口同样归零到 beat 0
+    resetToStart(); // issue 166：同上，音频换掉后时长会变，视口同样归零到时间原点（首条 BPM）
     clearMarkerState();
     if (project.durationSeconds > 0) setCtxDuration(project.durationSeconds);
     audioSession.hydrateFromProject({

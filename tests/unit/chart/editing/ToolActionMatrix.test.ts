@@ -85,6 +85,13 @@ describe('§2 键型工具单击（single/flick/skill/l/r）', () => {
     const ops = clickOps(input({ tool: 'single', notes, pos: sp(1, 1) }));
     expect(ops[0]?.t).toBe('setNotes');
   });
+  // issue 63：下界由 `snapChartPos`（时间原点）裁决；矩阵只消费已判合法的 pos，
+  // 不得自己再加 `beat >= 0` 假定 —— 负拍落点（≥ startBeat）照常放置。
+  it('pos 为负拍（时间 ≥ 0）照常放置，矩阵不另做 beat ≥ 0 判定', () => {
+    const ops = clickOps(input({ tool: 'single', notes, pos: sp(-2, 3) }));
+    expect(ops[0]?.t).toBe('setNotes');
+    expect((ops[0] as { notes: ChartNote[] }).notes.at(-1)).toMatchObject({ type: 'Single', beat: -2, lane: 3 });
+  });
 });
 
 // ══════════════════ §2 单击矩阵·BPM 行（含 §5 放置语义）══════════════════

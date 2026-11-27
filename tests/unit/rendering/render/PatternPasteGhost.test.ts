@@ -116,7 +116,7 @@ describe('issue 186 · 幽灵 BPM 数值的位置', () => {
     expect(label![1][1]).toBeLessThan(track.trackBgX);
     // y 与该拍位的 BPM 标线同一行（`bpmLabelAnchorY` 的居中锚点），与实线数值完全同款
     const lineY = c.virtualToCanvas(0, c.getNoteVirtualY(2)).y;
-    expect(label![1][2]).toBe(bpmLabelAnchorY(2, lineY, GUTTER_LABEL_FONT_PX, SURFACE.h));
+    expect(label![1][2]).toBe(bpmLabelAnchorY(2, lineY, GUTTER_LABEL_FONT_PX, 0));
     expect(calls.filter(([k]) => k === 'textBaseline').map(([, v]) => v[0])).toContain('middle');
   });
 });

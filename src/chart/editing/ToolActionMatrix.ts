@@ -210,7 +210,7 @@ export interface ClickInput {
   notes: ChartNote[];
   /** findItemAt 命中（音符上点击）；空白 = null */
   hit: SelectionItem | null;
-  /** snapPos 合法栅格落点（轨道内 ∧ beat≥0 ∧ ≤谱面末端）；非法 = null（§1"无事发生"） */
+  /** snapPos 合法栅格落点（轨道内 ∧ beat ≥ startBeat ∧ ≤谱面末端）；非法 = null（§1"无事发生"） */
   pos: SnapPos | null;
   slideBuffer: SlidePoint | null;
   lastBpm: number;

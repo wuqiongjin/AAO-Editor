@@ -8,7 +8,7 @@
 //   - 谱面末端变化源 key（duration|bpm|surface）变化 → configure 内部同帧置位待重锚
 //     （issue 166 RC-1：置位曾挂在 effect 上，挡不住抢在前面的子画布上报）
 //   - virtualHeight 就绪后调用 takePendingReAnchor(maxScroll) 消费待重锚项；如有目标则返回
-//   - 初始滚动（置底=beat0）由调用方在第一次 virtualHeight 就绪时触发
+//   - 初始滚动（置底=时间原点/首条 BPM）由调用方在第一次 virtualHeight 就绪时触发
 import { useRef } from 'react';
 import { PlaybackScrollModel, type ReAnchorTarget } from './PlaybackScrollModel';
 import type { ChartGeometry } from '../chart/geometry/ChartGeometry';

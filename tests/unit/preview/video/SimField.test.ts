@@ -18,6 +18,7 @@ import {
   prepareSimFieldBitmap,
   SIM_FALLBACK_BG,
   STAGE_COVER_INTRO_STYLE,
+  simComboAt,
   visibleSimBandGroups,
   type SimFrameInput,
   type SimFrameLayers,
@@ -1855,5 +1856,42 @@ describe('票 88 · 高密压力段 CPU 与命令流收口（drawLaneFlash 归�
     expect(hudQualities.length).toBeGreaterThan(0);
     expect(particleQualities.every((q) => q === 'low')).toBe(true);
     expect(hudQualities.every((q) => q === 'low')).toBe(true);
+  });
+});
+
+// issue 63：时间原点改为「首条 BPM」后，仿真场的渲染/铺带也按**时间**过滤，
+// 而 combo 仍按画布那份枚举（时间 < 0 的击打物开局即已过线，t=0 时 combo 已非 0）。
+describe('issue 63 · 首条 BPM 不是 beat 0 时的仿真场边界', () => {
+  const negativeStart: ChartNote = { type: 'BPM', beat: -4, bpm: 120 };
+
+  it('负拍但时间 ≥ 0 的开头音符渲染；首条之前的音符不渲染（但仍计 combo）', () => {
+    const notes: ChartNote[] = [
+      negativeStart,
+      single(-2, 0), // t = 1s
+      single(-5, 1), // t = −0.5s（首条之前）
+      single(0, 2),  // t = 2s
+    ];
+    const chart = buildSimChart(scene(notes), icons);
+    expect(chart.elements.map((e) => e.time)).toEqual([1, 2]);
+    // hitTimes 含首条之前的音符 → t=0 时已有 1 combo
+    expect(chart.hitTimes).toContain(-0.5);
+    expect(simComboAt(chart, 0)).toBe(1);
+    expect(simComboAt(chart, 1)).toBe(2);
+  });
+
+  it('跨过时间原点的滑条照常铺带；整段在首条之前的滑条不铺', () => {
+    const visible: ChartNote[] = [
+      negativeStart,
+      slide([{ beat: -2, lane: 0 }, { beat: 2, lane: 3 }]),
+    ];
+    const chart = buildSimChart(scene(visible), icons);
+    expect(chart.bands).toHaveLength(1);
+    expect(Math.min(chart.bands[0]!.t0, chart.bands[0]!.t1)).toBeCloseTo(1, 6);
+
+    const hidden: ChartNote[] = [
+      negativeStart,
+      slide([{ beat: -6, lane: 0 }, { beat: -5, lane: 3 }]),
+    ];
+    expect(buildSimChart(scene(hidden), icons).bands).toHaveLength(0);
   });
 });

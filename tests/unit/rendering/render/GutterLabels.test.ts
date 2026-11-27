@@ -135,17 +135,29 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
     expect(propValues(calls, 'textBaseline')).toContain('middle');
   });
 
-  it('beat 0 相对线固定上移半个字高（贴线可读、滚动钉线不钳底边）', () => {
+  it('时间原点相对线固定上移半个字高（贴线可读、滚动钉线不钳底边）', () => {
     const h = 900;
     const fontPx = GUTTER_LABEL_FONT_PX;
     const half = fontPx / 2;
-    expect(bpmLabelAnchorY(0, h, fontPx, h)).toBe(h - half);
-    expect(bpmLabelAnchorY(0, h + 1e-13, fontPx, h)).toBeCloseTo(h + 1e-13 - half, 9);
-    expect(bpmLabelAnchorY(0, h + 0.4, fontPx, h)).toBeCloseTo(h + 0.4 - half, 6);
-    expect(bpmLabelAnchorY(0, h + 0.6, fontPx, h)).toBeCloseTo(h + 0.6 - half, 6);
-    expect(bpmLabelAnchorY(0, h + 8, fontPx, h)).toBeCloseTo(h + 8 - half, 6);
-    expect(bpmLabelAnchorY(0, h - 5, fontPx, h)).toBe(h - 5 - half);
-    expect(bpmLabelAnchorY(4, h, fontPx, h)).toBe(h);
+    expect(bpmLabelAnchorY(0, h, fontPx, 0)).toBe(h - half);
+    expect(bpmLabelAnchorY(0, h + 1e-13, fontPx, 0)).toBeCloseTo(h + 1e-13 - half, 9);
+    expect(bpmLabelAnchorY(0, h + 0.4, fontPx, 0)).toBeCloseTo(h + 0.4 - half, 6);
+    expect(bpmLabelAnchorY(0, h + 0.6, fontPx, 0)).toBeCloseTo(h + 0.6 - half, 6);
+    expect(bpmLabelAnchorY(0, h + 8, fontPx, 0)).toBeCloseTo(h + 8 - half, 6);
+    expect(bpmLabelAnchorY(0, h - 5, fontPx, 0)).toBe(h - 5 - half);
+    expect(bpmLabelAnchorY(4, h, fontPx, 0)).toBe(h);
+  });
+
+  it('issue 63：原点不是 beat 0 时，只有**首条 BPM 那一拍**上移半个字高', () => {
+    const h = 900;
+    const fontPx = GUTTER_LABEL_FONT_PX;
+    const half = fontPx / 2;
+    // startBeat = -4：-4 上移，beat 0 / 其它拍居中
+    expect(bpmLabelAnchorY(-4, h, fontPx, -4)).toBe(h - half);
+    expect(bpmLabelAnchorY(0, h, fontPx, -4)).toBe(h);
+    // startBeat = 1.5：非整数原点同样按"这一条"判
+    expect(bpmLabelAnchorY(1.5, h, fontPx, 1.5)).toBe(h - half);
+    expect(bpmLabelAnchorY(0, h, fontPx, 1.5)).toBe(h);
   });
 
   it('beat 0 线已离开判定线：字 y 增量等于线 y 增量（不自己滑）', () => {
@@ -349,6 +361,23 @@ describe('layoutBpmLabelYs · 沟槽 BPM 数值撞 y 纵向错开（issue 159）
     expect((b3.y1 + b3.y2) / 2).toBeCloseTo(ys[1]!, 6);
     expect((b5.y1 + b5.y2) / 2).toBeCloseTo(ys[3]!, 6);
   });
+
+  // issue 63：原点不是 beat 0 时，与它同位的那一组仍按"最低一枚贴线、其余往上"排
+  it('startBeat 同位组：最低一枚中心落在线（经 bpmLabelAnchorY 上移后整盒在画布内）', () => {
+    const lineY = 900;
+    const items = [
+      { beat: -4, lineCanvasY: lineY },
+      { beat: -4, lineCanvasY: lineY },
+      { beat: -4, lineCanvasY: lineY },
+    ];
+    const ys = layoutBpmLabelYs(items, FONT_PX, -4).sort((a, b) => a - b);
+    expect(ys[2]).toBeCloseTo(lineY, 9);
+    expect(ys[1]).toBeCloseTo(lineY - FONT_PX, 9);
+    expect(ys[0]).toBeCloseTo(lineY - 2 * FONT_PX, 9);
+    // 未传 startBeat（默认 0）→ 按普通组居中错开
+    const centered = layoutBpmLabelYs(items, FONT_PX).sort((a, b) => a - b);
+    expect(centered[1]).toBeCloseTo(lineY, 9);
+  });
 });
 
 describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
@@ -409,7 +438,7 @@ describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
     expect(pair[1]!.y).toBeCloseTo(Math.max(...raw), 6);
   });
 
-  it('beat 0 展开叠：所有数字整盒在画布内，只往线上方错开', () => {
+  it('时间原点（beat 0）展开叠：所有数字整盒在画布内，只往线上方错开', () => {
     const notes = [
       { type: 'BPM' as const, beat: 0, bpm: 172 },
       { type: 'BPM' as const, beat: 0, bpm: 162 },
@@ -424,13 +453,13 @@ describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
     const lineCanvasYOf = (beat: number) => geometry.virtualToCanvas(
       0, virtualYOf(beat), { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 },
     ).y;
-    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, key);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, key, geometry.startBeat);
     expect(layout.numerals).toHaveLength(2);
     const half = FONT_PX / 2;
     const h = TEST_SURFACE.h;
     const lineY = lineCanvasYOf(0);
     const anchors = layout.numerals
-      .map((n) => bpmLabelAnchorY(n.beat, n.y, FONT_PX, h))
+      .map((n) => bpmLabelAnchorY(n.beat, n.y, FONT_PX, geometry.startBeat))
       .sort((a, b) => a - b);
     expect(anchors[1]! - anchors[0]!).toBeGreaterThanOrEqual(FONT_PX);
     for (const y of anchors) {
@@ -501,12 +530,12 @@ describe('bpmInlineInputBox：就地编辑输入盒（issue 253）', () => {
   const FONT = GUTTER_LABEL_FONT_PX;
   const H = 900;
 
-  it('beat 0 贴判定线：整盒在画布内（修前底边溢出 3px）', () => {
-    const box = bpmInlineInputBox(0, H, '120', FONT, TRACK_START_X, H);
+  it('时间原点贴判定线：整盒在画布内（修前底边溢出 3px）', () => {
+    const box = bpmInlineInputBox(0, H, '120', FONT, TRACK_START_X, H, 0);
     expect(box.top).toBeGreaterThanOrEqual(0);
     expect(box.top + box.height).toBeLessThanOrEqual(H);
     expect(box.height).toBe(FONT + 6);
-    const unclampedTop = bpmLabelAnchorY(0, H, FONT, H) - FONT / 2 - 3;
+    const unclampedTop = bpmLabelAnchorY(0, H, FONT, 0) - FONT / 2 - 3;
     expect(unclampedTop + box.height).toBeGreaterThan(H);
     expect(box.top).toBe(H - box.height);
   });

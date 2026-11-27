@@ -112,19 +112,24 @@ export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEv
   const bd = beatDisplay > 0 ? beatDisplay : 1;
   const at = (beat: number, subBeat?: number) => beatToSeconds(bpmEvents, trueBeat(beat, subBeat, bd));
   let max = -Infinity;
+  // issue 63：按**时间**过滤——首条 BPM 之前（负秒）的击打物不撑谱面时长；
+  // 首条 BPM 为负时负拍也可能落在正秒，它们照常计入。
   for (const note of notes) {
     switch (note.type) {
       case 'Single':
       case 'LDirectional':
-      case 'RDirectional':
-        if (note.beat < 0) break;
-        max = Math.max(max, at(note.beat, note.subBeat));
+      case 'RDirectional': {
+        const t = at(note.beat, note.subBeat);
+        if (t < 0) break;
+        max = Math.max(max, t);
         break;
+      }
       case 'Slide':
       case 'Long':
         for (const c of note.connections) {
-          if (c.beat < 0) continue;
-          max = Math.max(max, at(c.beat, c.subBeat));
+          const t = at(c.beat, c.subBeat);
+          if (t < 0) continue;
+          max = Math.max(max, t);
         }
         break;
       case 'BPM':
@@ -143,17 +148,18 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
   const secondsOf = beatSecondsAt(bpmEvents);
   const push = (beat: number, kind: KeySoundEvent['kind'], subBeat?: number, tier?: number) => {
     const preciseBeat = beat + (subBeat ?? 0) / beatDisplay;
-    out.push({ time: secondsOf(preciseBeat), kind, tier });
+    const time = secondsOf(preciseBeat);
+    // issue 63：时间 < 0（首条 BPM 之前）不键音；负拍但时间 ≥ 0 的音符照常发声
+    if (time < 0) return;
+    out.push({ time, kind, tier });
   };
   for (const note of notes) {
     switch (note.type) {
       case 'Single':
-        if (note.beat < 0) break;
         push(note.beat, note.flick ? 'flick' : note.skill ? 'skill' : 'tap', note.subBeat);
         break;
       case 'LDirectional':
       case 'RDirectional': {
-        if (note.beat < 0) break;
         const tier = Math.min(3, Math.max(1, note.length > 3 ? 3 : note.length));
         push(note.beat, 'directional', note.subBeat, tier);
         break;
@@ -162,7 +168,7 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
       case 'Long':
         for (let i = 0; i < note.connections.length; i++) {
           const conn = note.connections[i]!;
-          if (conn.hidden || conn.beat < 0) continue;
+          if (conn.hidden) continue;
           // issue 221: 首结点忽略 flick（只当普通滑条起点发声）
           const isStart = i === 0 && note.connections.length > 1;
           const kind: KeySoundEvent['kind'] = (conn.flick && !isStart) ? 'flick' : conn.skill ? 'skill' : 'slide';

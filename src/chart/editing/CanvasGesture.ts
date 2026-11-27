@@ -35,7 +35,7 @@ export interface ChartPos {
 type GeometryView = Pick<HitTestDeps, 'geometry' | 'viewport'>;
 
 /**
- * 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1「该位置非法则无事发生」）。
+ * 放置/执行的合法落点：轨道内 ∧ beat ≥ startBeat（时间原点，issue 63）∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1「该位置非法则无事发生」）。
  *
  * @param allowOutsideLane 仅**拖拽**路径传 true（issue 66 §4a）：方向滑键组尾可合法溢出到轨道外，
  *   按在那截上也要能起拖 —— 否则 lane 越界 → null → 建不了拖拽锚点 → 手势退化成框选。
@@ -131,11 +131,11 @@ export function hitBpmGutterAt(
     const lineCanvasYOf = (beat: number) =>
         geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, viewport.scale), viewport).y;
     const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
-    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.expandedGroupKey);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.expandedGroupKey, geometry.startBeat);
     let bestLabel: { beat: number; groupKey: number | null; dist: number } | null = null;
     for (const num of layout.numerals) {
         const text = String(num.bpm);
-        const y = bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH);
+        const y = bpmLabelAnchorY(num.beat, num.y, fontPx, geometry.startBeat);
         const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
@@ -151,7 +151,7 @@ export function hitBpmGutterAt(
             const n = notes[i];
             return n && 'beat' in n ? n.beat : Infinity;
         }));
-        const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, input.surfaceH);
+        const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, geometry.startBeat);
         const box = bpmLabelBox(trackStartX, y, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx), scale);
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
@@ -163,7 +163,7 @@ export function hitBpmGutterAt(
         if (expandedNums.length >= 2) {
             const boxes = expandedNums.map((num) => {
                 const text = String(num.bpm);
-                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
+                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, geometry.startBeat), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
             }).filter((b) => b.x1 >= 0 && b.y1 < b.y2);
             if (boxes.length === 0) return null;
             const x1 = Math.min(...boxes.map((b) => b.x1));

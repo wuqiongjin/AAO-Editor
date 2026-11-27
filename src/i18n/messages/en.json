@@ -1228,7 +1228,7 @@
   "validate.laneRange": "{{label}} lane must be between {{min}} and {{max}}",
   "validate.noConnections": "{{label}} must not keep a connections field",
   "validate.noConnectionsExpected": "Remove connections (it belongs only to type:\"Slide\")",
-  "validate.bpm0Negative": "BPM on beat 0 must not be negative (chart seconds would be ≤ 0)",
+  "validate.firstBpmNegative": "The first BPM event (time origin) must not be negative (chart seconds would be inverted)",
   "validate.lastBpmNegative": "The last BPM event must not be negative (a chart ending on negative BPM crashes the official editor)",
   "validate.lastBpmExpected": "> 0 (must return to positive BPM after a reverse section)",
   "validate.mustBeArray": "Chart code must be an array",

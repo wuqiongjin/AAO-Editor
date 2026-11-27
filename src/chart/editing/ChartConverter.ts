@@ -2,6 +2,7 @@ import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNo
 import { t } from '../../i18n';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import { checkChartDomainRules } from './ChartDomainRules';
+import { indexOfFirstBpmLike, indexOfLastBpmLike } from './BpmPredecessor';
 
 // 谱面代码类型定义
 export interface ChartCodeBPM {
@@ -425,54 +426,43 @@ function checkNoConnections(note: RawNote, noteIndex: number, label: string, err
 
 /**
  * 倒流区边界（ADR-0010 结论 7，比 Bestdori 严的两条）——这两条都依赖**整份谱面**上下文：
- * ① `beat 0` 处的 BPM 不得为负（会让全谱秒坐标 ≤ 0，无意义输入）；
+ * ① **首条 BPM**（稳定排序最小 beat 上的生效值 = 时间原点）不得为负
+ *    （会让全谱秒坐标倒置，无意义输入）；
  * ② 最后一条 BPM 事件必须为正（谱面以负 BPM 收尾会让制谱器内存溢出崩溃）。
- * 「最后一条」= 按 beat 稳定排序后的最后一条（同 beat 取数组序最后一条），与导出排序同口径。
- * `fragment`（对象视图）跳过②：视图里任何一条 BPM 都"看起来是末条"，
- * 会把「把中途某条 BPM 改成负值」误判成末条负值（ADR-0010 结论 8 要求编辑器内能创建负值）。
- * ①在片段里照样成立——beat 0 就是 beat 0。
+ * 「首条」= 按 beat 稳定排序后的第一条（同 beat 取数组序最后一条，与 `indexOfFirstBpm` 同口径）；
+ * 「最后一条」= 稳定排序后的最后一条。同一音符只报一条错（①优先，②不重复报）。
+ * `fragment`（对象视图）①②都跳过 —— 视图里只有被编辑的这一条，任何 BPM 都"看起来是首条/末条"，
+ * 会把「把中途某条 BPM 改成负值」误判成非法（ADR-0010 结论 8 要求编辑器内能创建负值）。
+ * 导入 / 完整代码编辑器 Apply / `applyChartCodeText` 仍按整谱判。
  */
 function checkBackflowBoundaries(
     chartCode: ChartCodeNote[], errors: ValidationError[], fragment: boolean,
 ): void {
     // 与逐条检查同口径：这里看到的也可能是脏对象（JSON.parse 来的），一律按 RawNote 读
     const at = (i: number): RawNote => chartCode[i] as unknown as RawNote;
-    const bpmIndices: number[] = [];
-    for (let i = 0; i < chartCode.length; i++) {
-        const raw: unknown = chartCode[i];
-        if (raw !== null && typeof raw === 'object' && (raw as RawNote).type === 'BPM') bpmIndices.push(i);
-    }
-    if (bpmIndices.length === 0) return;
+    const hasBpm = chartCode.some((raw) => raw !== null && typeof raw === 'object' && (raw as RawNote).type === 'BPM');
+    if (!hasBpm) return;
+    // 对象视图单条校验：①②都是整谱上下文规则，跳过（ADR-0010 结论 8）
+    if (fragment) return;
 
     // 只对"本身合法的数值"判边界：0 / 非有限数 / 非数字已由逐条检查报过，不重复报
     const isNegNumber = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v < 0;
 
-    // ②不再报①已报过的同一条：全谱只有一条 BPM 且它在 beat 0 为负时，"beat 0 负值"已经
-    // 说清了毛病（同一条音符列两条同源错误＝噪音），此时跳过②。
-    const beatZeroFlagged = new Set<number>();
-    for (const i of bpmIndices) {
-        const note = at(i);
-        if (note.beat === 0 && isNegNumber(note.bpm)) {
-            beatZeroFlagged.add(i);
-            errors.push({
-                noteIndex: i, field: 'bpm',
-                reason: t('validate.bpm0Negative'),
-                expected: '> 0',
-            });
-        }
+    // 「首条 / 末条」用 `BpmPredecessor` 的**唯一口径**（脏对象可直接喂），不在这里再写一份。
+    const first = indexOfFirstBpmLike(chartCode);
+    const firstFlagged = new Set<number>();
+    if (first >= 0 && isNegNumber(at(first).bpm)) {
+        firstFlagged.add(first);
+        errors.push({
+            noteIndex: first, field: 'bpm',
+            reason: t('validate.firstBpmNegative'),
+            expected: '> 0',
+        });
     }
-    if (fragment) return;
 
-    // beat 非法的条目已在逐条检查里报过，这里不再追加边界错误
-    const beatOf = (i: number): unknown => at(i).beat;
-    const usable = bpmIndices.filter(i => typeof beatOf(i) === 'number' && Number.isFinite(beatOf(i)));
-    if (usable.length === 0) return;
-    let last = usable[0]!;
-    for (const i of usable) {
-        if ((beatOf(i) as number) >= (beatOf(last) as number)) last = i;
-    }
-    const lastBpm = at(last).bpm;
-    if (isNegNumber(lastBpm) && !beatZeroFlagged.has(last)) {
+    // ② 末条 BPM 为负 → 拒（①已报过同一条时跳过：同一条音符列两条同源错误＝噪音）
+    const last = indexOfLastBpmLike(chartCode);
+    if (last >= 0 && isNegNumber(at(last).bpm) && !firstFlagged.has(last)) {
         errors.push({
             noteIndex: last, field: 'bpm',
             reason: t('validate.lastBpmNegative'),

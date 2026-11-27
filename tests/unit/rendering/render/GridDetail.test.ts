@@ -14,9 +14,13 @@ const SURFACE = { w: 750, h: 900 };
 const chartEndBeat = 8;
 
 /** 画布上的横向网格线（起点 = 轨道左内缘的那批；轨道竖线的 moveTo 是 (x, 0)，不计入） */
-function horizontalLines(gridDetail: GridDetail, beatDisplay = 4): { y: number; width: number }[] {
-  const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
-  // scrollY = chartEndVirtualY → 拍 0 落在画布底边，画布内正好看得到 0..4 拍（120bpm 下 1 拍 = 220px）
+function horizontalLines(
+  gridDetail: GridDetail,
+  beatDisplay = 4,
+  bpm: { beat: number; bpm: number }[] = bpm120,
+): { y: number; width: number }[] {
+  const geometry = new ChartGeometry(bpm, { endBeat: chartEndBeat }, SURFACE);
+  // scrollY = chartEndVirtualY → 时间原点（首条 BPM）落在画布底边，画布内正好看得到原点起 4 拍（120bpm 下 1 拍 = 220px）
   const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 };
   const c = makeCoords(geometry, viewport, beatDisplay, []);
   const rc = {
@@ -81,5 +85,18 @@ describe('chart-preview 08 · 网格细节档（画到第几级细分）', () =>
     const subYs = subs(lines).map((l) => l.y);
     expect(subYs).toEqual([]);
     for (const b of beats(lines)) expect(b.y).toBeGreaterThanOrEqual(0);
+  });
+
+  // issue 63：网格下限 = 时间原点（首条 BPM），负首拍时 [startBeat, 0) 也要有整拍与子拍线
+  it('负首拍：网格覆盖 [startBeat, 0)（含子拍）', () => {
+    const negativeStart = [{ beat: -4, bpm: 120 }];
+    const lines = horizontalLines('all', 4, negativeStart);
+    // 时间原点（-4）在画布底边；可见整拍 -4..0 共 5 条（beat 1 已在画布外）
+    expect(beats(lines)).toHaveLength(5);
+    // 4 个拍间 × 3 条子拍 = 12（beat 0 的子拍已越出画布上缘）
+    expect(subs(lines)).toHaveLength(12);
+    expect(horizontalLines(1, 4, negativeStart)).toHaveLength(5);
+    // 首条之前的拍（-5）不画：画布底边之下，y 超出裁剪窗
+    for (const l of lines) expect(l.y).toBeGreaterThanOrEqual(0);
   });
 });

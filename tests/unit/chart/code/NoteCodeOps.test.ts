@@ -136,17 +136,22 @@ describe('§5 applyNoteCode 整条音符', () => {
         if (!r.ok) expect(r.errors[0].reason).toContain('最后一条 BPM');
     });
 
-    // issue 103 / ADR-0010 结论 8：对象视图按**片段**校验（跳过"末条 BPM 必须为正"），
+    // issue 103 / ADR-0010 结论 8：对象视图按**片段**校验（跳过整谱上下文规则），
     // 否则"把中途某条 BPM 改成负值"会被误判成末条负值，堵死"用代码创建倒流区"的路。
-    test('把中途 BPM 改成负值 → 允许回写（片段口径）；beat 0 的 BPM 改成负值 → 拒', () => {
+    test('把中途 BPM 改成负值 → 允许回写（片段口径）', () => {
         const ns: ChartNote[] = [bpm(0, 120), bpm(4, 120), bpm(8, 120)];
         const mid = applyNoteCode(ns, whole(1), [{ beat: 4, type: 'BPM', bpm: -225 }]);
         expect(mid.ok).toBe(true);
         if (mid.ok) expect(mid.notes[1]).toEqual({ type: 'BPM', beat: 4, bpm: -225 });
+    });
 
+    // issue 63 P3：对象视图**不拦**「整谱首条 BPM 为负」（负值数字换色即警示）；
+    // 导入 / 完整代码编辑器 Apply / applyChartCodeText 才按整谱拒绝。
+    test('把整谱首条 BPM 改成负值 → 允许回写（编辑面不拦，issue 63 P3）', () => {
+        const ns: ChartNote[] = [bpm(0, 120), bpm(4, 120), bpm(8, 120)];
         const head = applyNoteCode(ns, whole(0), [{ beat: 0, type: 'BPM', bpm: -120 }]);
-        expect(head.ok).toBe(false);
-        if (!head.ok) expect(head.errors[0].reason).toContain('第 0 拍');
+        expect(head.ok).toBe(true);
+        if (head.ok) expect(head.notes[0]).toEqual({ type: 'BPM', beat: 0, bpm: -120 });
     });
 });
 

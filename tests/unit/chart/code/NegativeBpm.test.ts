@@ -1,6 +1,7 @@
 // issue 103 · 负 BPM（倒流区）的校验边界与真谱带符号时间轴回归。
 // 权威 = ADR-0010：放行 `bpm < 0`；仍拒 `0`（含 `-0`）与非有限数；另加两条加严规则
-// （beat 0 负值 / 末条 BPM 负值）。真谱回归用 ADR-0010 **附录 A** 的 BPM 事件紧凑编码
+// （首条 BPM 负值 / 末条 BPM 负值；issue 63 起首条 = 时间原点，不再看 beat 0）。
+// 真谱回归用 ADR-0010 **附录 A** 的 BPM 事件紧凑编码
 // （49 条）重建时间轴 —— 谱面文件本身不入库，断言只依赖该编码。
 import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'fs';
@@ -77,20 +78,38 @@ describe('issue 103 · BPM 校验边界（ADR-0010 结论 7）', () => {
         }
     });
 
-    test('beat 0 处的负值拒（会让全谱秒坐标 ≤ 0）——片段视图同样适用', () => {
+    test('首条 BPM（时间原点）为负 → 拒（全谱秒坐标会倒置）', () => {
         const result = validateChartCode([bpm(0, -120), bpm(5, 120)]);
         expect(result.valid).toBe(false);
         expect(result.errors).toEqual([expect.objectContaining({ noteIndex: 0, field: 'bpm' })]);
-        expect(result.errors[0].reason).toContain('第 0 拍');
+        expect(result.errors[0].reason).toContain('首条 BPM');
 
-        expect(validateChartCode([bpm(0, -120)], { fragment: true }).valid).toBe(false);
+        // issue 63：首条 BPM 不在 beat 0 也一样——它就是时间原点
+        const negativeBeat = validateChartCode([bpm(-4, -120), bpm(5, 120)]);
+        expect(negativeBeat.valid).toBe(false);
+        expect(negativeBeat.errors).toEqual([expect.objectContaining({ noteIndex: 0, field: 'bpm' })]);
+        // 首条为正、只是位置不在 beat 0 → 放行（时间原点随之前移）
+        expect(validateChartCode([bpm(-4, 120), bpm(5, 150)]).valid).toBe(true);
     });
 
-    test('两条规则不重复报同一条：全谱唯一一条 BPM 且在 beat 0 为负 → 只报一次', () => {
+    test('beat 0 处的负值但**不是首条** → 放行（倒流区的普通一条）', () => {
+        expect(validateChartCode([bpm(-8, 120), bpm(0, -120), bpm(5, 120)]).valid).toBe(true);
+    });
+
+    test('「首条」同 beat 取数组序最后一条（稳定排序口径）', () => {
+        // 同 beat 两条：后者 -120 才是生效值 → 拒
+        const bad = validateChartCode([bpm(0, 120), bpm(0, -120), bpm(5, 120)]);
+        expect(bad.valid).toBe(false);
+        expect(bad.errors).toEqual([expect.objectContaining({ noteIndex: 1, field: 'bpm' })]);
+        // 后者为正 → 生效值为正 → 放行
+        expect(validateChartCode([bpm(0, -120), bpm(0, 120), bpm(5, 120)]).valid).toBe(true);
+    });
+
+    test('两条规则不重复报同一条：全谱唯一一条 BPM 且为负 → 只报一次', () => {
         const result = validateChartCode([bpm(0, -120)]);
         expect(result.valid).toBe(false);
         expect(result.errors).toHaveLength(1);
-        expect(result.errors[0].reason).toContain('第 0 拍');
+        expect(result.errors[0].reason).toContain('首条 BPM');
     });
 
     test('末条 BPM 事件为负 → 拒（谱面以负 BPM 收尾会让制谱器崩溃）', () => {
@@ -115,6 +134,13 @@ describe('issue 103 · BPM 校验边界（ADR-0010 结论 7）', () => {
         expect(validateChartCode(mid, { fragment: true }).valid).toBe(true);
         // 整份口径下，同一条代码就是"末条为负" → 拒（两个口径的差别即本用例的意义）
         expect(validateChartCode(mid).valid).toBe(false);
+    });
+
+    test('片段视图（对象视图）跳过"首条为正"（issue 63 P3：编辑面不拦，负值换色即警示）', () => {
+        const head = [bpm(0, -120)];
+        expect(validateChartCode(head, { fragment: true }).valid).toBe(true);
+        // 整份口径（导入 / 完整代码 Apply）同样一条 → 拒
+        expect(validateChartCode(head).valid).toBe(false);
     });
 
     test('无 BPM 事件的代码不触发边界规则（边界只针对存在 BPM 的谱面）', () => {

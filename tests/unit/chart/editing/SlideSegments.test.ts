@@ -27,6 +27,22 @@ describe('issue 106 · 可见结点不足的处置（visibleEnds / 退化滑条�
   });
 });
 
+describe('issue 63 · 负拍结点不再视为 hidden（可见性交给 pos < 0）', () => {
+  it('首尾负拍结点是正常可见结点：参与段 / 端点判定', () => {
+    const conns = [c(-2, 0), c(0, 3), c(2, 5)];
+    expect(isDisplayIdentity(conns)).toBe(true);
+    expect(visibleEnds(conns)).toEqual({ first: 0, last: 2 });
+    expect(slideSpans(conns)).toEqual([{ start: 0, end: 1 }, { start: 1, end: 2 }]);
+  });
+
+  it('只有 hidden 才被投影裁掉：负拍首结点保留', () => {
+    const conns = [c(-2, 0), c(1, 2), c(3, 4, true)];
+    const view = displayConnections(conns);
+    expect(view.src).toEqual([0, 1]);
+    expect(view.conns.map((p) => p.beat)).toEqual([-2, 1]);
+  });
+});
+
 describe('issue 219 · Slide 同拍多结点端点判定（visibleEnds 与 displayConnections 投影首尾同源）', () => {
   it('尾部存在同拍多结点：端点指向原数组最后一项（不论轨序）', () => {
     // [4/L2, 6/L3, 6/L0] 预期端点为 6/L0 (下标 2)

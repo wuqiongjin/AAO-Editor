@@ -692,7 +692,8 @@ export function createNoteLayerCache(options: {
     // issue 104 修法 4：拍区间 → 布局坐标区间走时间轴的**正向分段线性极值**
     // （`positionRangeOfBeats`：折返的峰值也在区间内），不再端到端相减——倒流区里 pos 非单调，
     // 两端相减会漏掉折返段覆盖到的瓦片（复现 issue 36 那个"陈旧瓦片"的 bug 形态）。
-    const { min, max } = rc.geometry.timeline.positionRangeOfBeats(Math.max(0, minBeat), Math.max(0, maxBeat));
+    // issue 63：不再按拍位 clamp（既不是 0 也不是 startBeat）——首条 BPM 为负时可见区就在它之前。
+    const { min, max } = rc.geometry.timeline.positionRangeOfBeats(minBeat, maxBeat);
     const margin = (VIEWPORT_PADDING + 48) / es;
     const { lo, hi } = tileIndexRange(min - margin, max + margin);
     // issue 146：**打脏而不是 `tiles.delete`**。播放帧的瓦片 miss 偏偏不做同步光栅

@@ -1531,3 +1531,33 @@ describe('planDragMove · stretchCurveOnNodeDrag（拖动滑条结点直接拉�
     }
   });
 });
+
+// issue 63：拖拽下界 = 时间原点（首条 BPM），负首拍时可拖到负拍；未传 startBeat 保持旧口径（≥ beat 0）
+describe('planDragMove · 首条 BPM 之前的边界（issue 63）', () => {
+  it('负首拍：负拍键型可在 [startBeat, …) 内拖动', () => {
+    const notes: ChartNote[] = [single(-2, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: -1, dLane: 0 }, { ...B, startBeat: -4 });
+    expect(r.ok).toBe(true);
+    expect(r.notes[0]).toMatchObject({ type: 'Single', beat: -3, lane: 2 });
+  });
+
+  it('拖到首条 BPM 之前 → 回弹（out-of-bounds）', () => {
+    const notes: ChartNote[] = [single(-2, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: -3, dLane: 0 }, { ...B, startBeat: -4 });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('out-of-bounds');
+  });
+
+  it('未传 startBeat（旧口径）：负拍落点仍拒绝', () => {
+    const notes: ChartNote[] = [single(-2, 2)];
+    expect(planDragMove(notes, noteSel(0), { dBeat: -1, dLane: 0 }, B).ok).toBe(false);
+  });
+
+  it('负拍滑条结点可拖动（isCanvasHiddenConn 只看 hidden 后的行为锁）', () => {
+    const notes: ChartNote[] = [slide(-2, 0, 2, 3, 4, 5)];
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }], { dBeat: -1, dLane: 1 }, { ...B, startBeat: -4 });
+    expect(r.ok).toBe(true);
+    const conns = (r.notes[0] as SlideNote).connections;
+    expect(conns.map((p) => [p.beat, p.lane])).toEqual([[-3, 1], [2, 3], [4, 5]]);
+  });
+});

@@ -1234,7 +1234,7 @@
   "validate.laneRange": "{{label}} lane 必须在 {{min}}-{{max}} 范围内",
   "validate.noConnections": "{{label}} 不得残留 connections 字段",
   "validate.noConnectionsExpected": "删除 connections（它只属于 type:\"Slide\"）",
-  "validate.bpm0Negative": "第 0 拍的 BPM 不得为负数（全谱秒坐标会 ≤ 0）",
+  "validate.firstBpmNegative": "首条 BPM（时间原点）不得为负数（全谱秒坐标会倒置）",
   "validate.lastBpmNegative": "末条 BPM 事件不得为负数（谱面以负 BPM 收尾会让制谱器崩溃）",
   "validate.lastBpmExpected": "> 0（倒流区之后必须回到正 BPM）",
   "validate.mustBeArray": "谱面代码必须是数组",

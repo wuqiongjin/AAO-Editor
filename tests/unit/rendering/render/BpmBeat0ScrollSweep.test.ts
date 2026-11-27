@@ -40,7 +40,7 @@ describe('beat 0 滚动时线 y 与字 y', () => {
 
   it('bpmLabelAnchorY(0, y) − y 在离开判定线后恒等于 −fontPx/2', () => {
     const h = 900;
-    const offs = [1, 2, 5, 10, 20].map((d) => bpmLabelAnchorY(0, h + d, FONT, h) - (h + d));
+    const offs = [1, 2, 5, 10, 20].map((d) => bpmLabelAnchorY(0, h + d, FONT, 0) - (h + d));
     expect(new Set(offs.map((o) => o.toFixed(4))).size).toBe(1);
     expect(offs[0]).toBeCloseTo(-FONT / 2, 6);
   });

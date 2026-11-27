@@ -23,7 +23,7 @@
 | Apply 硬拒绝 | Hard reject | 整份谱面代码不能写入画布：JSON 非法、根不是数组、顶层无 `type` 或 `type` 不在白名单（`Single`/`Directional`/`Slide`/`Long`/`BPM`/`System`）、已知 `type` 缺必填结构、数值非有限、`bpm = 0`、倒流区硬边界。报错明示下标，不静默丢弃。_Avoid_: 因 `System`/`charge`/有限越界 lane 拒 Apply；上传时对用户拦 System/charge（上传应自动 sanitize） |
 | 有限非法值 | Finite out-of-range | 已知字段的**有限**数字越出本编辑器放置范围（如 lane 出 `0..6`、Directional `width` 任意有限且 `>3` 或 `<1`）；进入源数据并按 ADR-0014 投影。_Avoid_: 与 NaN/Infinity/缺字段混称；把 width 上限定死在 7 |
 | beat / subBeat | beat / subBeat | **作者轴**坐标；subBeat 为细分，未设置时视为 `0`。经 BPM 事件带符号换算为时间轴（秒）——含倒流区时二者方向相反，勿称 beat 为「时间」 |
-| 负 beat 击打物 | Negative-beat hittable | 源 `beat < 0` 的可击打音符或滑条非 hidden 结点：不渲染、不键音、不进画布选区，计入 combo（开播即已过线）；只能在谱面代码里改。_Avoid_: 投影到 beat 0、与 opaque/System 混称（System 不计 combo） |
+| 首条 BPM 之前的击打物 | Pre-origin hittable | **时间 < 0**（首条 BPM 之前）的可击打音符或滑条非 hidden 结点：不渲染、不键音、不进画布选区，计入 combo 与音符数（开播即已过线，combo 起始值非 0）；只能在谱面代码里改。**负拍但时间 ≥ 0 是正常音符**（issue 63）。_Avoid_: 以 beat 0 当边界、把负拍一律当不可见、与 opaque/System 混称（System 不计 combo） |
 | lane | lane | 编辑器合法新落点为 `0..6`（共 7 道）；源数据中的有限 lane 可越界并投影到轨道外 |
 
 ## 时间轴与倒流区（ADR-0010）

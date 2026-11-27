@@ -17,8 +17,8 @@ import { indexOfLastBpm } from './BpmPredecessor';
  *
  * 与导入侧 `checkBackflowBoundaries` ②的分工：二者判的是**同一条规则**（末条为负 ⇒ Bestdori 打不开），
  * 但落点不同 —— 导入侧据此**整份拒收**，画布侧据此**就地警示**（issue 142 定案：编辑器不拦）。
- * ①（beat 0 为负）在导入侧是另一条规则并被单独报出；本函数不区分①：
- * 全谱只有一条 BPM 且它在 beat 0 为负时它同时也是末条，照报警示（两种情况都会让谱不可用）。
+ * ①（首条 BPM 为负，issue 63）在导入侧是另一条规则并被单独报出；本函数不区分①：
+ * 全谱只有一条 BPM 且它为负时它同时也是首条与末条，照报警示（两种情况都会让谱不可用）。
  */
 export function indexOfTrailingNegativeBpm(notes: readonly ChartNote[]): number {
   const last = indexOfLastBpm(notes);

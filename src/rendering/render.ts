@@ -143,7 +143,9 @@ export function visibleBeatRanges(
 ): BpmBeatRange[] {
   const out: BpmBeatRange[] = [];
   for (const r of geometry.visibleBeatRanges(viewport, viewHeightCss)) {
-    const start = Math.max(0, r.start);
+    // issue 63：区间本身来自视口的**布局坐标**（pos ≥ 0），已天然落在时间原点之上；
+    // 不再按拍位钳制（首条 BPM 为负时可见区就在 startBeat 之前）。
+    const start = r.start;
     const end = Math.min(chartEndBeat, r.end);
     if (end >= start) out.push({ start, end });
   }
@@ -206,14 +208,15 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   // 每个候选独立求 y，不做任何"pos 随 beat 递增"的假设。
   for (const range of ranges) {
     for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
-      if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
+      // issue 63：时间原点之前（时间 < 0）不画网格 —— 按时间判，不用 `beat < startBeat`
+      if (rc.geometry.isBeforeOrigin(beat) || isPastChartEnd(beat, rc.chartEndBeat)) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= -8 && y <= rc.surface.h + 8) candidates.push({ y, tier: 'beat' });
       if (maxDivision <= 1) continue;
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
         if (gridDivisionOf(subBeat, rc.beatDisplay) > maxDivision) continue;
         const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
-        if (isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
+        if (rc.geometry.isBeforeOrigin(preciseBeat) || isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
         const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
         if (subY < -8 || subY > rc.surface.h + 8) continue;
         candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
@@ -708,7 +711,9 @@ function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
 
   // 键型在全体滑条之上（issue 85 ①）
   visibleNotes.forEach(({ note }) => {
-    if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") && note.beat < 0) {
+    // issue 63：时间 < 0（首条 BPM 之前）不画；按时间判定，负拍但时间 ≥ 0 是正常音符
+    if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional")
+        && rc.geometry.isBeforeOrigin(trueBeat(note.beat, note.subBeat || 0, rc.beatDisplay))) {
       return;
     }
     if (note.type === "Single") {
@@ -743,6 +748,8 @@ function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   // offsetX/offsetY 正确按 spriteScale 应用。
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Single" && note.flick) {
+      // issue 63：与主精灵同一道时间原点过滤，否则首条之前的 flick 会只剩一枚箭头
+      if (rc.geometry.isBeforeOrigin(trueBeat(note.beat, note.subBeat || 0, rc.beatDisplay))) return;
       const dec = icons.flickTopDecorator;
       if (!dec) return;
       const subBeat = note.subBeat || 0;
@@ -1467,7 +1474,8 @@ function renderBpmGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx,
   if (rc.bpmEditBeat != null && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) return;
   const userLabelScale = rc.display?.labelScale ?? 1;
   const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * es);
-  const labelY = bpmLabelAnchorY(note.beat, y, fontPx, rc.surface.h);
+  // issue 63：ghost 可能来自 `previewGeometry`（BPM 表已变），原点随本次布局的 c 走
+  const labelY = bpmLabelAnchorY(note.beat, y, fontPx, c.startBeat);
   if (!bpmGutterYIntersectsCanvas(labelY, fontPx, rc.surface.h)) return;
   const preset = normalizeGridStyle(rc.display?.gridStyle);
   const gl = layoutGutterLabel(c, es, labelY, 'centered', 'bpm', userLabelScale);
@@ -1548,6 +1556,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     (beat) => c.getNoteVirtualY(beat),
     fontPx,
     expandedKey,
+    c.startBeat,
   );
   const colorOf = (bpm: number, noteIndex?: number) => bpmLabelColor(bpm, preset, noteIndex === tailIdx);
   ctx.save();
@@ -1559,7 +1568,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
       const n = rc.notes[i];
       return n && 'beat' in n ? n.beat : Infinity;
     }));
-    const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, rc.surface.h);
+    const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, c.startBeat);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
     const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', userLabelScale);
     drawBpmSummary(ctx, gl, sum.tokens, (bpm) => {
@@ -1575,7 +1584,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     if (!note || note.type !== 'BPM') continue;
     if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
         && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
-    const y = bpmLabelAnchorY(note.beat, num.y, fontPx, rc.surface.h);
+    const y = bpmLabelAnchorY(note.beat, num.y, fontPx, c.startBeat);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
     const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', userLabelScale);
     const bpm = (note as ChartNote & { bpm: number }).bpm;
@@ -1696,6 +1705,7 @@ export const END_TEXT_COLOR = '#f0a07e';
 /**
  * 谱面起始线 / 结束线（issue 52 线样式 + issue 151 文字）：
  * - 线 = 低饱和青蓝 / 暖橙虚线，**只画轨道两侧沟槽段**；
+ * - 起始线画在**时间原点**（首条 BPM 的 beat，issue 63），不再固定 beat 0；
  * - 起始线不画字；结束线 `END` 在线下方、外带锚定，文字盒钳制在画布内。
  */
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
@@ -1719,7 +1729,7 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
     ctx.restore();
     return canvasY;
   };
-  drawLine(0, START_LINE_COLOR);
+  drawLine(c.startBeat, START_LINE_COLOR);
   const endY = drawLine(rc.chartEndBeat, END_LINE_COLOR);
   if (endY == null) return;
   const es = rc.viewport.scale;

@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
-import { createNoteLayerCache, diffNotes, tileIntersectsViewport, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
+import { createNoteLayerCache, diffNotes, tileIntersectsViewport, TILE_PX, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeNoopCtx } from '@/tests/support/canvas';
@@ -115,6 +115,37 @@ describe('回到真实 0 秒编辑 · 瓦片失效策略', () => {
     for (const id of visible) {
       expect(tiles.get(id)).not.toBe(previous.get(id));
       expect(tiles.get(id)!.dirty).toBeFalsy();
+    }
+  });
+});
+
+// issue 63：失效区间下限 = 时间原点（首条 BPM），不再 clamp 0 ——
+// 负首拍时编辑负拍音符，覆盖它的瓦片必须打脏重建。
+describe('issue 63 · 负首拍编辑负拍音符的瓦片失效', () => {
+  it('编辑 beat −4 → −3：覆盖该位置的瓦片重建', () => {
+    const cache = createNoteLayerCache();
+    cache.__setCanvasFactoryForTests(() => ({
+      width: 0, height: 0, getContext: () => makeNoopCtx(),
+    }));
+    try {
+      const g = new ChartGeometry([{ beat: -8, bpm: 120 }], { endBeat: 8 }, SURFACE);
+      const bpm: ChartNote = { type: 'BPM', beat: -8, bpm: 120 };
+      const before: ChartNote[] = [bpm, { type: 'Single', lane: 0, beat: -4, subBeat: 0 }];
+      const after: ChartNote[] = [bpm, { type: 'Single', lane: 0, beat: -3, subBeat: 0 }];
+      const scrollY = g.beatToVirtualY(-4, ES) - SURFACE.h / (2 * ES);
+      const tileId = Math.floor(g.timeline.positionOfBeat(-4) / TILE_PX);
+      expect(tileId).toBeGreaterThanOrEqual(0);
+
+      cache.draw(CTX, makeRc(g, before, scrollY, false));
+      const prev = cache.__getTilesForTests().get(tileId);
+      expect(prev?.empty).toBe(false);
+
+      cache.draw(CTX, makeRc(g, after, scrollY, false));
+      const next = cache.__getTilesForTests().get(tileId);
+      expect(next).toBeDefined();
+      expect(next).not.toBe(prev); // 打脏后同步重建 → 新瓦片对象
+    } finally {
+      cache.reset();
     }
   });
 });

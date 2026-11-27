@@ -254,6 +254,7 @@ export class GestureSession {
     return {
       chartEndBeat: w.chartEndBeat,
       beatDisplay: w.beatDisplay,
+      startBeat: w.geometry.startBeat,
       stretchCurveOnNodeDrag: w.stretchCurveOnNodeDrag,
     };
   }

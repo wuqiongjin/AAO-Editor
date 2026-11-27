@@ -6,7 +6,7 @@
 // 与 07 的离线逐帧导出共用它（导出只换 ctx 与场地尺寸，不换画法）。
 //
 // 口径一致（票面「复用与边界」，不另立一套）：
-//   - `beat < 0` 的音符 / 滑条非 hidden 结点不渲染（ADR-0014）；
+//   - **时间 < 0**（首条 BPM 之前）的音符 / 滑条非 hidden 结点不渲染（issue 63：负拍但时间 ≥ 0 照常）；
 //   - 带体取点走 `displayConnections` 同一显示投影（ADR-0009 §2.2 / issue 115）——倒流区折返照旧；
 //   - combo 与键音**同一份事件表**（`AudioTiming.buildKeyEvents`）：会出声 = 会过线 = 计 combo；
 //   - 精灵选款走 `singleIconConfig` / `slideNodeIconConfig` / `dirSideOf`（与编辑器画布同一份）；
@@ -244,8 +244,9 @@ export interface SimChart {
   simultaneous: SimSimultaneous[];
   /**
    * combo 口径：**画布那一份**（`NoteEditing.comboNodePreciseBeats` 的同一枚举）折成的秒，升序。
-   * 与键音事件表刻意不同：`beat < 0` 的可击打物**不键音但计 combo**（开播即已过线，ADR-0014 / CONTEXT
-   * 「负 beat 击打物」），故它们的时刻是负数、`t = 0` 时就已经算进去了。
+   * 与键音事件表刻意不同：**时间 < 0**（首条 BPM 之前）的可击打物**不渲染、不键音但计 combo**
+   * （开播即已过线，issue 63 P1 / CONTEXT「首条 BPM 之前的击打物」），故它们的时刻是负数、
+   * `t = 0` 时就已经算进去了（combo 起始值不再是 0）。
    */
   hitTimes: number[];
 }
@@ -398,10 +399,12 @@ export function* buildSimChartSteps(
 
   const addNote = (note: ChartNote): void => {
     if (note.type === 'Single') {
-      if (note.beat < 0) return; // ADR-0014：负 beat 不渲染
+      // issue 63：按**时间**过滤——首条 BPM 之前（负秒）的不渲染；负拍但时间 ≥ 0 的照常
+      const time = secondsAt(note.beat, note.subBeat);
+      if (time < 0) return;
       const lane = mirrorLane(note.lane, mirror);
       elements.push({
-        time: secondsAt(note.beat, note.subBeat),
+        time,
         lane,
         kind: note.flick ? 'flick' : note.skill ? 'skill' : 'tap',
         length: 1,
@@ -415,14 +418,15 @@ export function* buildSimChartSteps(
     }
 
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
-      if (note.beat < 0) return;
+      const time = secondsAt(note.beat, note.subBeat);
+      if (time < 0) return;
       // 镜向 = 锚点轨对调 + 侧别翻面（`dirSideOf` 与编辑器同一份规则，别再自己取反一次）
       const side = dirSideOf(iconCtx, note.type === 'LDirectional');
       const lane = mirrorLane(note.lane, mirror);
       // 长度取**原值**（小数 / 越界都照实喂给 dirGroup；本体数由它自己 ceil）
       const length = Number.isFinite(note.length) ? note.length : 1;
       elements.push({
-        time: secondsAt(note.beat, note.subBeat),
+        time,
         lane,
         kind: 'directional',
         length,
@@ -449,7 +453,7 @@ export function* buildSimChartSteps(
         const lane = mirrorLane(conn.lane, mirror);
         const time = secondsAt(conn.beat, conn.subBeat);
         const isEnd = isEndpointNode(i);
-        if (!conn.hidden && conn.beat >= 0) {
+        if (!conn.hidden && time >= 0) {
           elements.push({
             time,
             lane,
@@ -462,7 +466,7 @@ export function* buildSimChartSteps(
             flickDecorator: conn.flick === true && i === lastIdx,
           });
         }
-        if (isEnd && conn.beat >= 0) addToGroup(trueBeat(conn.beat, conn.subBeat, beatDisplay), lane);
+        if (isEnd && time >= 0) addToGroup(trueBeat(conn.beat, conn.subBeat, beatDisplay), lane);
       });
       // 带体：投影序的相邻两点一段（段内 hidden 采样点就是 SP 曲线的弯，走序照投影）。
       // 按住帽按**逻辑段**选款：hidden 采样点对段透明（`slideSpans` 口径），段内所有小段共用
@@ -479,12 +483,15 @@ export function* buildSimChartSteps(
         for (let i = span.start; i < span.end; i++) {
           const a = projected[i]!;
           const b = projected[i + 1]!;
-          if (a.beat < 0 && b.beat < 0) continue; // 整段都在负 beat：不渲染
+          const t0 = secondsAt(a.beat, a.subBeat);
+          const t1 = secondsAt(b.beat, b.subBeat);
+          // issue 63：两端都在负秒（首条 BPM 之前）→ 整段不铺；跨过时间原点的段照常铺
+          if (t0 < 0 && t1 < 0) continue;
           bands.push({
             slide,
-            t0: secondsAt(a.beat, a.subBeat),
+            t0,
             lane0: mirrorLane(a.lane, mirror),
-            t1: secondsAt(b.beat, b.subBeat),
+            t1,
             lane1: mirrorLane(b.lane, mirror),
             sp,
             holdAmong,
@@ -512,7 +519,7 @@ export function* buildSimChartSteps(
     .sort((a, b) => a.time - b.time);
 
   // combo 走**画布那份枚举**（单键/方向键各 1、滑条逐非 hidden 结点），不是键音事件表：
-  // `beat < 0` 的击打物不键音、但开播即已过线要计 combo（负 beat 击打物，ADR-0014）。
+  // 时间 < 0 的击打物不渲染、不键音，但开局即已过线要计 combo（issue 63 P1）。
   // 按拍枚举 → 折成秒 → 按**播放时钟**排序（倒流区里拍序与秒序不一致）。
   const hitTimes: number[] = [];
   const comboBeats = comboNodePreciseBeats(notes, beatDisplay);

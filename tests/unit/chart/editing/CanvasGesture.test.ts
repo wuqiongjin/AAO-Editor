@@ -22,8 +22,8 @@ const TEST_SURFACE = { w: 750, h: 900 };
 const BEAT_DISPLAY = 4;
 
 /** scale=1 / scrollY=0 的视图；画布坐标 == 虚拟坐标（x 含 trackBgX 偏移） */
-function makeDeps(notes: ChartNote[], chartEndBeat = 100) {
-  const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , TEST_SURFACE);
+function makeDeps(notes: ChartNote[], chartEndBeat = 100, bpmEvents: { beat: number; bpm: number }[] = bpm120) {
+  const geometry = new ChartGeometry(bpmEvents, { endBeat: chartEndBeat } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes };
   /** (lane, beat) → 画布坐标 */
@@ -78,6 +78,23 @@ describe('snapChartPos 落点合法性', () => {
     const after = at(2, 101);
     expect(snapChartPos(deps, 100, p.x, p.y)).not.toBeNull();
     expect(snapChartPos(deps, 100, after.x, after.y)).toBeNull();
+  });
+
+  // issue 63 Q1：放置下界 = 时间原点（首条 BPM），不再是 beat 0
+  it('负首拍：首条 BPM 到 beat 0 之间可放置；首条之前 → null', () => {
+    const { deps, at } = makeDeps(notes, 100, [{ beat: -4, bpm: 120 }]);
+    const inside = at(2, -2);
+    expect(snapChartPos(deps, 100, inside.x, inside.y)?.beat).toBeCloseTo(-2, 6);
+    const before = at(2, -5);
+    expect(snapChartPos(deps, 100, before.x, before.y)).toBeNull();
+  });
+
+  it('正首拍：beat 0（负秒）不可放置', () => {
+    const { deps, at } = makeDeps(notes, 100, [{ beat: 1, bpm: 120 }]);
+    const atZero = at(2, 0);
+    expect(snapChartPos(deps, 100, atZero.x, atZero.y)).toBeNull();
+    const after = at(2, 2);
+    expect(snapChartPos(deps, 100, after.x, after.y)?.beat).toBeCloseTo(2, 6);
   });
 });
 

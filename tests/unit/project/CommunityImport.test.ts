@@ -389,6 +389,21 @@ describe('票 09 · 谱面是主线（没有「空白谱降级」）', () => {
     if (!result.ok) expect(result.errors[0].reason).toBe(translate('chartCode.needBpm'));
     expect(t.writes).toHaveLength(0);
   });
+
+  // issue 63 Q4：首条 BPM（时间原点）为负 → 秒坐标倒置，整笔拒（编辑器内仍可经对象视图写出）
+  it('首条 BPM 为负：Apply 闸门拒绝，整笔不落盘', async () => {
+    const chart = [
+      { bpm: -120, beat: -4, type: 'BPM' },
+      { type: 'Single', lane: 0, beat: 0 },
+    ];
+    const t = deps({ json: { [DETAIL_URL]: { result: true, post: { ...CUSTOM_POST, chart } } } });
+
+    const result = await t.run(post(CUSTOM_POST));
+
+    expect(result).toMatchObject({ ok: false, reason: 'apply' });
+    if (!result.ok) expect(result.errors[0].reason).toBe(translate('validate.firstBpmNegative'));
+    expect(t.writes).toHaveLength(0);
+  });
 });
 
 describe('票 09 · 失败文案', () => {

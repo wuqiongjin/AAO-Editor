@@ -2,7 +2,7 @@
 //
 // **不新建第二套音量 / 调度口径**（票面「本票最深的一处」）：
 //   - 事件表 = **同一份** `AudioTiming.buildKeyEvents`（由调用方建好传进来，与引擎 `setChart` 同源；
-//     `beat < 0` 不键音、hidden 结点不计、BPM/System 不发声这些口径都在那一份里）；
+//     `时间 < 0` 不键音、hidden 结点不计、BPM/System 不发声这些口径都在那一份里）；
 //   - 采样加载 = **同一份** `keySoundBank`（07 从 `AudioEngine` 抽出来的共享缓存）；
 //   - 包络 = **同一份** `scheduleKeySample` / `scheduleKeyTone`；
 //   - 音量结构照实时那条链：BGM → master(volume) → destination，键音 → se(seVolume) → master。

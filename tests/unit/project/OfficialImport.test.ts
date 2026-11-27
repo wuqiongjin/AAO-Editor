@@ -232,6 +232,34 @@ describe('票 08 · 素材缺失与闸门拒绝', () => {
     expect(result).toEqual(expect.objectContaining({ ok: false, reason: 'apply' }));
     expect(writes).toHaveLength(0);
   });
+
+  // issue 63 Q4：首条 BPM（时间原点）为负会让全谱秒坐标倒置 → 导入级整笔拒
+  it('首条 BPM 为负 → 整笔不建（整谱校验，不是 beat 0）', async () => {
+    const { store, writes } = recordingStore();
+    const transport = makeFakeCommunityTransport({
+      text: {
+        [CHART_URL]: JSON.stringify([
+          { type: 'BPM', beat: -4, bpm: -120 },
+          { type: 'BPM', beat: 4, bpm: 120 },
+        ]),
+      },
+      binary: { [AUDIO_URL]: STAGED_AUDIO, [JACKET_URL]: STAGED_COVER },
+    });
+
+    const result = await importChart(
+      createOfficialImportSource(transport),
+      {
+        store,
+        notifyCatalogChanged: () => {},
+        newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),
+        now: () => NOW,
+      },
+      { song: song(), detail: { bgmId: 'bgm029', lengthSeconds: 120 }, withChart: true, diff: 'special' },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ ok: false, reason: 'apply' }));
+    expect(writes).toHaveLength(0);
+  });
 });
 
 // ADR-0005 §4「有音频 = 音频时长」：官方 length 只是起始值，落地后按**实际音频**校正一次。

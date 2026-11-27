@@ -497,7 +497,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     // 就地编辑输入框挂载即聚焦全选（光标置于数字内，§5）
-    // issue 253：必须 preventScroll——beat 0 输入盒贴判定线，默认 focus 会滚动 .ws-chart-area，整谱跟着跳。
+    // issue 253：必须 preventScroll——时间原点那一条的输入盒贴判定线，默认 focus 会滚动 .ws-chart-area，整谱跟着跳。
     const attachBpmInput = useCallback((el: HTMLInputElement | null) => {
         if (el) { el.focus({ preventScroll: true }); el.select(); }
     }, []);
@@ -744,10 +744,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const member = notes.find((n) => n.type === 'BPM' && bpmCoincidentKey(beatToVirtualY(n.beat)) === expandedBpmGroupKey);
         if (!member) { setExpandedBpmGroupKey(null); return; }
         const lineCanvasYOf = (beat: number) => virtualToCanvas(0, beatToVirtualY(beat)).y;
-        const layout = layoutBpmGutter(notes, lineCanvasYOf, beatToVirtualY, fontPx, expandedBpmGroupKey);
+        const layout = layoutBpmGutter(notes, lineCanvasYOf, beatToVirtualY, fontPx, expandedBpmGroupKey, geometry.startBeat);
         const ys = layout.numerals.filter((n) => n.groupKey === expandedBpmGroupKey).map((n) => n.y);
         if (!bpmExpandedNumeralsOnCanvas(ys, fontPx, surf.h)) setExpandedBpmGroupKey(null);
-    }, [expandedBpmGroupKey, notes, viewport, surf.h, display.labelScale, beatToVirtualY, virtualToCanvas]);
+    }, [expandedBpmGroupKey, notes, viewport, surf.h, display.labelScale, beatToVirtualY, virtualToCanvas, geometry.startBeat]);
 
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
@@ -1095,6 +1095,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             beatToVirtualY,
             fontPx,
             expandedBpmGroupKey,
+            geometry.startBeat,
         );
         const num = gutter.numerals.find((n) => Math.abs(n.beat - bpmEdit.beat) < 1e-9);
         bpmInputBox = bpmInlineInputBox(
@@ -1104,6 +1105,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             fontPx,
             trackStartX,
             surf.h,
+            geometry.startBeat,
         );
     }
 

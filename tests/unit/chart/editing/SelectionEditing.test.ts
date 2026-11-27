@@ -68,6 +68,35 @@ describe('deleteSelection · BPM 线删除与保底', () => {
   });
 });
 
+describe('issue 63 · 负拍结点可正常参与选区（时间 ≥ 0 的可见结点）', () => {
+  const negativeSlide = (): ChartNote => ({
+    type: 'Slide',
+    connections: [
+      { beat: -2, lane: 0 },
+      { beat: 1, lane: 2 },
+      { beat: 3, lane: 4 },
+    ],
+  });
+
+  it('删除负拍端点 → 该结点被移除（不再被当成 hidden 跳过）', () => {
+    const out = deleteSelection([negativeSlide()], [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    const conns = (out[0] as Extract<ChartNote, { type: 'Slide' }>).connections;
+    expect(conns.map((p) => p.beat)).toEqual([1, 3]);
+  });
+
+  it('删除中段可见结点 → 原位转 hidden（issue 92 口径不受 beat 影响）', () => {
+    const out = deleteSelection([negativeSlide()], [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+    const conns = (out[0] as Extract<ChartNote, { type: 'Slide' }>).connections;
+    expect(conns.map((p) => [p.beat, p.hidden ?? false])).toEqual([[-2, false], [1, true], [3, false]]);
+  });
+
+  it('复制整条含负拍结点的滑条不丢点', () => {
+    const copied = copySelection([negativeSlide()], [{ kind: 'note', noteIndex: 0 }]);
+    expect(copied).toHaveLength(1);
+    expect((copied[0] as Extract<ChartNote, { type: 'Slide' }>).connections.map((p) => p.beat)).toEqual([-2, 1, 3]);
+  });
+});
+
 describe('selectionNoteIndices', () => {
   it('提取去重后的音符下标', () => {
     const items: SelectionItem[] = [

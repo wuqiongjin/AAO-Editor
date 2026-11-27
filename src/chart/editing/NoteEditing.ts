@@ -2,9 +2,13 @@ import type { ChartNote, ConnectionNote } from '../types';
 import { effectiveSpanParams, mirrorSpanParam } from './SpanCurve';
 
 
-/** 画布上当 hidden：标记 hidden，或负 beat（ADR-0014：不画不键音，仍计 combo） */
-export function isCanvasHiddenConn(c: Pick<ConnectionNote, 'hidden' | 'beat'>): boolean {
-  return !!c.hidden || c.beat < 0;
+/**
+ * 画布上当 hidden：**只看 `hidden` 标记**（issue 63）。
+ * 首条 BPM 之前的负拍结点不再是"隐藏"——它们是正常数据，画布可见性由 `pos < 0`
+ * （时间 < 0，判定线以下）兜底；这样段结构 / 拖拽 / 粘贴夹取不必再穿 `startBeat`。
+ */
+export function isCanvasHiddenConn(c: Pick<ConnectionNote, 'hidden'>): boolean {
+  return !!c.hidden;
 }
 
 // 轨道总数（与 FinalVirtualCanvas 的 LANES 保持一致）

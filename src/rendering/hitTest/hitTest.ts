@@ -7,6 +7,7 @@ import { projectedSlideSpans } from '../../chart/editing/SlideSegments';
 import { bandPolygonAt } from '../slideBandGeometry';
 import { makeCoords } from '../coords';
 import type { SelectionBox } from '../types';
+import { trueBeat } from '../../chart/editing/ChartEndBounds';
 
 // 命中尺寸常量 —— **与渲染同源**（`../primitives/noteMetrics`，issue 82）：两侧共用一份，
 // 不再各写一份硬编码副本（旧副本正是"命中盒比墨迹大一倍"的温床）。
@@ -129,7 +130,8 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       for (let ci = 0; ci < connections.length; ci++) {
         const conn = connections[ci];
         // issue 56 A6/C1：hidden 结点不可命中（不可选中、不可 hover、无描边反馈）
-        if (conn.hidden || conn.beat < 0) continue;
+        // issue 63：时间 < 0（首条 BPM 之前）的结点同理；按时间判，负拍但时间 ≥ 0 正常命中
+        if (conn.hidden || deps.geometry.isBeforeOrigin(trueBeat(conn.beat, conn.subBeat || 0, deps.beatDisplay))) continue;
         const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
         if (inHitBox(cx, cy, pos.x, pos.y, slideNodeHit.hw, slideNodeHit.hh)) {
           return { kind: 'slideNode', noteIndex: i, connIndex: ci };
@@ -151,7 +153,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
         }
       }
     } else if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-      if (note.beat < 0) return null;
+      if (deps.geometry.isBeforeOrigin(trueBeat(note.beat, note.subBeat || 0, deps.beatDisplay))) return null;
       // issue 62：方向键整组都可命中（框到哪儿都能点中/拖起），与 issue 56 A4 的
       // "选中描边 = 整组一个矩形"同口径；半径沿用单键口径（箭头挂件那几 px 不算命中区）。
       const lanes = note.type === 'Single'
