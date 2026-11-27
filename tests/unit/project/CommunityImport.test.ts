@@ -333,7 +333,7 @@ describe('票 09 · 谱面是主线（没有「空白谱降级」）', () => {
     const result = await t.run(post(CUSTOM_POST));
 
     expect(result).toMatchObject({ ok: false, reason: 'apply' });
-    if (!result.ok) expect(result.errors[0].reason).toBe(translate('chartCode.emptyChart'));
+    if (!result.ok && result.reason === 'apply') expect(result.errors[0].reason).toBe(translate('chartCode.emptyChart'));
     expect(t.writes).toHaveLength(0);
   });
 
@@ -386,7 +386,7 @@ describe('票 09 · 谱面是主线（没有「空白谱降级」）', () => {
     const result = await t.run(post(CUSTOM_POST));
 
     expect(result).toMatchObject({ ok: false, reason: 'apply' });
-    if (!result.ok) expect(result.errors[0].reason).toBe(translate('chartCode.needBpm'));
+    if (!result.ok && result.reason === 'apply') expect(result.errors[0].reason).toBe(translate('chartCode.needBpm'));
     expect(t.writes).toHaveLength(0);
   });
 
@@ -401,7 +401,7 @@ describe('票 09 · 谱面是主线（没有「空白谱降级」）', () => {
     const result = await t.run(post(CUSTOM_POST));
 
     expect(result).toMatchObject({ ok: false, reason: 'apply' });
-    if (!result.ok) expect(result.errors[0].reason).toBe(translate('validate.firstBpmNegative'));
+    if (!result.ok && result.reason === 'apply') expect(result.errors[0].reason).toBe(translate('validate.firstBpmNegative'));
     expect(t.writes).toHaveLength(0);
   });
 });

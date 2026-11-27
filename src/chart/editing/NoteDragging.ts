@@ -185,9 +185,10 @@ export function planDragMove(
   delta: DragDelta,
   /** chartEndBeat = 谱面末端；beatDisplay = 子拍细分（subBeat 的单位分母，用于真实拍位换算）；
    *  startBeat = 时间原点（首条 BPM，issue 63；缺省 0 = 旧口径：不允许拖到 beat 0 之前）；
+   *  isBeatInBounds = 由调用方从 geometry 注入的时间/布局边界（负首 BPM 与倒流区需按时间判，优先于拍域）；
    *  bendPrecision = 拨弯普通段时的补采样密度（issue 09 S3，缺省 1/16）；
    *  stretchCurveOnNodeDrag = 拖动可见结点时跳过缓动/模板重烘焙，直接拉伸既有采样点并清除受影响段参数 */
-  bounds: { chartEndBeat: number; beatDisplay: number; startBeat?: number; bendPrecision?: CurvePrecision; stretchCurveOnNodeDrag?: boolean },
+  bounds: { chartEndBeat: number; beatDisplay: number; startBeat?: number; isBeatInBounds?: (beat: number) => boolean; bendPrecision?: CurvePrecision; stretchCurveOnNodeDrag?: boolean },
 ): DragMoveResult {
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
@@ -256,12 +257,13 @@ export function planDragMove(
 
   const inBeat = (beat: number, sub: number) => {
     const b = sumBeat(beat, sub, beatDisplay);
+    if (bounds.isBeatInBounds) return bounds.isBeatInBounds(b);
     // issue 63：下界 = 时间原点（首条 BPM）；缺省 0 保持旧口径
     return b >= (bounds.startBeat ?? 0) - EPS && b <= bounds.chartEndBeat + EPS;
   };
 
   // 整组 / 整条滑条与粘贴同口径：可见包围盒共用一个 dLane，贴墙刚体停下，不夹扁相对位置。
-  // 只拖部分结点时包围盒 = 那些可见结点，允许单独改形。hidden / 负 beat 不进包围盒，随组平移可继续越界。
+  // 只拖部分结点时包围盒 = 那些可见结点，允许单独改形。hidden 结点不进包围盒，随组平移可继续越界。
   const movedVisibleLanes = (n: ChartNote, plan: Plan): number[] => {
     if (isKey(n)) return [n.lane];
     if (!isSlideish(n)) return [];

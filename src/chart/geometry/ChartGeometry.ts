@@ -244,6 +244,17 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.timeline.positionOfBeat(beat) < 0;
   }
 
+  /**
+   * 该**精确拍位**是否越过谱面末端（END 线之上）。
+   * 常规谱面（`chartEndBeat >= startBeat`）与 `isPastChartEnd` 等价；
+   * P3 首条 BPM 为负且 `chartEndBeat < startBeat` 时，按布局坐标 `pos > chartEndVirtualY` 判。
+   */
+  isBeyondEnd(beat: number): boolean {
+    return this.chartEndBeat >= this.startBeat
+      ? beat > this.chartEndBeat + 1e-6
+      : this.timeline.positionOfBeat(beat) > this.chartEndVirtualY + 1e-3;
+  }
+
   /** 秒 → 所在段的 BPM（判定线读数）；谱面没有 BPM 事件时回落 DEFAULT_BPM */
   bpmAtSeconds(seconds: number): number {
     return this.bpmEvents[this.segmentIndexOfSeconds(seconds)]?.bpm ?? DEFAULT_BPM;

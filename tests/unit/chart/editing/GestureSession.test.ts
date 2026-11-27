@@ -914,5 +914,47 @@ describe('issue 203 · 拖段捏形与 Alt 实时切换', () => {
     expect(committed.spanParams).toBeUndefined();
     expect(committed.connections[committed.connections.length - 1]).toMatchObject({ beat: 54, lane: 1 });
   });
+
+  it('issue 63 P3 回归：首条 BPM 为负时，负拍正秒区间内可拖拽，拖过时间原点进负秒回弹', () => {
+    const notes: ChartNote[] = [bpmNote(0, -120), single(2, -2)];
+    const geometry = new ChartGeometry([{ beat: 0, bpm: -120 }], { seconds: 10 }, SURFACE);
+    const viewport: ViewportState = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1, virtualWidth: 0, virtualHeight: 0 };
+    const at = (lane: number, beat: number) => geometry.virtualToCanvas(
+      geometry.noteVirtualX(lane),
+      geometry.noteVirtualY(beat, 0, viewport.scale, BEAT_DISPLAY),
+      viewport,
+    );
+    const virt = (cx: number, cy: number) => geometry.canvasToVirtual(cx, cy, viewport);
+    const { world } = worldOf(notes, {
+      geometry,
+      viewport,
+      chartEndBeat: geometry.chartEndBeat,
+      lastBpm: -120,
+    });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+
+    // 1. 在正秒区间 (-2 → -3, lane 2 → 3) 拖动成功
+    const pStart = at(2, -2);
+    const pValid = at(3, -3);
+    press(s, pStart, virt);
+    s.move(pValid);
+    expect(s.getSnapshot().dragGhost).not.toBeNull();
+    const validEnd = s.end(up(pValid));
+    const setNotes = validEnd.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    expect(setNotes.notes[1]).toMatchObject({ type: 'Single', beat: -3, lane: 3 });
+
+    // 2. 拖越时间原点进负秒 (beat -2 → beat +1, t = -0.5s) → 回弹（无 setNotes）
+    const s2 = new GestureSession(host);
+    s2.bindWorld(world);
+    const pInvalid = at(2, 1);
+    press(s2, pStart, virt);
+    s2.move(pInvalid);
+    const invalidEnd = s2.end(up(pInvalid));
+    expect(invalidEnd.ops.find((op) => op.t === 'setNotes')).toBeUndefined();
+  });
 });
 

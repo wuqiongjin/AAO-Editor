@@ -51,7 +51,10 @@ export function snapChartPos(
 ): ChartPos | null {
     const pos = deps.geometry.laneBeatFromCanvas(cx, cy, deps.viewport, deps.beatDisplay, allowOutsideLane);
     if (!pos) return null;
-    if (isPastChartEnd(pos.preciseBeat, chartEndBeat)) return null;
+    const pastEnd = chartEndBeat === deps.geometry.chartEndBeat
+        ? deps.geometry.isBeyondEnd(pos.preciseBeat)
+        : isPastChartEnd(pos.preciseBeat, chartEndBeat);
+    if (pastEnd) return null;
     return { beat: pos.preciseBeat, lane: pos.lane, rawBeat: pos.rawBeat };
 }
 

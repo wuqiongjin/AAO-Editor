@@ -251,10 +251,19 @@ export class GestureSession {
   }
 
   private dragMoveBounds(w: GestureWorld) {
+    const geom = w.geometry;
+    const POS_EPS = 1e-3;
     return {
       chartEndBeat: w.chartEndBeat,
       beatDisplay: w.beatDisplay,
-      startBeat: w.geometry.startBeat,
+      startBeat: geom.startBeat,
+      isBeatInBounds: (b: number) => {
+        const pos = geom.timeline.positionOfBeat(b);
+        if (pos < -POS_EPS) return false;
+        return w.chartEndBeat === geom.chartEndBeat
+          ? !geom.isBeyondEnd(b)
+          : b <= w.chartEndBeat + 1e-6;
+      },
       stretchCurveOnNodeDrag: w.stretchCurveOnNodeDrag,
     };
   }

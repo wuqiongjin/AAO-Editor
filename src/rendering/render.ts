@@ -43,6 +43,19 @@ import {
   NOTE_ICON_SIZE, SLIDE_ICON_SIZE, DIRECTIONAL_ICON_SIZE,
   NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
 } from './primitives/noteMetrics';
+
+/** 单次计算音符/结点的画布坐标；落在时间原点之前（pos < 0）返回 null（issue 63） */
+function noteCanvasPosIfVisible(
+  c: Coords,
+  rc: RenderCtx,
+  lane: number,
+  beat: number,
+  subBeat?: number,
+): { x: number; y: number } | null {
+  const pos = rc.geometry.timeline.positionOfBeat(trueBeat(beat, subBeat, rc.beatDisplay));
+  if (pos < 0) return null;
+  return c.virtualToCanvas(c.getNoteVirtualX(lane), rc.geometry.virtualYOfPos(pos, rc.viewport.scale));
+}
 export {
   NOTE_ICON_SIZE, SLIDE_ICON_SIZE, DIRECTIONAL_ICON_SIZE,
   NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
@@ -206,17 +219,24 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   const candidates: GridCandidate[] = [];
   // issue 104 修法 4：按**布局坐标派生的拍区间**逐段枚举（每段内 pos 单调、区间连续）；
   // 每个候选独立求 y，不做任何"pos 随 beat 递增"的假设。
+  const geom = rc.geometry;
   for (const range of ranges) {
     for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
       // issue 63：时间原点之前（时间 < 0）不画网格 —— 按时间判，不用 `beat < startBeat`
-      if (rc.geometry.isBeforeOrigin(beat) || isPastChartEnd(beat, rc.chartEndBeat)) continue;
+      const pastBeatEnd = rc.chartEndBeat >= geom.startBeat
+        ? isPastChartEnd(beat, rc.chartEndBeat)
+        : geom.isBeyondEnd(beat);
+      if (geom.isBeforeOrigin(beat) || pastBeatEnd) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= -8 && y <= rc.surface.h + 8) candidates.push({ y, tier: 'beat' });
       if (maxDivision <= 1) continue;
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
         if (gridDivisionOf(subBeat, rc.beatDisplay) > maxDivision) continue;
         const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
-        if (rc.geometry.isBeforeOrigin(preciseBeat) || isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
+        const pastSubEnd = rc.chartEndBeat >= geom.startBeat
+          ? isPastChartEnd(preciseBeat, rc.chartEndBeat)
+          : geom.isBeyondEnd(preciseBeat);
+        if (geom.isBeforeOrigin(preciseBeat) || pastSubEnd) continue;
         const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
         if (subY < -8 || subY > rc.surface.h + 8) continue;
         candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
@@ -403,7 +423,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
 
     if (note.type === 'Single') {
       if (!whole && !hv && !previewWhole) continue;
-      const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      const p = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!p) continue;
       const cfg = singleIconConfig(rc, note);
       const w = (cfg.out?.w ?? NOTE_ICON_SIZE) * s;
       const h = (cfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE) * s;
@@ -416,7 +437,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
 
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
       if (!whole && !hv && !previewWhole) continue;
-      const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      const p = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!p) continue;
       const len = note.length;
       const side = dirSideOf(rc, note.type === 'LDirectional');
       const group = rc.noteIcons.dirGroup(side, len);
@@ -464,7 +486,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         const inPreview = !inSel && inPreviewBox;                            // 未选中才额外多画一圈
         const isHoverPart = hv?.kind === 'slideNode' && hv.connIndex === ci;
         if (!inSel && !isHoverPart && !inPreview) return;
-        const p = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+        const p = noteCanvasPosIfVisible(c, rc, conn.lane, conn.beat, conn.subBeat);
+        if (!p) return; // issue 63：时间原点之前的结点不可选中/不画描边
         const cfg = slideNodeIconConfig(rc, conn, ci === ends.first, ci === ends.last);
         const w = (cfg.out?.w ?? SLIDE_ICON_SIZE) * s;
         const h = (cfg.out?.h ?? SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE) * s;
@@ -499,10 +522,14 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 跨过 hidden 的整段是一条折线带，中间的拐点不能各自封口 —— 否则 hidden 处会多出
         // 一道横向的"衔接线"（观感上段被切成两个图形）。两侧各串成一条折线，只有首尾封口。
         const cents: { x: number; y: number }[] = [];
+        let anyAtOrAfterOrigin = false;
         for (let ci = sp.start; ci <= sp.end; ci++) {
           const cc = proj.conns[ci]!;
-          cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), c.getNoteVirtualY(cc.beat, cc.subBeat || 0)));
+          const connPos = rc.geometry.timeline.positionOfBeat(trueBeat(cc.beat, cc.subBeat, rc.beatDisplay));
+          if (connPos >= 0) anyAtOrAfterOrigin = true;
+          cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), rc.geometry.virtualYOfPos(connPos, rc.viewport.scale)));
         }
+        if (!anyAtOrAfterOrigin) continue;
         // 横截面口径与带体实绘 / 命中区同源（`slideBandGeometry`，issue 09 验收反馈六轮）
         const points = bandPolygonAt(cents, half);
         // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
@@ -711,14 +738,9 @@ function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
 
   // 键型在全体滑条之上（issue 85 ①）
   visibleNotes.forEach(({ note }) => {
-    // issue 63：时间 < 0（首条 BPM 之前）不画；按时间判定，负拍但时间 ≥ 0 是正常音符
-    if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional")
-        && rc.geometry.isBeforeOrigin(trueBeat(note.beat, note.subBeat || 0, rc.beatDisplay))) {
-      return;
-    }
     if (note.type === "Single") {
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
+      const canvasPos = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!canvasPos) return;
       // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
       const iconConfig = singleIconConfig(rc, note);
       rc.spriteIcon.render(ctx, {
@@ -731,9 +753,9 @@ function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
         scale: spriteScale, renderLayer: 'main',
       });
     } else if (note.type === "LDirectional" || note.type === "RDirectional") {
+      const canvasPos = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!canvasPos) return;
       // 镜像由 renderDirGroup 内部取反（组内偏移 + 侧别），调用方只负责传组
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = note.length;
       renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale, rc.viewport.scale);
@@ -749,11 +771,10 @@ function renderNotesBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Single" && note.flick) {
       // issue 63：与主精灵同一道时间原点过滤，否则首条之前的 flick 会只剩一枚箭头
-      if (rc.geometry.isBeforeOrigin(trueBeat(note.beat, note.subBeat || 0, rc.beatDisplay))) return;
       const dec = icons.flickTopDecorator;
       if (!dec) return;
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
+      const canvasPos = noteCanvasPosIfVisible(c, rc, note.lane, note.beat, note.subBeat);
+      if (!canvasPos) return;
       const flickCfg = icons.flickFor(note.lane);
       const anchor = {
         canvasX: canvasPos.x,
@@ -803,8 +824,9 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const icons = rc.noteIcons;
 
   connections.forEach((conn, i) => {
-    const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     if (conn.hidden) return;
+    const canvasPos = noteCanvasPosIfVisible(c, rc, conn.lane, conn.beat, conn.subBeat);
+    if (!canvasPos) return; // issue 63：时间原点之前（pos < 0）的滑条结点不渲染（直渲/静态预览同口径）
     // 端点 = 单键皮肤（定案），结点带 flick/skill 时换对应图（spread 覆盖 src/矩形）；
     // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
     const iconConfig = slideNodeIconConfig(rc, conn, i === ends.first, i === ends.last);
@@ -828,7 +850,8 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
       // issue 145 #3：与主精灵同口径 —— 中间结点的 flick 不画箭头（只端点补）
       // issue 145 #3 / issue 221：与主精灵同口径 —— 只有尾端点才画 flick 箭头
       if (!conn.flick || i !== ends.last) return;
-      const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+      const pos = noteCanvasPosIfVisible(c, rc, conn.lane, conn.beat, conn.subBeat);
+      if (!pos) return;
       const flickCfg = icons.flickFor(conn.lane);
       rc.spriteIcon.renderDecorator(ctx, {
         canvasX: pos.x, canvasY: pos.y,
@@ -978,13 +1001,8 @@ export function renderSpanBands(
   const spans = proj.regions;
   if (spans.length === 0) return;
   const band = slideUsesSpBand(connections) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
-  for (const sp of spans) {
-    const pts: { x: number; y: number }[] = [];
-    for (let i = sp.start; i <= sp.end; i++) {
-      const cn = dconns[i]!;
-      pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
-    }
-    if (sp.end - sp.start > 1) {
+  const drawPointRun = (pts: { x: number; y: number }[]) => {
+    if (pts.length > 2) {
       if (rc.previewSlideBands) {
         const style = bandStripStyle(band);
         ctx.save();
@@ -1002,9 +1020,31 @@ export function renderSpanBands(
       } else {
         renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
       }
-    } else {
+    } else if (pts.length === 2) {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }
+  };
+  const pointAt = (cn: SlideNote['connections'][number], pos: number) =>
+    c.virtualToCanvas(c.getNoteVirtualX(cn.lane), rc.geometry.virtualYOfPos(pos, rc.viewport.scale));
+  for (const sp of spans) {
+    let runPts: { x: number; y: number }[] = [];
+    const first = dconns[sp.start]!;
+    let prevPos = rc.geometry.timeline.positionOfBeat(trueBeat(first.beat, first.subBeat, rc.beatDisplay));
+    for (let i = sp.start; i < sp.end; i++) {
+      const a = dconns[i]!;
+      const b = dconns[i + 1]!;
+      const nextPos = rc.geometry.timeline.positionOfBeat(trueBeat(b.beat, b.subBeat, rc.beatDisplay));
+      // issue 63：两端均在时间原点之前（pos < 0）的子段不铺带；跨过原点的段照常铺
+      if (prevPos < 0 && nextPos < 0) {
+        if (runPts.length >= 2) drawPointRun(runPts);
+        runPts = [];
+      } else {
+        if (runPts.length === 0) runPts.push(pointAt(a, prevPos));
+        runPts.push(pointAt(b, nextPos));
+      }
+      prevPos = nextPos;
+    }
+    if (runPts.length >= 2) drawPointRun(runPts);
   }
 }
 
@@ -1853,7 +1893,8 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
   const key = (beat: number, subBeat?: number): number => beat + (subBeat && subBeat > 0 ? subBeat / rc.beatDisplay : 0);
 
   const push = (k: number, lane: number, beat: number, subBeat: number | undefined, dirEdge: P['dirEdge']) => {
-    const pos = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat, subBeat || 0));
+    const pos = noteCanvasPosIfVisible(c, rc, lane, beat, subBeat);
+    if (!pos) return; // issue 63：时间原点之前的端点不画同时点击线（与 simField 一致）
     let arr: P[] | undefined;
     for (const [gk, g] of groups) {
       if (Math.abs(gk - k) < EPS) { arr = g; break; }

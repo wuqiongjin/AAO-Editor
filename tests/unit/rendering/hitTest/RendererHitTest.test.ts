@@ -538,4 +538,39 @@ describe('hover 命中盒 = 墨迹矩形 + 2px 余量（issue 82）', () => {
       expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
     }
   });
+
+  it('issue 63 回归：框选与滑条子段对时间原点之前的音符全部排除', () => {
+    const geometry = new ChartGeometry([{ beat: 4, bpm: 120 }], { endBeat: 40 }, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 };
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2 },
+      { type: 'LDirectional', beat: 2, lane: 3, length: 2 } as ChartNote,
+      // 全段在首条 BPM（beat 4）之前
+      { type: 'Slide', connections: [{ beat: 0, lane: 1 }, { beat: 2, lane: 1 }] },
+      // 首段 (0→2) 全在原点前，第二段 (2→6) 跨过原点
+      { type: 'Slide', connections: [{ beat: 0, lane: 5 }, { beat: 2, lane: 5 }, { beat: 6, lane: 5 }] },
+    ];
+    const deps: HitTestDeps = { geometry, viewport, beatDisplay: 4, notes };
+    const canvas = (lane: number, beat: number) => geometry.virtualToCanvas(
+      geometry.noteVirtualX(lane),
+      geometry.noteVirtualY(beat, 0, 1, 4),
+      viewport,
+    );
+
+    // 1. 滑条子段 (0→2) 两端均 < 0：findItemAt 不可点中；跨原点子段 (2→6) 可点中
+    const preSubMid = canvas(5, 1);
+    expect(findItemAt(preSubMid.x, preSubMid.y, deps)).toBeNull();
+    const crossMid = canvas(5, 4.5);
+    expect(findItemAt(crossMid.x, crossMid.y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 3, connIndex: 1 });
+
+    // 2. 即使框选矩形拖到判定线下方（覆盖 beat 0..3），原点前单键/方向键/全负滑条/负结点均不入选
+    const top = canvas(0, 6);
+    const bot = canvas(6, -1);
+    const boxed = computeItemsInBox({ x1: top.x - 50, y1: top.y - 50, x2: bot.x + 50, y2: bot.y + 50 }, deps);
+    // 只有跨原点滑条的 beat 6 结点（connIndex 2）与跨原点段（connIndex 1）入选；原点前结点/全负段/单键/方向键均排除
+    expect(boxed).toEqual([
+      { kind: 'slideNode', noteIndex: 3, connIndex: 2 },
+      { kind: 'slideRegion', noteIndex: 3, connIndex: 1 },
+    ]);
+  });
 });
