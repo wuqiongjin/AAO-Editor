@@ -12,9 +12,26 @@ import { fileURLToPath } from 'node:url';
 /** 仓库根目录（由本文件位置反推，与测试文件所在目录深度无关） */
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
+/**
+ * 读源码 / 扫目录的记忆化。
+ *
+ * 静态锁常在同一测试文件里反复读取同一批源码（多条断言各扫一遍 `src/` 之类）。全量并行跑时
+ * 这些重复 I/O 与别的 worker 抢磁盘，能把百毫秒级的扫描拖过 vitest 默认的 5s 超时；源码在一次
+ * 测试运行期间不会变化，按绝对路径缓存是安全的。
+ */
+const sourceTextCache = new Map<string, string>();
+const strippedTextCache = new Map<string, string>();
+const treeCache = new Map<string, string[]>();
+const textTreeCache = new Map<string, string[]>();
+
 /** 读仓库内任意文件（相对仓库根） */
 export function readSource(rel: string): string {
-  return readFileSync(join(repoRoot, rel), 'utf-8').replace(/\r\n/g, '\n');
+  const abs = join(repoRoot, rel);
+  const cached = sourceTextCache.get(abs);
+  if (cached !== undefined) return cached;
+  const text = readFileSync(abs, 'utf-8').replace(/\r\n/g, '\n');
+  sourceTextCache.set(abs, text);
+  return text;
 }
 
 /** 去掉行注释与块注释，避免注释里的示例代码污染断言 */
@@ -24,7 +41,11 @@ export function stripComments(src: string): string {
 
 /** 读源码并去掉注释——静态断言最常用的组合 */
 export function readStripped(rel: string): string {
-  return stripComments(readSource(rel));
+  const cached = strippedTextCache.get(rel);
+  if (cached !== undefined) return cached;
+  const text = stripComments(readSource(rel));
+  strippedTextCache.set(rel, text);
+  return text;
 }
 
 /**
@@ -39,18 +60,24 @@ export function readSources(rels: string[], strip = false): string {
 }
 
 /**
- * 一棵目录下的全部 `.ts/.tsx`（相对**仓库根**的路径，分隔符统一 `/`）。
+ * 一棵目录下匹配扩展名的全部源码文件（相对**仓库根**的路径，分隔符统一 `/`）。
  *
  * 收在这里而不是各测试文件各写一份：多条静态锁都要"扫一棵源码树"，
  * 各写一份 walker 会让"扫哪些、怎么算路径"出现第二套口径。
+ * 默认只收 `.ts/.tsx`；要扫 CSS / JSON 的锁传第二个参数。
+ * 同一目录 + 同一扩展名的结果在本次测试运行内复用。
  */
-export function sourceFiles(dir: string): string[] {
+export function sourceFiles(dir: string, re: RegExp = /\.(ts|tsx)$/): string[] {
+  const key = `${resolve(dir)}::${re.source}::${re.flags}`;
+  const cached = treeCache.get(key);
+  if (cached) return cached;
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) out.push(...sourceFiles(abs));
-    else if (/\.(ts|tsx)$/.test(entry)) out.push(relative(repoRoot, abs).split('\\').join('/'));
+    if (statSync(abs).isDirectory()) out.push(...sourceFiles(abs, re));
+    else if (re.test(entry)) out.push(relative(repoRoot, abs).split('\\').join('/'));
   }
+  treeCache.set(key, out);
   return out;
 }
 
@@ -86,11 +113,14 @@ export function yamlBlock(src: string, header: string): string {
 
 /**
  * 多目录文本文件扫描（相对**仓库根**的路径）——跨仓文档 / 配置类静态锁的 walker。
- * 与 `sourceFiles` 的分工：那条只服务 `src` 单树的 `.ts/.tsx`；这条服务
- * "扫 md / yml / mjs / sh / json 等多种扩展名、跨多棵树"的场景。
- * 第二套口径仍然只有一处——都在本文件里，调用方只给目录表与扩展名。
+ * 与 `sourceFiles` 的分工：`sourceFiles` 服务"单棵树"（默认 `.ts/.tsx`，可传扩展名）；
+ * 这条服务"多棵树 + skip 目录 + md / yml / mjs / sh / json 等多种扩展名"的场景。
+ * 两套 walker 都只有本文件这一处实现，调用方只给目录表与扩展名。
  */
 export function textFilesUnder(dirs: string[], ext: RegExp, skip = ['node_modules', '.git']): string[] {
+  const key = `${dirs.join('\u0000')}::${ext.source}::${ext.flags}::${skip.join('\u0000')}`;
+  const cached = textTreeCache.get(key);
+  if (cached) return cached;
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(join(repoRoot, dir))) {
@@ -102,6 +132,7 @@ export function textFilesUnder(dirs: string[], ext: RegExp, skip = ['node_module
     }
   };
   for (const dir of dirs) walk(dir);
+  textTreeCache.set(key, out);
   return out;
 }
 

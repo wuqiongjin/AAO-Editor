@@ -93,7 +93,7 @@ describe('issue 36 · relTime 调用点全部传入注入 now', () => {
     const offenders = sourceFiles(join(repoRoot, 'src/pages/projects'))
       .filter((rel) => /setInterval|requestAnimationFrame/.test(readStripped(rel)));
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   it('NowProvider 挂在 ProviderTree 里（useNow 有树可挂）', () => {
     const tree = readStripped('src/app/ProviderTree.tsx');

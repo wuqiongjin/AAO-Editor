@@ -4,31 +4,17 @@
 // 渲染层反手 import 页面 / 播放 / 工程层、生成脚本把注册表写回旧位置"这类回潮 ——
 // 落点是结构事实，只能按源码路径 / import 形态断言。
 // 手法照 PagesConvergence.test.ts：扫全仓源码 + 解析 import specifier。
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readStripped, repoRoot } from '@/tests/support/source';
-
-/** dir 下全部源码文件（相对仓库根的路径） */
-function sourceFiles(dir: string, re = /\.(ts|tsx|css)$/): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) {
-      out.push(...sourceFiles(abs, re));
-    } else if (re.test(entry)) {
-      out.push(relative(repoRoot, abs).split('\\').join('/'));
-    }
-  }
-  return out;
-}
+import { readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
 /** 目录下直接子项（文件 + 目录）名，排序后返回 */
 function entries(dir: string): string[] {
   return readdirSync(join(repoRoot, dir)).sort();
 }
 
-const srcFiles = sourceFiles(join(repoRoot, 'src'));
+const srcFiles = sourceFiles(join(repoRoot, 'src'), /\.(ts|tsx|css)$/);
 const allCodeFiles = [
   ...srcFiles,
   ...sourceFiles(join(repoRoot, 'tests'), /\.(ts|tsx)$/),
@@ -97,6 +83,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     expect(entries('src/rendering/skin/gen')).toContain('noteSkinRegistry.gen.ts');
   });
 
+  // 全仓静态扫描在并行满载时会被抢到超过默认 5s（见 test-infra/02）：显式放宽，断言本身不变
   it('全仓（src + tests + scripts）不再有指向旧路径的 import / 字面路径', () => {
     // 字面路径（readSource('src/…')）：必须带引号且带尾斜杠 —— 不误伤 settings.visual
     const OLD_LITERAL = new RegExp(`['"\`](${OLD_DIRS.join('|')})\\/`);
@@ -110,7 +97,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
       });
     });
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   it('渲染层只回指 chart 的数据 / 几何 / 编辑 / 配置与两个既有叶子依赖，不反依 UI 组件层', () => {
     // 白名单 = src/rendering 自身 + chart（数据类型 / 几何 / 编辑算法 / 计时，

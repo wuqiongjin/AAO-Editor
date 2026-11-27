@@ -200,6 +200,7 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(assetsSync).not.toContain('***@');
   });
 
+  // 全仓静态扫描在并行满载时会被抢到超过默认 5s（见 test-infra/02）：显式放宽，断言本身不变
   it('素材快照仓名不出现在任何公开文档 / 配置里（地址走 secret 与脚本内置编码）', () => {
     const scanDirs = ['docs', '.scratch', 'scripts', 'tests', 'src', 'electron', '.github'];
     const TEXT = /\.(md|yml|yaml|ts|mjs|js|cjs|sh|json)$/;
@@ -211,7 +212,7 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
       if (readSource(rootFile).includes(ASSETS_SLUG_NEEDLE)) hits.push(rootFile);
     }
     expect(hits).toEqual([]);
-  });
+  }, 30_000);
 
   it('国内副本脚本打 CNB Release API 的路径无多余前缀层：仓库级路由一律 /{repo}/-/…（2026-10-21 实测：多一层前缀全站 404，且 GET 的 404 被当成「release 不存在」吞掉，一路憋到 POST 创建才响亮失败，release-pipeline/15）', () => {
     // 正锁：CNB 端点都是 api.cnb.cool/{slug}/-/… 形态

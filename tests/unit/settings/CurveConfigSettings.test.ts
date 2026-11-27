@@ -6,14 +6,13 @@
 // （照 `EditorAudioSessionRefactor.test.ts` / `ToolbarNoteSkin.test.ts` 惯例）。
 // 图标的像素辨识度单测同样拿不到 —— 由票内"出图人工看 18/28px"补。
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import {
   defaultSettings, loadSettings, saveSettings, updateSettings, type AppSettings,
 } from '@/src/settings/AppSettings';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig } from '@/src/chart/editing/CurveTool';
 import { EASING_FAMILY_LABELS, EASING_TYPE_LABELS, CURVE_PRECISIONS } from '@/src/chart/editing/Easing';
-import { repoRoot, stripComments, readSource } from '@/tests/support/source';
+import { repoRoot, stripComments, readSource, readStripped, sourceFiles } from '@/tests/support/source';
 import { settingsMemStorage as memStorage } from '@/tests/support/storage';
 
 const panelSrc = stripComments(readSource('src/pages/workspace/CurveConfigPanel.tsx'));
@@ -22,16 +21,6 @@ const capsuleSrc = stripComments(readSource('src/pages/workspace/CurveOptionsCap
 const railSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRail.tsx'));
 
 /** 只认 v1 设置键的假 storage（其余 key 一律 null → 快捷键走出厂默认，不干扰本票断言） */
-function walkTs(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    if (name === 'node_modules') continue;
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...walkTs(full));
-    else if (/\.(ts|tsx)$/.test(name)) out.push(full);
-  }
-  return out;
-}
 
 describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
   it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密/基线 0 + 分类全部/上次模板 S 形', () => {
@@ -290,17 +279,18 @@ describe('issue 235 · 图形化曲线配置面板（两段切换 / 缩略图 / 
 });
 
 describe('issue 114 · 画笔圆滑彻底退场（防复活）', () => {
+  // 全仓静态扫描在并行满载时会被抢到超过默认 5s（见 test-infra/02）：显式放宽，断言本身不变
   it('src/ 与 tests/ 内零 smoothPenLanes / smoothedPenSamples / 画笔圆滑', () => {
     const banned = ['smoothPenLanes', 'smoothedPenSamples', '画笔圆滑'];
     const hits: string[] = [];
-    const files = [...walkTs(join(repoRoot, 'src')), ...walkTs(join(repoRoot, 'tests'))]
-      .filter((f) => f !== __filename); // 本文件因列出禁用词必然命中，排除自身
-    for (const f of files) {
-      const s = stripComments(readFileSync(f, 'utf-8'));
-      for (const b of banned) if (s.includes(b)) hits.push(`${f.replace(repoRoot + '/', '')}:${b}`);
+    const files = [...sourceFiles(join(repoRoot, 'src')), ...sourceFiles(join(repoRoot, 'tests'))]
+      .filter((rel) => rel !== 'tests/unit/settings/CurveConfigSettings.test.ts'); // 本文件因列出禁用词必然命中，排除自身
+    for (const rel of files) {
+      const s = readStripped(rel);
+      for (const b of banned) if (s.includes(b)) hits.push(`${rel}:${b}`);
     }
     expect(hits).toEqual([]);
-  });
+  }, 30_000);
 
   it('CurveConfig 类型不再有 smooth 字段', () => {
     const src = stripComments(readSource('src/chart/editing/CurveTool.ts'));

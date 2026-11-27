@@ -53,7 +53,7 @@ describe('docs-site 03 · 在线版构建接入静态锁', () => {
       /from\s+['"]react-router/.test(readStripped(f)),
     );
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   it('落地页「在线试用」指向 app/ 并经 withBase 带站点 base（换 DOCS_BASE 不必改各处链接）', () => {
     expect(landing).toContain("withBase('/app/')");

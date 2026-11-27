@@ -99,7 +99,8 @@ export function OfficialSongPanel({
   // 票 22：本面板就是「预览播放器」，试听音量跟随 settings.audio.volume（chart-preview 20 同口径）
   // 票 28：「同步导入谱面」跨官方/社区共用偏好 settings.projects.importWithChart
   const { settings, setAudioVolume, setImportWithChart, setSongSort } = useConfig();
-  const [catalog, setCatalog] = useState<SongCandidate[] | null>(null);
+  // 切 tab 会卸载 / 重挂本面板：首帧直接取会话缓存，避免命中缓存时仍先画一帧「正在拉取官方曲库」
+  const [catalog, setCatalog] = useState<SongCandidate[] | null>(() => peekSongCatalog());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [bandId, setBandId] = useState<number | null>(null);

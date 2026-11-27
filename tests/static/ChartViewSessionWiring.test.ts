@@ -4,28 +4,13 @@
 // + 用户页面验收），行为测试抓不住"视口装配又搬回页面 / 会话又读起 Context / 页面又自己直写滚动 DOM /
 // 第二个消费者又复制一份装配"这类回潮 —— 落点是结构事实，照 ProjectDomainLayout / PagesConvergence
 // 惯例用静态源码断言看守。
-import { readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { readStripped, repoRoot } from '@/tests/support/source';
+import { readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
 const VIEW_SESSION = 'src/playback/useChartViewSession.ts';
 const editor = readStripped('src/pages/workspace/WorkspacePage.tsx');
 const view = readStripped(VIEW_SESSION);
-
-/** src/ 下全部 .ts/.tsx（相对仓库根的路径） */
-function sourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) {
-      out.push(...sourceFiles(abs));
-    } else if (/\.(ts|tsx)$/.test(entry)) {
-      out.push(relative(repoRoot, abs).split('\\').join('/'));
-    }
-  }
-  return out;
-}
 
 const HOOKS = ['useSurfaceSize', 'useChartSpace', 'useScrollModel', 'usePlaybackCoordinator'];
 /** 四个 hook 的**定义**文件（它们自己不算调用点） */
@@ -36,6 +21,10 @@ const DEFINITIONS = [
   'src/playback/usePlaybackCoordinator.ts',
 ];
 
+/**
+ * src/ 的全部 .ts/.tsx。`sourceFiles` / `readStripped` 自带记忆化：四条 hook 循环里
+ * 只有第一次真正读盘，后三次命中缓存（原先是 4 遍全仓 I/O）。
+ */
 function callSites(hook: string): string[] {
   return sourceFiles(join(repoRoot, 'src'))
     .filter((f) => !DEFINITIONS.includes(f))
@@ -62,11 +51,12 @@ describe('architecture-refactor 09 · 谱面视口会话的落点与接线', () 
     expect(editor).toMatch(/className="virtual-content"[\s\S]{0,160}height: virtualHeight/);
   });
 
+  // 全仓静态扫描在并行满载时会被抢到超过默认 5s（见 test-infra/02）：显式放宽，断言本身不变
   it('四条流在全仓只有会话一处调用点（预览不得再复制一份装配）', () => {
     for (const hook of HOOKS) {
       expect(callSites(hook), `${hook} 的调用点`).toEqual([VIEW_SESSION]);
     }
-  });
+  }, 30_000);
 
   it('会话是四条流与滚动 DOM 不变量的唯一宿主', () => {
     expect(view).toMatch(/useSurfaceSize\s*\(/);

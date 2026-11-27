@@ -32,7 +32,7 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     const offenders = sourceFiles(join(repoRoot, 'src/preview'))
       .filter((f) => /from\s+['"][^'"]*pages\//.test(readStripped(f)));
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   it('仿真场不 import 编辑器画布那套出帧（自己画自己的一帧）', () => {
     const offenders = simFiles.filter((f) => CANVAS_ENTRY.test(readStripped(f)));

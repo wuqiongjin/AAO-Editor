@@ -186,5 +186,5 @@ describe('release-pipeline 02 · 资源取件与所有权', () => {
       /['"`]\/assets\//.test(readStripped(f)),
     );
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 });

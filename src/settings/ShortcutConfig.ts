@@ -169,9 +169,11 @@ export function shortcutPlatform(): ShortcutPlatform {
   // 渲染进程只要拿得到平台串就以它为准：jsdom 默认 platform 为空串，
   // 若再回落 process.platform，macOS 宿主会把测试里桩好的 Win32 又判回 darwin。
   if (name) return name.includes('mac') ? 'darwin' : 'other';
-  // 仅 Node / 主进程（无 navigator 平台串）才回落 process.platform
-  if (typeof process !== 'undefined' && typeof process.platform === 'string') {
-    return process.platform === 'darwin' ? 'darwin' : 'other';
+  // 仅 Node / 主进程（无 navigator 平台串）才回落 process.platform。
+  // 渲染进程 tsconfig 不带 Node 类型，用 globalThis 可选读取，避免给浏览器代码引入 @types/node。
+  const proc = (globalThis as typeof globalThis & { process?: { platform?: string } }).process;
+  if (typeof proc?.platform === 'string') {
+    return proc.platform === 'darwin' ? 'darwin' : 'other';
   }
   return 'other';
 }

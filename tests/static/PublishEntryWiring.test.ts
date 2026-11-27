@@ -84,7 +84,7 @@ describe('票 54 · 已发布态的文案口径', () => {
     // 文案值也锁住：字典漂移（改成别的词）要红
     expect(zh['projects.publish.updateTitle']).toBe('更新谱面');
     expect(en['projects.publish.updateTitle']).toBe('Update chart');
-  });
+  }, 30_000);
 
   it('「已发布就不能改」的说法不能回潮：README / 文档站与 already 文案都说「谱面本体只读、元数据可改」', () => {
     const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
