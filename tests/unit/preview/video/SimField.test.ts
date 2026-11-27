@@ -1722,7 +1722,8 @@ describe('票 88 · 高密压力段 CPU 与命令流收口（drawLaneFlash 归�
       chart: buildSimChart(sc, icons),
       metrics: fieldMetrics(1334, 750),
       assets: emptySimAssets(),
-      noteIcons: icons,
+      // 桩皮肤没有 simultaneous_line.png；本例测的是二分窗口边界，注入最小合法精灵让它不依赖素材快照
+      noteIcons: { ...icons, simultaneousLine: { src: 'simultaneous-line', x: 0, y: 0, w: 64, h: 16 } },
       spriteIcon,
     };
     const { proxy } = recordingCtx();

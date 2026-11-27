@@ -178,8 +178,12 @@ async function renderStage(opts: {
       onSecondsChange={onSecondsChange}
     />,
   );
-  // 素材是异步进场的：等回放真的建起来（控件要接到它上面）
-  if (waitForFrame) await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+  // 素材与首帧都是异步进场的：setFrame 先于 setPaintedField 提交，
+  // 只等 setFrame 会让按键赶在 togglePlay 的就绪门禁翻真之前派发出去。
+  if (waitForFrame) {
+    await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(t('preview.video.loading'))).toBeNull());
+  }
   calls.setOptions.mockClear();
   return { ...view, onVolumeChange };
 }
