@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { CircleAlert } from 'lucide-react';
 import { openCommunitySite } from '../../../community/externalLink';
 import { t, type MessageKey } from '../../../i18n';
 import ActionBtn from '../../../ui/ActionBtn';
+import { useDismissOnOutside } from '../../../ui/useDismissOnOutside';
 import type { PublishRecoveryResult } from '../usePublishEntry';
 
 const STATUS_KEYS: Record<Exclude<PublishRecoveryResult['status'], 'choose'>, MessageKey> = {
@@ -58,44 +59,55 @@ export function PublishAssociateControl({ busy, onRecover }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const [postId, setPostId] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // 用户 2026-11-26：点弹层外部自动收起
+  useDismissOnOutside(expanded, () => setExpanded(false), [rootRef, panelRef]);
   const id = /^\d+$/.test(postId.trim()) ? Number(postId) : 0;
 
-  if (!expanded) {
-    return (
+  return (
+    <div className="ppc-associate" ref={rootRef}>
       <button
         type="button"
         className="ppc-associate__toggle"
         disabled={busy}
-        aria-expanded={false}
-        onClick={() => setExpanded(true)}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
       >
         {t('projects.publish.recovery.associate')}
       </button>
-    );
-  }
-
-  return (
-    <form
-      className="ppc-associate"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!busy && Number.isSafeInteger(id) && id > 0) onRecover(id);
-      }}
-    >
-      <input
-        className="ppc-associate__id"
-        type="text"
-        inputMode="numeric"
-        aria-label={t('projects.publish.recovery.postId')}
-        placeholder={t('projects.publish.recovery.postId')}
-        value={postId}
-        disabled={busy}
-        autoFocus
-        onChange={(event) => setPostId(event.target.value)}
-      />
-      <ActionBtn type="submit" disabled={busy || !Number.isSafeInteger(id) || id <= 0}>
-        {t('projects.publish.recovery.verify')}
-      </ActionBtn>
-    </form>
+      {expanded && (
+        <div
+          className="ppc-associate__panel"
+          ref={panelRef}
+          role="dialog"
+          aria-label={t('projects.publish.recovery.associate')}
+        >
+          <p className="ppc-associate__hint">{t('projects.publish.recovery.associateHint')}</p>
+          <form
+            className="ppc-associate__form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!busy && Number.isSafeInteger(id) && id > 0) onRecover(id);
+            }}
+          >
+            <input
+              className="ppc-associate__id"
+              type="text"
+              inputMode="numeric"
+              aria-label={t('projects.publish.recovery.postId')}
+              placeholder={t('projects.publish.recovery.postId')}
+              value={postId}
+              disabled={busy}
+              autoFocus
+              onChange={(event) => setPostId(event.target.value)}
+            />
+            <ActionBtn type="submit" disabled={busy || !Number.isSafeInteger(id) || id <= 0}>
+              {t('projects.publish.recovery.verify')}
+            </ActionBtn>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }

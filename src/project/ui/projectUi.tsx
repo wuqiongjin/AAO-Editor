@@ -6,7 +6,7 @@ import { chartEffectiveTitle, DIFF_NAMES, projectDisplayName } from '../projectC
 import { chartStatus, type ChartStatusFields } from '../workspaceProject';
 import { getElectronAPI } from '../../app/electronBridge';
 import { projectCoverUrl } from '../../community/assetUrls';
-import { useCoverUrl } from '../../ui/CoverField';
+import { useCoverUrl } from '../../ui/coverUrl';
 import { t } from '../../i18n';
 
 export interface ProjectCoverSource {

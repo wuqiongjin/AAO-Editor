@@ -78,7 +78,7 @@ describe('chart-projects 44 · Electron 封面协议与弹窗不回退', () => {
         onSave={() => {}}
       />,
     );
-    const thumb = document.querySelector('img.cover-field__thumb') as HTMLImageElement | null;
+    const thumb = document.querySelector('img.cover-card__img') as HTMLImageElement | null;
     expect(thumb).not.toBeNull();
     expect(thumb).toHaveAttribute('src', 'aao-asset://project-cover/?id=pProto1&v=1234-5678');
     expect(screen.getByRole('button', { name: '更换' })).toBeInTheDocument();

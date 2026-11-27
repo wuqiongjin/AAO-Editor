@@ -17,7 +17,11 @@ const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
 const projectDialogs = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
 const projectBits = readStripped('src/pages/projects/components/ProjectBits.tsx');
 const publishDialog = readStripped('src/pages/projects/components/PublishDialog.tsx');
+const publishDialogCss = readStripped('src/pages/projects/components/PublishDialog.css');
+const coverCard = readStripped('src/ui/CoverCard.tsx');
 const chartInfoDialog = readStripped('src/project/ui/ChartInfoDialog.tsx');
+const difficultyLevelField = readStripped('src/project/ui/DifficultyLevelField.tsx');
+const difficultyLevelFieldCss = readStripped('src/project/ui/DifficultyLevelField.css');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
 const codeModalCss = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.css');
 const toast = readStripped('src/ui/Toast.tsx');
@@ -44,7 +48,11 @@ const DIALOG_SOURCES: [string, string][] = [
   ['pages/projects/components/ProjectDialogs.tsx', projectDialogs],
   ['pages/projects/components/ProjectBits.tsx', projectBits],
   ['pages/projects/components/PublishDialog.tsx', publishDialog],
+  ['pages/projects/components/PublishDialog.css', publishDialogCss],
+  ['ui/CoverCard.tsx', coverCard],
   ['project/ui/ChartInfoDialog.tsx', chartInfoDialog],
+  ['project/ui/DifficultyLevelField.tsx', difficultyLevelField],
+  ['project/ui/DifficultyLevelField.css', difficultyLevelFieldCss],
   ['chart/.../ChartCodeEditorModal.tsx', codeModal],
   ['chart/.../ChartCodeEditorModal.css', codeModalCss],
   ['pages/workspace/PatternImportDialog.css', patternImportDialogCss],

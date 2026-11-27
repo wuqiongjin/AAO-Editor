@@ -6,13 +6,13 @@
 // `applyChartInfoPatch`（updateChartInfo 跳过已上传 + 谱师署名一律可写）各管各的。
 import { useState } from 'react';
 import type { ChartDifficulty, ChartSummary, ProjectChart } from '../ChartProject';
-import { DIFF_NAMES } from '../projectCatalog';
 import { POST_LEVEL_MAX, POST_LEVEL_MIN } from '../../community/bestdori/endpoints';
 import { defaultCharterCredit } from '../charterCredit';
 import { t } from '../../i18n';
 import ActionBtn from '../../ui/ActionBtn';
 import Dialog from '../../ui/Dialog';
 import { displayProjectName } from './projectUi';
+import DifficultyLevelField from './DifficultyLevelField';
 
 /** 等级输入解析（空 / 非整数 → null）。难度/等级徽标就地编辑与弹窗共用。 */
 export function parseLevel(raw: string): number | null {
@@ -101,17 +101,16 @@ export function ChartInfoDialog({
         <span>{t('projects.chartName')}</span>
         <input value={title} placeholder={displayProjectName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />
       </label>
-      <div className="dialog-field-row">
-        <label className="dialog-field">
-          <span>{t('projects.diff')}</span>
-          <select value={diff} disabled={locked} onChange={(e) => setDiff(Number(e.target.value) as ChartDifficulty)}>
-            {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
-          </select>
-        </label>
-        <label className={`dialog-field${levelInput.persist ? '' : ' is-missing'}`}>
-          <span>{t('projects.level')}</span>
-          <input value={level} placeholder={t('projects.levelPlaceholder')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
-        </label>
+      <div className={`dialog-field${levelInput.persist ? '' : ' is-missing'}`}>
+        <span>{t('projects.diff')} / {t('projects.level')}</span>
+        <DifficultyLevelField
+          diff={diff}
+          onDiffChange={setDiff}
+          level={level}
+          onLevelChange={setLevel}
+          levelInvalid={!levelInput.persist}
+          disabled={locked}
+        />
       </div>
       {/* 票 79：谱师署名不随「已上传只读」禁用 —— 它是导出画面用的元数据 */}
       <label className="dialog-field">

@@ -141,3 +141,10 @@ describe('发布弹窗 · 描述框按正文撑开', () => {
     expect(publishDialog).toMatch(/className="ppc-resize"/);
   });
 });
+
+describe('票 61 · 封面写回后刷新上传引用', () => {
+  it('设置与清除封面各重取一次 loadUploadRefs（发帖载荷读 refs，不读 coverBlob）', () => {
+    // 两处写封面（persistCover / clearCover）都必须在写回后重取；少一处就会「界面变了、载荷还是旧的」
+    expect(publishDialog.match(/setRefs\(await loadUploadRefs\(project\.id\)\)/g)).toHaveLength(2);
+  });
+});

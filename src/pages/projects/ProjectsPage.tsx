@@ -430,6 +430,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
           onPublish={publish.run} onEdit={publish.runEdit}
           onRecover={publish.recover} recovery={publish.recovery}
           onUpdateProject={publish.updateProject}
+          onOpenAudio={() => setActivePage('audio', { scope: { projectId: publish.target!.project.id } })}
         />
       )}
     </>

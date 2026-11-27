@@ -41,7 +41,6 @@ import {
 import { withRetry } from '../rateLimit';
 import { trail } from '../../diagnostics/trail';
 import { invalidResponse, isCommunityError, type CommunityTransport } from '../transport';
-import { t } from '../../i18n';
 
 /** multipart 上传的表单字段名（平台固定 `file`，见 bestdori-api.md §4） */
 export const UPLOAD_FILE_FIELD = 'file';
@@ -65,10 +64,10 @@ export interface PublishUploadFile {
   hash: string;
 }
 
-/** 发帖的 `song` 字段：bandori 只传曲库 id；custom 要先上传音频（必需）与封面（可选） */
+/** 发帖的 `song` 字段：bandori 只传曲库 id；custom 要先上传音频与封面（票 61 Q1 起封面必填） */
 export type PublishSong =
   | { kind: 'bandori'; songId: number }
-  // audio 为 null = 工程没有音频（预检点名「缺音频」；发布时它已在，不会是 null）
+  // audio / cover 为 null = 工程缺这份素材（预检点名；发布时它们已在，不会是 null）
   | { kind: 'custom'; audio: PublishUploadFile | null; cover: PublishUploadFile | null };
 
 /** 发布入参（页面把工程 / 谱面 / 用户填的描述翻成这一份中立形状） */
@@ -100,7 +99,7 @@ export interface PostTextTag {
 
 /** 必填预检能点名出的字段（界面按它取文案，一档一条 hint） */
 export type PublishMissingField =
-  | 'title' | 'artists' | 'song' | 'diff' | 'level' | 'content' | 'chart' | 'audio';
+  | 'title' | 'artists' | 'song' | 'diff' | 'level' | 'content' | 'chart' | 'audio' | 'cover';
 
 export interface PublishPrecheck {
   ok: boolean;
@@ -130,6 +129,8 @@ export function precheckPublish(input: PublishInput): PublishPrecheck {
   if (input.artists.trim() === '') missing.push('artists');
   if (input.song.kind === 'custom') {
     if (input.song.audio == null) missing.push('audio');
+    // 票 61 Q1（用户 2026-11-26）：custom 曲目封面必填，本地预检拦下，不再等平台报错
+    if (input.song.cover == null) missing.push('cover');
   } else if (!Number.isInteger(input.song.songId) || input.song.songId <= 0) {
     missing.push('song');
   }
@@ -342,34 +343,46 @@ export function formatPostContent(raw: string): PostContentBlock[] {
   return blocks;
 }
 
-/** 票 52：描述自动生成的事实。缺项跳过，不编歌词 / 玩法。 */
+/**
+ * 票 61：描述自动生成的事实。缺项跳过，不编歌词 / 玩法。
+ * 标签固定英文（社区帖惯例），不走 i18n —— 它是**帖子内容**，不是界面 chrome。
+ * 2026-11-26 用户定：去掉标题 / 谱师 / 难度名，只留帖子头部看不到的谱面数据。
+ */
 export interface PublishDescriptionFacts {
-  title?: string | null;
-  diffName?: string | null;
+  /** 等级（数字；null = 不写） */
   level?: number | null;
+  /** 音符数（`countChartNotes` 口径） */
   noteCount?: number | null;
+  /** 时长文本（m:ss） */
   duration?: string | null;
-  charter?: string | null;
+  /** BPM 区间文本（如 "180–240"） */
+  bpm?: string | null;
+  /** 平均 NPS（首击到末击） */
+  nps?: number | null;
+}
+
+/** 千位分组（手搓，不赌运行环境 ICU） */
+function groupThousands(n: number): string {
+  return String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function factLine(label: string, value: string): string {
-  return `${label}：${value}`;
+  return `${label}: ${value}`;
 }
 
 export function generatePublishDescription(facts: PublishDescriptionFacts): string {
   const lines: string[] = [];
-  const title = facts.title?.trim();
-  if (title) lines.push(factLine(t('projects.publish.field.title'), title));
-  const diffName = facts.diffName?.trim();
-  if (diffName) lines.push(factLine(t('projects.publish.field.diff'), diffName));
-  if (facts.level != null) lines.push(factLine(t('projects.publish.field.level'), String(facts.level)));
+  if (facts.level != null) lines.push(factLine('Difficulty', String(facts.level)));
   if (facts.noteCount != null && facts.noteCount > 0) {
-    lines.push(factLine(t('projects.publish.field.chart'), String(facts.noteCount)));
+    lines.push(factLine('Notes', groupThousands(facts.noteCount)));
   }
   const duration = facts.duration?.trim();
-  if (duration) lines.push(factLine(t('projects.publish.field.duration'), duration));
-  const charter = facts.charter?.trim();
-  if (charter) lines.push(factLine(t('projects.publish.field.charter'), charter));
+  if (duration) lines.push(factLine('Length', duration));
+  const bpm = facts.bpm?.trim();
+  if (bpm) lines.push(factLine('BPM', bpm));
+  if (facts.nps != null && Number.isFinite(facts.nps) && facts.nps > 0) {
+    lines.push(factLine('NPS', facts.nps.toFixed(1)));
+  }
   return lines.join('\n');
 }
 
@@ -463,19 +476,17 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
   };
   trail.record({ module: 'community', action: 'upload-start', meta: { attemptId } });
   try {
-    // 上传（custom 才有）：音频必需、封面可选（平台不强制 custom 帖带封面）
+    // 上传（custom 才有）：音频与封面都必需（票 61 Q1）
     let song: PostSongBody;
     if (input.song.kind === 'custom') {
-      // 预检已挡下「没有音频」，这里是类型收口（audio 在上面的判定后必非空）
+      // 预检已挡下缺项，这里是类型收口
       if (input.song.audio == null) throw invalidResponse('custom 曲目缺少音频引用');
+      if (input.song.cover == null) throw invalidResponse('custom 曲目缺少封面引用');
       reportStage('audio');
       const audioUrl = await uploadBinaryFile(deps.transport, input.song.audio, deps.sleep ?? defaultSleep);
-      let coverUrl: string | null = null;
-      if (input.song.cover != null) {
-        reportStage('cover');
-        coverUrl = await uploadBinaryFile(deps.transport, input.song.cover, deps.sleep ?? defaultSleep);
-      }
-      song = { type: 'custom', audio: audioUrl, ...(coverUrl != null ? { cover: coverUrl } : {}) };
+      reportStage('cover');
+      const coverUrl = await uploadBinaryFile(deps.transport, input.song.cover, deps.sleep ?? defaultSleep);
+      song = { type: 'custom', audio: audioUrl, cover: coverUrl };
     } else {
       song = { type: 'bandori', id: input.song.songId };
     }

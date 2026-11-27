@@ -22,7 +22,10 @@
 import { t } from '../../i18n';
 import type { ExportFieldSettings } from '../../settings/AppSettings';
 import { formatTimeCompact } from '../../chart/geometry/TimeFormat';
+import { bpmRangeText } from '../../chart/analysis/BpmRange';
 import { HEADER_SANS as headerSans } from '../fontStack';
+
+export { bpmRangeText } from '../../chart/analysis/BpmRange';
 
 /** 头部横带高度（CSS px）：392 封面 + 上下各 24 padding。改它要同步复算宽图面积上限（ADR-0016 §7） */
 export const EXPORT_HEADER_H = 440;
@@ -151,24 +154,6 @@ const trimmed = (s: string | null | undefined): string | null => {
 /** 千位分组（手搓，不赌运行环境 ICU 的 `toLocaleString`） */
 function groupThousands(n: number): string {
   return String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
-/** BPM 读数：整数原样、小数最多两位（谱面 BPM 可以是小数） */
-function formatBpm(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
-}
-
-/**
- * BPM 摘要（用户 2026-10-06 定案口径）：多条取**绝对值**的 min–max（倒流区的负 BPM 按速度读，
- * 如 "120–240"），单条只写一个值；没有有效值（空 / 全 0 / 非有限）→ null。
- * 只出**区间文本**，套 i18n 外壳（"BPM …"）在 `buildSheetHeaderModel` 里、与其它 chips 同一处。
- */
-export function bpmRangeText(bpms: readonly number[]): string | null {
-  const values = bpms.filter((v) => Number.isFinite(v) && v !== 0).map((v) => Math.abs(v));
-  if (values.length === 0) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  return min === max ? formatBpm(min) : `${formatBpm(min)}–${formatBpm(max)}`;
 }
 
 /** 导出时刻（本地时区，写到分钟，如 2026-10-06 21:30） */

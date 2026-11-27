@@ -8,7 +8,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
-import { useCoverUrl } from '@/src/ui/CoverField';
+import { useCoverUrl } from '@/src/ui/coverUrl';
 
 let created: string[];
 let revoked: string[];

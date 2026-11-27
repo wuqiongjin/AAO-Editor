@@ -11,7 +11,8 @@
 //   ⑦ 票 54：已发态标题「更新谱面」（未发「发布谱面」）——标题说这张窗干什么，不拿状态词当标题；
 //      谱面行按钮同步改「更新」，「已发布」这类状态交给行内「已上传」徽标。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CircleAlert, Music2, Wand2, X } from 'lucide-react';
+import { Activity, CircleAlert, Gauge, Hash, Timer, Wand2, X } from 'lucide-react';
+import { computeChartCodeStats } from '../../../chart/analysis/ChartStats';
 import { formatValidationError, type ChartCodeNote, type ValidationError } from '../../../chart/editing/ChartConverter';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
@@ -21,7 +22,6 @@ import {
   type PostTextTag,
   type PublishFailure,
   type PublishInput,
-  type PublishMissingField,
   type PublishOutcome,
   type PublishSong,
   type PublishStage,
@@ -36,37 +36,28 @@ import {
 } from '../../../project/ChartProject';
 import type { ProjectUploadFile as ProjectUploadFileRef, ProjectUploadRefs } from '../../../project/ChartProjectRecord';
 import {
-  DIFF_NAMES,
   updateChartInfo,
   updateChartPublishDraft,
   updateChartTags,
   updateProjectInfo,
 } from '../../../project/projectCatalog';
 import { readChartLevelInput } from '../../../project/ui/ChartInfoDialog';
-import { useCoverUrl } from '../../../ui/CoverField';
+import DifficultyLevelField from '../../../project/ui/DifficultyLevelField';
+import { useCoverUrl, useEphemeralCoverUrl } from '../../../ui/coverUrl';
 import { t, type MessageKey } from '../../../i18n';
 import ActionBtn from '../../../ui/ActionBtn';
+import AudioBar from '../../../ui/AudioBar';
 import ConfirmDialog from '../../../ui/ConfirmDialog';
 import Dialog from '../../../ui/Dialog';
 import HelpHint from '../../../ui/HelpHint';
+import { showToast } from '../../../ui/Toast';
 import { InitialAvatar } from './AccountBar';
 import { formatDuration } from '../projectFormat';
 import { useCommunityCapabilities } from '../communityCapabilities';
 import type { PublishRecoveryResult } from '../usePublishEntry';
+import CoverCard from '../../../ui/CoverCard';
 import { PublishAssociateControl, PublishPendingAlert } from './PublishRecoveryPanel';
 import './PublishDialog.css';
-
-/** 缺失字段 → 文案键 */
-const MISSING_KEYS: Record<PublishMissingField, MessageKey> = {
-  title: 'projects.publish.missing.title',
-  artists: 'projects.publish.missing.artists',
-  song: 'projects.publish.missing.song',
-  diff: 'projects.publish.missing.diff',
-  level: 'projects.publish.missing.level',
-  content: 'projects.publish.missing.content',
-  chart: 'projects.publish.missing.chart',
-  audio: 'projects.publish.missing.audio',
-};
 
 /** 发布失败原因 → 文案键 */
 const FAILURE_KEYS: Record<PublishFailure, MessageKey> = {
@@ -176,19 +167,19 @@ function replaceTextareaPreservingUndo(el: HTMLTextAreaElement, next: string): b
   }
 }
 
-function Fact({
-  k,
-  missing,
-  children,
-}: {
-  k: string;
+/** 谱面概览的一格：音符 / 时长 / BPM / 平均 NPS */
+function Stat({ icon, label, value, hint, missing, missingHint }: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
   missing?: boolean;
-  children: ReactNode;
+  missingHint?: string;
 }) {
   return (
-    <div className={`ppc-fact${missing ? ' is-missing' : ''}`}>
-      <span className="ppc-fact__k">{k}</span>
-      <span className="ppc-fact__v">{children}</span>
+    <div className={`ppc-stat${missing ? ' is-missing' : ''}`} title={missing ? missingHint : undefined}>
+      <span className="ppc-stat__k">{icon}{label}</span>
+      <span className="ppc-stat__v">{value}{hint && <small>{hint}</small>}</span>
     </div>
   );
 }
@@ -217,6 +208,8 @@ export function PublishDialog(props: {
   onEdit?: (input: { diff: ChartDifficulty; level: number; tags: PostTextTag[] }) => Promise<EditChartOutcome>;
   loadUploadRefs?: LoadUploadRefs;
   onUpdateProject?: (updater: (p: ChartProject) => ChartProject | null) => Promise<void> | void;
+  /** 音频缺失时带工程作用域跳音频页；由页面侧提供（票 61 追加回修） */
+  onOpenAudio?: () => void;
 }) {
   const {
     project,
@@ -229,6 +222,7 @@ export function PublishDialog(props: {
     onEdit,
     loadUploadRefs = getProjectUploadRefs,
     onUpdateProject,
+    onOpenAudio,
   } = props;
   const { session } = useCommunityCapabilities();
   const profile = session.signedIn ? session.account : null;
@@ -265,8 +259,12 @@ export function PublishDialog(props: {
     return () => { alive = false; };
   }, [custom, pending, published, project.id, loadUploadRefs]);
 
-  const coverUrl = useCoverUrl(project.coverBlob);
-  const hasCover = custom ? !!project.coverBlob : true;
+  const storedCoverUrl = useCoverUrl(project.coverBlob);
+  const [localCover, setLocalCover] = useState<File | null>(null);
+  const localCoverUrl = useEphemeralCoverUrl(localCover ?? undefined);
+  const [coverSaving, setCoverSaving] = useState(false);
+  const coverUrl = localCoverUrl ?? storedCoverUrl;
+  const hasCover = custom ? !!coverUrl : true;
 
   // 描述草稿防抖持久化（票 42 Q3）
   const contentEl = useRef<HTMLTextAreaElement>(null);
@@ -369,6 +367,15 @@ export function PublishDialog(props: {
     onClose?.();
   };
 
+  /** 跳音频页前先落盘在飞草稿，避免用户回来发现弹窗里的改动丢了。 */
+  const handleOpenAudio = () => {
+    if (stage !== null) return;
+    flushDraftImmediate();
+    flushPendingSaves();
+    onOpenAudio?.();
+    onClose?.();
+  };
+
   const song: PublishSong = useMemo(() => {
     if (project.source.type === 'bandori') {
       return { kind: 'bandori', songId: project.source.id };
@@ -399,13 +406,59 @@ export function PublishDialog(props: {
   }), [published, rawTitle, artists, diff, parsedLevel, content, chartCode, song, tags]);
 
   const precheck = precheckPublish(input);
+  // busy = 发布/更新流程本身（驱动状态行、底部按钮文案、取消禁用）；
+  // 封面落盘只是本地写文件，不能把整个弹窗切成"发布中…"，否则右下角会闪成别的按钮。
   const busy = stage !== null || editing;
+  const blocked = busy || coverSaving;
   const refsPending = custom && refs === undefined;
   const refsFailed = custom && refs === null;
-  const canPublish = !published && !pending && !busy && !refsPending && !refsFailed && precheck.ok;
-  const canUpdate = published && !busy && parsedLevel != null;
+  const canPublish = !published && !pending && !blocked && !refsPending && !refsFailed && precheck.ok;
+  const canUpdate = published && !blocked && parsedLevel != null;
   // 失败与常驻事实重复（本机读不到）就不叠第二条告警（票 50 #2）
   const failureDuplicatesKnownFact = failure != null && refsFailed && failure === 'local';
+
+  /** 封面写入工程后要重取 upload refs：发帖载荷读的是 refs，不是 coverBlob */
+  const persistCover = async (file: File) => {
+    if (!onUpdateProject || published || pending || coverSaving) return;
+    setLocalCover(file);
+    setCoverSaving(true);
+    try {
+      await onUpdateProject((p) => updateProjectInfo(p, { ...p, coverBlob: file, coverName: file.name }));
+    } catch {
+      setLocalCover(null);
+      showToast(t('projects.publish.err.coverSave'), 'danger');
+      setCoverSaving(false);
+      return;
+    }
+    setLocalCover(null);
+    try {
+      setRefs(await loadUploadRefs(project.id));
+    } catch {
+      setRefs(null);
+    } finally {
+      setCoverSaving(false);
+    }
+  };
+
+  const clearCover = async () => {
+    if (!onUpdateProject || published || pending || coverSaving) return;
+    setCoverSaving(true);
+    try {
+      await onUpdateProject((p) => updateProjectInfo(p, { ...p, clearCover: true }));
+      setLocalCover(null);
+    } catch {
+      showToast(t('projects.publish.err.coverSave'), 'danger');
+      setCoverSaving(false);
+      return;
+    }
+    try {
+      setRefs(await loadUploadRefs(project.id));
+    } catch {
+      setRefs(null);
+    } finally {
+      setCoverSaving(false);
+    }
+  };
 
   const runPublish = async () => {
     if (!canPublish) return;
@@ -479,14 +532,19 @@ export function PublishDialog(props: {
   const isContentMissing = !published && !content.trim();
   const isNotesMissing = notesCount === 0;
 
+  const chartStats = useMemo(() => computeChartCodeStats(chartCode), [chartCode]);
+  // 平均 NPS 的分母 = 首击到末击；分子与「音符」同一口径（countChartNotes）
+  const averageNps = notesCount > 0 && chartStats.playableSeconds > 0
+    ? notesCount / chartStats.playableSeconds
+    : null;
+
   const fillAutogen = () => {
     const next = generatePublishDescription({
-      title: rawTitle,
-      diffName: DIFF_NAMES[diff],
       level: parsedLevel,
       noteCount: notesCount,
       duration: audioMissing ? null : formatDuration(project.durationSeconds),
-      charter: displayName,
+      bpm: chartStats.bpmRange,
+      nps: averageNps,
     });
     const el = contentEl.current;
     if (el) replaceTextareaPreservingUndo(el, next);
@@ -515,7 +573,7 @@ export function PublishDialog(props: {
   return (
     <>
       <Dialog
-        size="md"
+        size="xl"
         head={head}
         onClose={closeDialog}
         footer={(
@@ -538,121 +596,122 @@ export function PublishDialog(props: {
           </>
         )}
       >
-        <div className="ppc-a">
-          {/* 左列：1:1 封面展示（只读视觉卡） */}
-          <div
-            className={`ppc-cover${hasCover ? '' : ' is-optional'}`}
-            title={hasCover ? t('projects.cover') : '暂无封面'}
-          >
-            {hasCover && coverUrl ? (
-              <span className="ppc-cover__art" style={{ backgroundImage: `url(${coverUrl})` }} />
-            ) : (
-              <Music2 size={32} />
-            )}
-          </div>
-
-          {/* 右列：7 个整齐条目（就地可编辑） */}
-          <div className="ppc-a__id">
-            {/* 标题 */}
-            <Fact k={t('projects.publish.field.title')} missing={isTitleMissing}>
-              <input
-                type="text"
-                className={`ppc-fact-input ppc-fact-input--title${isTitleMissing ? ' is-missing' : ''}`}
-                value={title}
-                disabled={busy}
-                readOnly={published || pending}
-                placeholder={project.name?.trim() || t('projects.untitled')}
-                aria-label={t('projects.publish.field.title')}
-                onChange={(e) => {
-                  setTitle(e.target.value);
-                  syncChartMeta(e.target.value, diff, level);
-                }}
+        <div className="ppc-b">
+          <section className="ppc-identity">
+            <div className="ppc-identity__top">
+              <div className="ppc-identity__cover">
+                <CoverCard
+                  editable={custom && !published && !pending}
+                  hasCover={hasCover}
+                  coverUrl={coverUrl}
+                  busy={blocked || !onUpdateProject}
+                  required={custom}
+                  onPick={(file) => void persistCover(file)}
+                  onClear={() => void clearCover()}
+                />
+              </div>
+              <div className="ppc-identity__fields">
+                <label className="ppc-field">
+                  <span className="ppc-field__k">{t('projects.publish.field.title')}</span>
+                  <input
+                    type="text"
+                    className={`ppc-input ppc-input--title${isTitleMissing ? ' is-missing' : ''}`}
+                    value={title}
+                    disabled={busy}
+                    readOnly={published || pending}
+                    placeholder={project.name?.trim() || t('projects.untitled')}
+                    aria-label={t('projects.publish.field.title')}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      syncChartMeta(e.target.value, diff, level);
+                    }}
+                  />
+                </label>
+                <label className="ppc-field">
+                  <span className="ppc-field__k">{t('projects.publish.field.artists')}</span>
+                  <input
+                    type="text"
+                    className={`ppc-input${isArtistsMissing ? ' is-missing' : ''}`}
+                    value={artists}
+                    disabled={busy}
+                    readOnly={published || pending}
+                    placeholder={t('projects.artistMissing')}
+                    aria-label={t('projects.publish.field.artists')}
+                    onChange={(e) => {
+                      setArtists(e.target.value);
+                      syncArtistMeta(e.target.value);
+                    }}
+                  />
+                </label>
+                <div className="ppc-field">
+                  <span className="ppc-field__k">{t('projects.publish.field.diffLevel')}</span>
+                  <DifficultyLevelField
+                    diff={diff}
+                    onDiffChange={(next) => {
+                      setDiff(next);
+                      syncChartMeta(title, next, level);
+                    }}
+                    level={level}
+                    onLevelChange={(next) => {
+                      setLevel(next);
+                      syncChartMeta(title, diff, next);
+                    }}
+                    levelPlaceholder={t('projects.publish.levelMissing')}
+                    levelInvalid={isLevelMissing}
+                    disabled={busy || pending}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className={`ppc-field ppc-field--audio${audioMissing ? ' is-missing' : ''}`}>
+              <span className="ppc-field__k">{t('projects.publish.field.audio')}</span>
+              <AudioBar
+                name={custom
+                  ? (audioMissing ? t('projects.publish.audioMissing') : project.audioName)
+                  : t('projects.publish.audioFromCatalog')}
+                durationText={audioMissing ? '—' : formatDuration(project.durationSeconds)}
+                missing={audioMissing}
+                onOpenAudio={custom && !published && !pending && onOpenAudio ? handleOpenAudio : undefined}
               />
-            </Fact>
+            </div>
+          </section>
 
-            {/* 歌手 */}
-            <Fact k={t('projects.publish.field.artists')} missing={isArtistsMissing}>
-              <input
-                type="text"
-                className={`ppc-fact-input${isArtistsMissing ? ' is-missing' : ''}`}
-                value={artists}
-                disabled={busy}
-                readOnly={published || pending}
-                placeholder={t('projects.artistMissing')}
-                aria-label={t('projects.publish.field.artists')}
-                onChange={(e) => {
-                  setArtists(e.target.value);
-                  syncArtistMeta(e.target.value);
-                }}
+          {/* 谱面概览（票 61）：音符 / 时长 / BPM / 平均 NPS */}
+          <section className="ppc-section">
+            <header className="ppc-section__head">
+              <span className="ppc-section__title">
+                <Activity size={14} aria-hidden="true" />
+                {t('projects.publish.stats.title')}
+              </span>
+              <span className="ppc-section__hint">{t('projects.publish.stats.auto')}</span>
+            </header>
+            <div className="ppc-stats">
+              <Stat
+                icon={<Hash size={12} aria-hidden="true" />}
+                label={t('projects.publish.field.chart')}
+                value={notesCount.toLocaleString('zh-CN')}
+                missing={isNotesMissing}
+                missingHint={t('projects.publish.missing.chart')}
               />
-            </Fact>
-
-            {/* 难度 */}
-            <Fact k={t('projects.publish.field.diff')}>
-              <select
-                className="ppc-diff-select"
-                value={diff}
-                disabled={busy || pending}
-                aria-label={t('projects.publish.field.diff')}
-                onChange={(e) => {
-                  const next = Number(e.target.value) as ChartDifficulty;
-                  setDiff(next);
-                  syncChartMeta(title, next, level);
-                }}
-              >
-                {DIFF_NAMES.map((name, i) => (
-                  <option key={name} value={i}>{name}</option>
-                ))}
-              </select>
-            </Fact>
-
-            {/* 等级 */}
-            <Fact k={t('projects.publish.field.level')} missing={isLevelMissing}>
-              <input
-                type="text"
-                inputMode="numeric"
-                className={`ppc-fact-input ppc-fact-input--level${isLevelMissing ? ' is-missing' : ''}`}
-                value={level}
-                disabled={busy || pending}
-                placeholder="未填"
-                aria-label={t('projects.publish.field.level')}
-                onChange={(e) => {
-                  setLevel(e.target.value);
-                  syncChartMeta(title, diff, e.target.value);
-                }}
+              <Stat
+                icon={<Timer size={12} aria-hidden="true" />}
+                label={t('projects.publish.field.duration')}
+                value={audioMissing ? '—' : formatDuration(project.durationSeconds)}
+                missing={audioMissing}
               />
-            </Fact>
-
-            {/* 音符 */}
-            <Fact k={t('projects.publish.field.chart')} missing={isNotesMissing}>
-              {isNotesMissing ? (
-                <span role="alert" className="ppc-miss">{t(MISSING_KEYS.chart)}</span>
-              ) : (
-                <span className="ppc-fact__plain">{t('projects.publish.notesMeta', { count: notesCount })}</span>
-              )}
-            </Fact>
-
-            {/* 音频 */}
-            <Fact k={t('projects.publish.field.audio')} missing={audioMissing}>
-              {audioMissing ? (
-                <span className="ppc-miss">未导入</span>
-              ) : (
-                <span className="ppc-fact__plain ppc-fact__audio-name" title={project.audioName ?? ''}>
-                  {project.audioName ?? ''}
-                </span>
-              )}
-            </Fact>
-
-            {/* 时长 */}
-            <Fact k={t('projects.publish.field.duration')} missing={audioMissing}>
-              {audioMissing ? (
-                <span className="ppc-miss">未填</span>
-              ) : (
-                <span className="ppc-fact__plain">{formatDuration(project.durationSeconds)}</span>
-              )}
-            </Fact>
-          </div>
-        </div>
+              <Stat
+                icon={<Gauge size={12} aria-hidden="true" />}
+                label={t('projects.publish.stats.bpm')}
+                value={chartStats.bpmRange ?? '—'}
+              />
+              <Stat
+                icon={<Activity size={12} aria-hidden="true" />}
+                label={t('projects.publish.stats.nps')}
+                value={averageNps == null ? '—' : averageNps.toFixed(1)}
+                hint={t('projects.publish.stats.npsHint')}
+              />
+            </div>
+          </section>
 
         {/* 失败与环境异常告警区（票 50 #2）：环境异常（读不到引用 / 已发布过）是事实陈述，只陈述不挂动作；
             发布失败可关闭（改完字段不再挂着红字）、「重试」重新走发布流程（不可逆动作，仍先过确认弹窗）。
@@ -796,7 +855,10 @@ export function PublishDialog(props: {
               </svg>
             </button>
           </div>
-          <small>{content.length} / {POST_CONTENT_MAX_CHARS}</small>
+          <small>
+            {content.length} / {POST_CONTENT_MAX_CHARS}
+          </small>
+        </div>
         </div>
 
         {busy && (

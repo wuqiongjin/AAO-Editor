@@ -77,7 +77,7 @@ describe('chart-projects 12 · CoverField 自绘封面上传区', () => {
   it('无封面：上传区是一枚有可访问名的按钮，且标题与它程序化关联', () => {
     render(<Harness />);
 
-    const drop = screen.getByRole('button', { name: /点击上传封面/ });
+    const drop = screen.getByRole('button', { name: /添加封面/ });
     expect(drop).toBeInTheDocument();
     expect(drop).toHaveTextContent('或拖入图片');
     // 标题不再是裸 span：group 用它当可访问名，读屏念得到"封面"
@@ -88,7 +88,7 @@ describe('chart-projects 12 · CoverField 自绘封面上传区', () => {
     render(<Harness />);
     const click = vi.spyOn(fileInput(), 'click').mockImplementation(() => {});
 
-    fireEvent.click(screen.getByRole('button', { name: /点击上传封面/ }));
+    fireEvent.click(screen.getByRole('button', { name: /添加封面/ }));
     expect(click).toHaveBeenCalledTimes(1);
   });
 
@@ -103,7 +103,7 @@ describe('chart-projects 12 · CoverField 自绘封面上传区', () => {
     expect(thumb).toHaveAttribute('src', 'blob:probe/1'); // 预览用的就是刚选的那个 File
     expect(screen.getByRole('button', { name: '更换' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '清除' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /点击上传封面/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /添加封面/ })).not.toBeInTheDocument();
   });
 
   it('点清除：预览消失、回到上传区，onChange 回 clear 语义', () => {
@@ -115,7 +115,7 @@ describe('chart-projects 12 · CoverField 自绘封面上传区', () => {
     expect(changes).toEqual(['clear']);
     // 'clear' 由组件自己吃掉：调用方没把 previewUrl 置空，预览照样消失
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /点击上传封面/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /添加封面/ })).toBeInTheDocument();
   });
 
   it('已有关联封面（value=null + previewUrl）：渲染该预览与两个按钮', () => {

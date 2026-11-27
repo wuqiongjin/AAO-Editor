@@ -4,11 +4,13 @@
 // 官方这一支（票 08）实做在 OfficialSongPanel + officialImport；社区这一支（票 09）
 // 实做在 CommunityPostPanel + communityImport —— 两支共用同一颗 lg 窗（票 13 #5/#6）。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, CircleHelp, Copy, Disc3, FolderPlus, Music4, SlidersHorizontal, Tag, Users } from 'lucide-react';
+import { CircleHelp, Copy, Disc3, FolderPlus, Music4, Tag, Users } from 'lucide-react';
 import type { ChartDifficulty, ProjectSummary } from '../../../project/ChartProject';
-import { DIFF_NAMES, type updateProjectInfo } from '../../../project/projectCatalog';
+import { type updateProjectInfo } from '../../../project/projectCatalog';
+import DifficultyLevelField from '../../../project/ui/DifficultyLevelField';
 import { displayProjectName, untitledProjectLabel, useProjectCoverUrl } from '../../../project/ui/projectUi';
 import ActionBtn from '../../../ui/ActionBtn';
+import AudioBar from '../../../ui/AudioBar';
 import CoverField, { type CoverValue } from '../../../ui/CoverField';
 import Dialog from '../../../ui/Dialog';
 import { showToast } from '../../../ui/Toast';
@@ -199,12 +201,14 @@ export function NewProjectDialog({
             <label className="dialog-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
             <label className="dialog-field"><span>{t('projects.artist')}</span><input value={artist} placeholder={t('projects.artistLater')} onChange={(e) => setArtist(e.target.value)} /></label>
           </div>
-          <label className="dialog-field">
+          <div className="dialog-field">
             <span>{t('projects.firstDiff')}</span>
-            <select value={diff} onChange={(e) => setDiff(Number(e.target.value) as ChartDifficulty)}>
-              {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
-            </select>
-          </label>
+            <DifficultyLevelField
+              diff={diff}
+              onDiffChange={setDiff}
+              showLevel={false}
+            />
+          </div>
         </>
       )}
 
@@ -232,62 +236,6 @@ export function NewProjectDialog({
         </>
       )}
     </Dialog>
-  );
-}
-
-function DialogMarquee({ text }: { text: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLSpanElement>(null);
-  const [overflow, setOverflow] = useState(false);
-  const [contentWidth, setContentWidth] = useState(0);
-
-  useEffect(() => {
-    const measure = () => {
-      if (!containerRef.current || !measureRef.current) return;
-      const cWidth = containerRef.current.clientWidth;
-      const sWidth = measureRef.current.scrollWidth;
-      setContentWidth(sWidth);
-      setOverflow(sWidth > cWidth + 4);
-    };
-    measure();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    if (observer && containerRef.current) observer.observe(containerRef.current);
-    return () => observer?.disconnect();
-  }, [text]);
-
-  const gap = 48;
-  const cycleDist = contentWidth + gap;
-  // 匀速单向循环滚动速度约 32px/s，加上开头静止阅读 2.5s（占 25% 周期）
-  const totalSec = Math.max(8, cycleDist / 24);
-
-  if (!overflow) {
-    return (
-      <div ref={containerRef} className="dialog-marquee" title={text}>
-        <span ref={measureRef} className="dialog-marquee__content">
-          {text}
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={containerRef} className="dialog-marquee is-overflowing" title={text}>
-      {/* 隐藏的测量 span，用于精确计算文本自然宽度 */}
-      <span ref={measureRef} className="dialog-marquee__measure" aria-hidden="true">
-        {text}
-      </span>
-      <div
-        className="dialog-marquee__track"
-        style={{
-          '--marquee-dist': `-${cycleDist}px`,
-          '--marquee-dur': `${totalSec.toFixed(2)}s`,
-          gap: `${gap}px`,
-        } as React.CSSProperties}
-      >
-        <span className="dialog-marquee__item">{text}</span>
-        <span className="dialog-marquee__item" aria-hidden="true">{text}</span>
-      </div>
-    </div>
   );
 }
 
@@ -417,29 +365,14 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
         </div>
 
         <div className="dialog-edit-meta-row">
-          {/* 音频信息与管理跳转：整合为通栏音轨条，设置按钮内嵌在右侧；长文件名支持动态往返走马灯 */}
+          {/* 音频信息与管理跳转：与发布弹窗共用同一条 AudioBar，设置按钮内嵌在右侧 */}
           <div className="dialog-field">
             <span>{t('projects.audio')}</span>
-            <div className="dialog-audio-bar">
-              <div
-                className="dialog-audio-bar__info"
-                title={`${project.audioName ?? t('projects.noAudio')} · ${formatDuration(project.durationSeconds)}`}
-              >
-                <AudioLines size={13} />
-                <DialogMarquee text={`${project.audioName ?? t('projects.noAudio')} · ${formatDuration(project.durationSeconds)}`} />
-              </div>
-              {onOpenAudio && (
-                <button
-                  type="button"
-                  className="dialog-audio-jump-btn"
-                  title={t('audio.jumpManageTitle')}
-                  onClick={handleJumpAudio}
-                >
-                  <SlidersHorizontal size={11} />
-                  {t('audio.jumpManage')}
-                </button>
-              )}
-            </div>
+            <AudioBar
+              name={project.audioName}
+              durationText={formatDuration(project.durationSeconds)}
+              onOpenAudio={onOpenAudio ? handleJumpAudio : undefined}
+            />
           </div>
 
           {/* 曲目归属（chart-projects 票 30）：工程出生属性，只读胶囊徽标展示，问号气泡按需展开说明。
