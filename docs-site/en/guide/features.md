@@ -42,10 +42,10 @@ The workspace edits one chart of the current project, featuring a new compact to
 
 **SP curve tool**
 
-- 10 easing families (Sine / Quad / Cubic / Quart / Quint / Expo / Circ / Back / Elastic / Bounce) × 4 types (In / Out / In-Out / Out-In).
-- Three sampling precisions: 1/16, 1/32, or 1/64 per beat.
-- Shape templates (S-curve, double wave, shake bar, arc, heart): continuous templates support sampling precision control and smooth out sharp corners, while the discrete shake bar keeps fixed points; picking a template disables easing family / type.
-- Curve configuration is gathered into a dynamic options capsule at the top-left of the canvas.
+- 10 easing families (Sine / Quad / Cubic / Quart / Quint / Expo / Circ / Back / Elastic / Bounce) × 4 types (In / Out / In-Out / Out-In) with a graphical selector.
+- Three sampling precisions: 1/16, 1/32, or 1/64 per beat, plus step endpoint interpolation.
+- 18 graphical shape templates: continuous templates support sampling precision, baseline offset, preset/freeform tuning, and smooth out sharp corners, while discrete templates keep fixed points; picking a template disables easing family / type.
+- Curve configuration is gathered into a dynamic options capsule at the top-left of the canvas (with optional pinned expansion), and you can drag slide nodes directly to stretch curves.
 
 **Pattern library**
 
@@ -97,8 +97,8 @@ The workspace edits one chart of the current project, featuring a new compact to
 
 **Simulation playback**
 
-- Plays like the game: scaled notes, slide/long bands matching the in-game SP green band texture, hit effects, combo numbers, simultaneous-hit rings.
-- Field skin pack and performance background are chosen independently — **use the packs actually listed in the preview** (assets change between versions); the lane asset picker displays in a 4-column grid with live hover and focus previews.
+- Plays like the game: scaled notes, slide/long bands matching the in-game SP green band texture, hit effects, official-style gameplay HUD, two-tier judgment text (AUTO 100% PERFECT / simulated live judgment), combo numbers, simultaneous-hit rings, and an ending results screen (`FULL COMBO!` / `ALL PERFECT!` / `CLEAR`).
+- Field skin pack, AAO stage pack, and performance background are chosen independently (including custom local image backgrounds with fill modes) — **use the packs actually listed in the preview** (assets change between versions); the lane asset picker displays in a 4-column grid with live hover and focus previews.
 - Background brightness is adjustable 0%–100% (default 70%), dimming the background to enhance note visibility across both live playback and video export.
 - Note speed is adjustable 1–12 (default 9.5) and only affects the dynamic view.
 - Speed presets run 0.25×–2×; custom input is clamped to 0.1×–4×.
@@ -108,7 +108,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 - 1080p or 720p, fixed at 60fps.
 - Format **Auto** prefers MP4 + AAC; if this machine can't encode AAC it falls back to WebM. You can also force MP4 or WebM. Forcing MP4 with only an Opus track warns that some players may not handle it.
 - Audio can be disabled for a silent video.
-- The song-info intro is a fixed 5 seconds (difficulty / title / artist, each toggleable).
+- The song-info intro is ~6.75 seconds (7 toggleable items: cover / difficulty / title / artist / song & charter credits, etc.), followed by an ending results screen.
 - Export runs in five phases: prepare assets → mix audio → render frames → encode audio → mux the file. It can be cancelled midway.
 - Requires WebCodecs. When unsupported, the app suggests the latest Chrome / Edge or the desktop app.
 

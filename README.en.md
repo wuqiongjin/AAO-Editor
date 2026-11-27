@@ -61,7 +61,7 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 - **Pattern library system**: one-click snippet collection (Ctrl+Shift+D), real-note-skin thumbnails, smart pasting with BPM context, pinning & multi-attribute sorting, full-library and single-pattern import/export.
 - **All note types**: tap / flick / skill / directional (left / right) / slide / long; BPM events and negative-BPM backflow regions are first-class.
 - **Deep slide editing & smooth curvature shaping**: add or remove nodes, split, combine endpoints, hidden nodes (SP spans), same-beat middle node movement, and automatic reordering when dragging a node past its neighbors; drag reshaping defaults to smooth Bezier curvature, with Alt for real-time triangle bow shaping.
-- **SP curve tool**: 10 easing families × 4 interpolation types and smooth continuous shape templates with three sampling precisions; drag on empty canvas for the **freeform brush** that samples along your path in real time — bending a slide becomes drawing a curve instead of hand-placing hidden nodes.
+- **SP curve tool**: 10 easing families × 4 interpolation types (with graphical selector) and 18 graphical shape templates, supporting baseline offset, preset/freeform tuning, step endpoint interpolation, and dragging slide nodes to stretch curves; drag on empty canvas for the **freeform brush** that samples along your path in real time — bending a slide becomes drawing a curve instead of hand-placing hidden nodes.
 - **Shortcuts & playback controls**: every function is bound to exactly one key ("switch / Ctrl+execute"), conflicts are rejected, and everything is rebindable. Beat snap has Bestdori-style number keys to set 1/N, plus optional denser/sparser stepping and a favorite-snap cycle. Playback keys: `,` `.` step the playback rate through the 0.25×–2× presets, `;` `'` change the volume by 0.05, ← / → seek the playback clock by seconds (factory 1s, each side adjustable) — sharing rate, volume, and keyboard seek across both the workspace and the live preview.
 - **Chart code is Bestdori-style JSON**: open the full chart code at any time to inspect or edit it; unknown fields and extension data are preserved verbatim.
 
@@ -95,17 +95,17 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 
 ### Bestdori community interop
 
-- Browse the **official song catalog** and **community charts**: search, preview, import by difficulty, with audio and cover art brought along.
+- Browse the **official song catalog** and **community charts**: search by charter account name, title, etc., preview, and import by difficulty with audio and cover art brought along.
 - Create a project directly from an official chart or a community post — the chart code lands in the editor as-is.
-- Authorize your account to **publish** charts to the community; a published chart's **notes** can't be changed (duplicate it to revise them), while difficulty / level / tags can still be updated from the **Update** dialog.
+- Authorize your account to **publish** charts to the community (with cover preview, description generation, and linking existing posts); a published chart's **notes** can't be changed (duplicate it to revise them), while difficulty / level / tags can still be updated from the **Update** dialog.
 
 > <!-- TODO(local capture): song picker / account authorization & upload screenshots -->
 
 ### Simulation field playback and video export
 
-- **Game-style simulation field**: notes that scale along the approach model, slide/long bands matching the in-game SP green band texture, hit effects, combo digits and hold rings; field skins and performance backgrounds are selectable, with background brightness adjustment and lane asset previews.
+- **Game-style simulation field**: notes that scale along the approach model, slide/long bands matching the in-game SP green band texture, hit effects, official-style gameplay HUD, two-tier judgment text, combo digits, hold rings, and an ending results screen; field skins, AAO stage packs, and custom performance backgrounds are selectable, with background brightness adjustment and lane asset previews.
 - **Real-time playback**: 0.25× – 2× speed; with audio you get BGM + key sounds, without audio a synthetic timeline drives playback.
-- **Offline video export**: frame-by-frame rendering with WebCodecs encoding — MP4 / WebM, 1080p / 720p, optional mute; a fixed 5-second song info opening (cover + difficulty + title + band) is prepended to every video.
+- **Offline video export**: frame-by-frame rendering with WebCodecs encoding — MP4 / WebM, 1080p / 720p, optional mute; includes a ~6.75s song info opening (7 toggleable items including cover, difficulty, title, band, song/charter credits) and an ending results screen.
 
 ![Simulation field playback](./docs/media/readme/simulation.png)
 
